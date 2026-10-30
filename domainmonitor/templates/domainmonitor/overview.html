@@ -1,0 +1,55 @@
+{% extends "core/base.html" %}{% load le %}
+{% block title %}Domains{% endblock %}
+{% block content %}
+{% include "domainmonitor/_head.html" %}
+<section class="kpis">
+  <div class="kpi"><div class="tile bg-info">{% icon "globe" 24 %}</div><div><div class="label">Total Domains</div><div class="value">{{ total }}</div><div class="sub">Active and monitored</div></div></div>
+  <div class="kpi"><div class="tile bg-ok">{% icon "check-circle" 24 %}</div><div style="flex:1"><div class="label">Healthy</div><div class="value">{{ n.healthy }}</div><div class="sub t-ok">{{ p.healthy|floatformat:1 }}%</div><div class="bar"><i class="fill-ok" style="width:{{ p.healthy|floatformat:0 }}%"></i></div></div></div>
+  <div class="kpi"><div class="tile bg-crit">{% icon "x-circle" 24 %}</div><div style="flex:1"><div class="label">Down</div><div class="value">{{ n.down }}</div><div class="sub t-crit">{{ p.down|floatformat:1 }}%</div><div class="bar"><i class="fill-crit" style="width:{{ p.down|floatformat:0 }}%"></i></div></div></div>
+  <div class="kpi"><div class="tile bg-warn">{% icon "alert" 22 %}</div><div style="flex:1"><div class="label">SSL Expiring</div><div class="value">{{ n.expiring }}</div><div class="sub t-warn">within 30 days or expired</div><div class="bar"><i class="fill-warn" style="width:{{ p.expiring|floatformat:0 }}%"></i></div></div></div>
+  <div class="kpi"><div class="tile bg-purple">{% icon "clock" 24 %}</div><div><div class="label">Avg. Response Time</div><div class="value">{{ avg_ms|ms }}</div><div class="sub">Latest check</div></div></div>
+  <div class="kpi"><div class="tile bg-info">{% icon "globe" 24 %}</div><div><div class="label">Overall Uptime</div><div class="value">{% if uptime is None %}–{% else %}{{ uptime|pct }}{% endif %}</div><div class="sub">Last 7 days</div></div></div>
+</section>
+<section class="grid g-3">
+  <div class="panel"><div class="panel-h"><h2>Domain Status</h2></div>
+    <div class="donut-wrap"><div class="chart" data-chart="donut" data-src="d-donut"></div>
+      <div class="donut-legend">
+        <span><i class="dot fill-ok"></i>Healthy</span><b>{{ n.healthy }} ({{ p.healthy|floatformat:1 }}%)</b>
+        <span><i class="dot fill-crit"></i>Down</span><b>{{ n.down }} ({{ p.down|floatformat:1 }}%)</b>
+        <span><i class="dot fill-warn"></i>SSL Expiring</span><b>{{ n.expiring }} ({{ p.expiring|floatformat:1 }}%)</b>
+        <span><i class="dot" style="background:#94a3b8"></i>Paused</span><b>{{ n.paused }} ({{ p.paused|floatformat:1 }}%)</b>
+      </div></div></div>
+  <div class="panel"><div class="panel-h"><h2>Response Time (avg)</h2><small>Last 24 hours</small></div><div class="chart" data-chart="line" data-src="d-resp" style="height:200px"></div></div>
+  <div class="panel"><div class="panel-h"><h2>Uptime (All Domains)</h2><small>Last 7 days</small></div><div class="chart" data-chart="line" data-src="d-up" style="height:200px"></div></div>
+</section>
+<section class="panel">
+  <div class="panel-h"><h2>Domains ({{ page.paginator.count }})</h2>
+    <form class="right toolbar" method="get">
+      <label class="search">{% icon "search" 16 %}<input type="search" name="q" value="{{ request.GET.q }}" placeholder="Search domains…" aria-label="Search domains"></label>
+      <select name="status" data-autosubmit aria-label="Status"><option value="">All Status</option><option value="up" {% if request.GET.status == 'up' %}selected{% endif %}>Up</option><option value="down" {% if request.GET.status == 'down' %}selected{% endif %}>Down</option><option value="unknown" {% if request.GET.status == 'unknown' %}selected{% endif %}>Not checked</option></select>
+      <select name="ssl" data-autosubmit aria-label="SSL status"><option value="">All SSL Status</option>{% for s in ssl_states %}<option {% if request.GET.ssl == s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select>
+      <select name="group" data-autosubmit aria-label="Group"><option value="">All Groups</option>{% for g in groups %}<option {% if request.GET.group == g %}selected{% endif %}>{{ g }}</option>{% endfor %}</select>
+      <a class="btn icon blue" href="{% url 'domains:overview' %}" aria-label="Clear filters" title="Clear filters">{% icon "refresh" 16 %}</a>
+    </form></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Domain</th><th>Status</th><th>IP Address</th><th class="num">Response Time</th><th class="num">Uptime (7d)</th><th>SSL Status</th><th>SSL Expiry</th><th>DNS Status</th><th>Last Checked</th><th>Actions</th></tr></thead>
+    <tbody>{% for d in page %}
+      <tr>
+        <td><a href="{% url 'domains:list' %}?selected={{ d.pk }}">{{ d.hostname }}</a></td>
+        <td title="{{ d.last_error }}">{% badge d.status %}</td>
+        <td>{{ d.ip_address|default:"–" }}</td>
+        <td class="num">{{ d.response_ms|ms }}</td>
+        <td class="num {% if d.uptime7 is not None and d.uptime7 < 99 %}t-crit{% endif %}">{% if d.uptime7 is None %}–{% else %}{{ d.uptime7|pct }}{% endif %}</td>
+        <td>{% badge d.ssl_status %}</td>
+        <td class="{% if d.ssl_days_left is not None and d.ssl_days_left < 30 %}t-crit{% endif %}">{{ d.ssl_expires_at|date:"d M Y"|default:"–" }}</td>
+        <td>{% badge d.dns_status %}</td>
+        <td>{{ d.last_checked_at|short_dt }}</td>
+        <td><div class="row-actions"><a class="btn icon blue" href="{% url 'domains:list' %}?selected={{ d.pk }}" aria-label="Details for {{ d.hostname }}" title="Details">{% icon "eye" 15 %}</a>
+          {% if user.is_staff %}<button class="btn icon blue" data-post="{% url 'domains:action' d.pk 'uptime' %}" aria-label="Check {{ d.hostname }} now" title="Check now">{% icon "play" 14 %}</button>{% endif %}</div></td>
+      </tr>
+    {% empty %}<tr><td colspan="10" class="empty">No domains yet. {% if user.is_staff %}<a href="{% url 'domains:list' %}?add=1#domain-form">Add a domain</a>.{% endif %}</td></tr>{% endfor %}
+    </tbody></table></div>
+  {% include "core/_pager.html" %}
+</section>
+{{ donut|json_script:"d-donut" }}{{ resp|json_script:"d-resp" }}{{ uptime_chart|json_script:"d-up" }}
+{% endblock %}

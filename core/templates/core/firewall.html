@@ -1,0 +1,35 @@
+{% extends "core/base.html" %}{% load le %}
+{% block title %}FG-01{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<span>Network Devices</span>{% icon "chevron-right" 14 %}<span>Firewalls</span>{% icon "chevron-right" 14 %}<span>FG-01</span></nav>{% endblock %}
+{% block content %}
+<div class="head"><div class="glyph bg-crit" style="border-radius:12px">{% icon "shield" 28 %}</div>
+  <div><h1>FG-01 {% badge "online" %} {% include "core/_sample.html" %}</h1><p>FortiGate 100F · 10.10.1.254 · Site: Mumbai (NSE) · Uptime: 86 days · FortiOS 7.4.3 · Environment: Production</p></div></div>
+<section class="kpis">
+  <div class="kpi"><div class="tile bg-ok">{% icon "check-circle" 24 %}</div><div><div class="label">Device Status</div><div class="value t-ok">Online</div><div class="sub">Last seen: 1 minute ago</div></div></div>
+  <div class="kpi"><div class="tile bg-info">{% icon "clock" 22 %}</div><div><div class="label">Uptime</div><div class="value">86 days</div><div class="sub t-ok">99.98%</div></div></div>
+  <div class="kpi"><div style="flex:1"><div class="label">CPU Usage</div><div class="value">18.4%</div><div class="chart" data-chart="spark" data-src="s-cpu" style="height:28px"></div></div></div>
+  <div class="kpi"><div style="flex:1"><div class="label">Memory Usage</div><div class="value">62.1%</div><div class="chart" data-chart="spark" data-src="s-mem" style="height:28px"></div></div></div>
+  <div class="kpi"><div class="tile bg-purple">{% icon "database" 22 %}</div><div><div class="label">Sessions</div><div class="value">125,430</div></div></div>
+  <div class="kpi"><div class="tile bg-crit">{% icon "shield" 22 %}</div><div><div class="label">Threats Blocked (24h)</div><div class="value">1,248</div></div></div>
+</section>
+<section class="grid g-3" style="grid-template-columns:minmax(0,.9fr) minmax(0,1.3fr) minmax(0,1.1fr)">
+  <div class="panel"><div class="panel-h"><h2>Device Information</h2></div><dl class="kv">{% for k, v in d.info %}<dt>{{ k }}</dt><dd>{{ v }}</dd>{% endfor %}</dl></div>
+  <div class="panel"><div class="panel-h"><h2>Interface Status (Top 10)</h2></div>
+    <div class="table-wrap"><table><thead><tr><th>Interface</th><th>Status</th><th>Type</th><th class="num">In (Mbps)</th><th class="num">Out (Mbps)</th><th>Utilization</th></tr></thead><tbody>
+    {% for n, st, t, i, o, u in d.ifaces %}<tr><td>{{ n }}</td><td>{% badge st %}</td><td>{{ t }}</td><td class="num">{{ i }}</td><td class="num">{{ o }}</td><td><span class="util"><i class="{% if u > 60 %}fill-warn{% else %}fill-ok{% endif %}" style="width:{{ u }}%"></i></span>{{ u }}%</td></tr>{% endfor %}
+    </tbody></table></div></div>
+  <div class="stack">
+    <div class="panel"><div class="panel-h"><h2>Traffic Overview</h2><small>Last 24 hours</small></div><div class="chart" data-chart="line" data-src="d-traffic" style="height:170px"></div>
+      <div class="legend" style="margin-top:6px"><span><i style="background:#1565f0"></i>Inbound</span><span><i style="background:#f97316"></i>Outbound</span></div></div>
+    <div class="panel"><div class="panel-h"><h2>Session Count</h2><small>Last 24 hours</small></div><div class="chart" data-chart="line" data-src="d-sessions" style="height:150px"></div></div>
+  </div>
+</section>
+<section class="grid g-2">
+  <div class="panel"><div class="panel-h"><h2>Security Events</h2></div>
+    <div class="table-wrap"><table><thead><tr><th>Time</th><th>Severity</th><th>Event Type</th><th>Source</th><th>Destination</th><th>Message</th></tr></thead><tbody>
+    {% for t, s, e, src, dst, m in d.security %}<tr><td>{{ t }}</td><td>{% badge s %}</td><td>{{ e }}</td><td>{{ src }}</td><td>{{ dst }}</td><td class="wrap">{{ m }}</td></tr>{% endfor %}</tbody></table></div></div>
+  <div class="panel"><div class="panel-h"><h2>Top Applications</h2><small>by bandwidth</small></div>
+    <div class="hbar">{% for n, mb, p, c in d.apps %}<span>{{ n }}</span><span class="track"><i style="width:{% widthratio mb 320 100 %}%;background:{{ c }}"></i></span><span>{{ mb }} Mbps · {{ p }}%</span>{% endfor %}</div></div>
+</section>
+{{ d.traffic|json_script:"d-traffic" }}{{ d.sessions|json_script:"d-sessions" }}{{ d.spark_cpu|json_script:"s-cpu" }}{{ d.spark_mem|json_script:"s-mem" }}
+{% endblock %}

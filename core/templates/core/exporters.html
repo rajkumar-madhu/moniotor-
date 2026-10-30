@@ -1,0 +1,37 @@
+{% extends "core/base.html" %}{% load le %}
+{% block title %}All Exporters, Logs & Events{% endblock %}
+{% block content %}
+<div class="head"><div class="glyph" style="color:var(--primary)">{% icon "settings" 44 %}</div>
+  <div><h1>All Exporters, Logs &amp; Events {% include "core/_sample.html" %}</h1><p>Manage exporters, view real-time logs and events from infrastructure, network, applications and services</p></div></div>
+<section class="kpis">
+  <div class="kpi"><div class="tile bg-purple">{% icon "database" 22 %}</div><div><div class="value">{{ d.total }}</div><div class="label">Total Exporters</div></div></div>
+  <div class="kpi"><div class="tile bg-ok">{% icon "check-circle" 24 %}</div><div><div class="value">{{ d.health.active }}</div><div class="label">Active</div></div></div>
+  <div class="kpi"><div class="tile bg-mute">{% icon "pause" 22 %}</div><div><div class="value">{{ d.health.inactive }}</div><div class="label">Inactive</div></div></div>
+  <div class="kpi"><div class="tile bg-crit">{% icon "alert" 22 %}</div><div><div class="value">{{ d.health.error }}</div><div class="label">Error</div></div></div>
+  <div class="kpi"><div class="tile bg-info">{% icon "file" 22 %}</div><div><div class="value">1.2M</div><div class="label">Logs (24h)</div></div></div>
+  <div class="kpi"><div class="tile bg-purple">{% icon "bell" 22 %}</div><div><div class="value">256</div><div class="label">Events (24h)</div></div></div>
+</section>
+<nav class="seg" aria-label="Categories"><a class="on" href="#">All {{ d.total }}</a>{% for c, n in d.counts.items %}<a href="#">{{ c }} {{ n }}</a>{% endfor %}</nav>
+<section class="grid g-main" style="grid-template-columns:minmax(0,1.6fr) minmax(320px,1fr)">
+  <div class="panel"><div class="panel-h"><h2>Exporters ({{ d.total }})</h2></div>
+    <div class="table-wrap"><table><thead><tr><th>Name</th><th>Type</th><th>Category</th><th>Target / Device</th><th>Status</th><th>Last Seen</th><th class="num">Logs (24h)</th></tr></thead><tbody>
+    {% for r in d.rows %}<tr><td><a href="#">{{ r.name }}</a></td><td>{{ r.type }}</td><td>{{ r.category }}</td><td>{{ r.target }}</td><td>{% badge r.status %}</td><td>{{ r.last_seen }}</td><td class="num">{{ r.logs|floatformat:"0g" }}</td></tr>{% endfor %}
+    </tbody></table></div></div>
+  <div class="panel"><div class="panel-h"><h2>Logs (Real-time)</h2></div>
+    <div class="table-wrap"><table><thead><tr><th>Time</th><th>Exporter</th><th>Level</th><th>Message</th></tr></thead><tbody>
+    {% for l in d.logs %}<tr><td>{{ l.time }}</td><td>{{ l.exporter }}</td><td><span class="badge {% if l.level == 'ERROR' %}crit{% elif l.level == 'WARN' %}warn{% else %}info{% endif %}">{{ l.level }}</span></td><td class="wrap">{{ l.msg }}</td></tr>{% endfor %}
+    </tbody></table></div></div>
+</section>
+<section class="grid g-2">
+  <div class="panel"><div class="panel-h"><h2>Exporter Health</h2></div>
+    <div class="donut-wrap"><div class="chart" data-chart="donut" data-src="d-donut" style="width:150px"></div>
+      <div class="donut-legend"><span><i class="dot fill-ok"></i>Active</span><b>{{ d.health.active }}</b><span><i class="dot" style="background:#94a3b8"></i>Inactive</span><b>{{ d.health.inactive }}</b><span><i class="dot fill-crit"></i>Error</span><b>{{ d.health.error }}</b></div></div></div>
+  <div class="panel"><div class="panel-h"><h2>Logs Trend</h2><small>Last 24 hours</small><div class="right legend"><span><i style="background:#1565f0"></i>Info</span><span><i class="fill-warn"></i>Warn</span><span><i class="fill-crit"></i>Error</span></div></div>
+    <div class="chart" data-chart="bars" data-src="d-trend" style="height:180px"></div></div>
+  <div class="panel"><div class="panel-h"><h2>Top Log Sources</h2><small>24h</small></div>
+    <div class="hbar">{% for r in d.top %}<span>{{ r.name }}</span><span class="track"><i class="fill-info" style="width:{% widthratio r.logs d.top_max 100 %}%"></i></span><span>{{ r.logs|floatformat:"0g" }}</span>{% endfor %}</div></div>
+  <div class="panel"><div class="panel-h"><h2>Recent Events</h2></div>
+    <div class="table-wrap"><table><tbody>{% for e in d.events %}<tr><td>{{ e.time }}</td><td>{% badge e.sev %}</td><td class="wrap">{{ e.msg }}</td></tr>{% endfor %}</tbody></table></div></div>
+</section>
+{{ d.donut|json_script:"d-donut" }}{{ d.trend|json_script:"d-trend" }}
+{% endblock %}

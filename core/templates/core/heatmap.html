@@ -1,0 +1,30 @@
+{% extends "core/base.html" %}{% load le %}
+{% block title %}Heatmap{% endblock %}
+{% block content %}
+<div class="head"><div><h1>Heatmap {% include "core/_sample.html" %}</h1><p>Service and infrastructure health at a glance</p></div>
+  <div class="actions legend" style="align-items:center"><span><i class="c-ok"></i>Healthy</span><span><i class="c-warn"></i>Warning</span><span><i class="c-crit"></i>Critical</span><span><i class="c-unk"></i>Unknown</span></div></div>
+<section class="grid g-2" style="grid-template-columns:minmax(0,1.25fr) minmax(0,1fr)">
+  <div class="panel"><div class="table-wrap" style="border:0"><table class="heat">
+    <thead><tr><th>Domain / Service</th>{% for c in d.columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+    <tbody>{% for g in d.rows %}
+      <tr class="grp"><td>{% icon "chevron-down" 14 %} {{ g.group }}</td>{% for c in g.cells %}<td><div class="cell c-{{ c }}" title="{{ g.group }}: {{ c }}"></div></td>{% endfor %}</tr>
+      {% for s in g.services %}<tr><td style="padding-left:24px">{{ s.name }}</td>{% for c in s.cells %}<td><div class="cell c-{{ c }}" title="{{ s.name }}: {{ c }}"></div></td>{% endfor %}</tr>{% endfor %}
+    {% endfor %}</tbody></table></div></div>
+  <div class="stack">
+    <div class="panel"><div class="panel-h"><h2>Domains</h2><small>Business domains and their service health</small></div>
+      <div class="table-wrap"><table><thead><tr><th>Domain</th><th>Description</th><th class="num">Services</th><th>Health</th><th class="num">Availability</th><th class="num">Error Rate</th><th class="num">p95 Latency</th></tr></thead><tbody>
+      {% for name, desc, svc, health, avail, err, p95 in d.domains %}<tr><td><b>{{ name }}</b></td><td class="wrap" style="min-width:160px">{{ desc }}</td><td class="num">{{ svc }}</td><td>{% badge health %}</td><td class="num">{{ avail }}%</td><td class="num {% if err > 1 %}t-crit{% endif %}">{{ err }}%</td><td class="num">{{ p95 }} ms</td></tr>{% endfor %}
+      </tbody></table></div></div>
+    <div class="grid g-2">
+      <div class="panel"><div class="panel-h"><h2>Trading: Top Services</h2>{% badge "critical" %}</div>
+        <div class="table-wrap"><table><thead><tr><th>Service</th><th>Health</th><th class="num">Avail.</th><th class="num">p95</th></tr></thead><tbody>
+        {% for n, h, a, e, p in d.top_services %}<tr><td>{{ n }}</td><td>{% badge h %}</td><td class="num">{{ a }}%</td><td class="num">{{ p }} ms</td></tr>{% endfor %}</tbody></table></div></div>
+      <div class="panel"><div class="panel-h"><h2>Recent Incidents</h2></div>
+        <div class="table-wrap"><table><tbody>{% for i, p, t, ago in d.incidents %}<tr><td>{% icon "x-circle" 14 "t-crit" %} {{ i }}</td><td><span class="badge {% if p == 'P1' %}crit{% else %}warn{% endif %}">{{ p }}</span></td><td class="wrap">{{ t }}</td><td class="t-mute">{{ ago }}</td></tr>{% endfor %}</tbody></table></div></div>
+    </div>
+    <div class="panel"><div class="panel-h"><h2>Domain Topology: Trading</h2></div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;padding:6px 0">
+      {% for n in d.chain %}<div style="text-align:center;font-size:12.5px"><div class="tile {% if n == 'OMS' %}bg-crit{% else %}bg-info{% endif %}" style="width:46px;height:46px;border-radius:10px;display:grid;place-items:center;margin:0 auto 4px">{% icon "server" 22 %}</div>{{ n }}</div>{% if not forloop.last %}{% icon "chevron-right" 18 "t-mute" %}{% endif %}{% endfor %}</div></div>
+  </div>
+</section>
+{% endblock %}

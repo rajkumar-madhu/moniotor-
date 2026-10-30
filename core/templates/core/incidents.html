@@ -1,0 +1,33 @@
+{% extends "core/base.html" %}{% load le %}
+{% block title %}Incidents{% endblock %}
+{% block content %}
+<div class="head"><div><h1>Incidents {% include "core/_sample.html" %}</h1><p>View, manage and resolve incidents across your IT infrastructure and services</p></div>
+  <div class="actions"><a class="btn primary" href="{% url 'coming_soon' 'new-incident' %}">{% icon "plus" 16 %}New Incident</a></div></div>
+<section class="kpis">
+  <div class="kpi"><div class="tile bg-crit">{% icon "alert" 22 %}</div><div><div class="label">Total Incidents</div><div class="value">124</div><div class="sub">48 open, 76 resolved</div></div></div>
+  <div class="kpi"><div class="tile bg-crit">{% icon "flame" 22 %}</div><div><div class="label">Critical</div><div class="value">8</div><div class="sub">2 unassigned</div></div></div>
+  <div class="kpi"><div class="tile bg-warn">{% icon "alert" 22 %}</div><div><div class="label">High</div><div class="value">16</div><div class="sub">3 unassigned</div></div></div>
+  <div class="kpi"><div class="tile bg-warn">{% icon "info" 22 %}</div><div><div class="label">Medium</div><div class="value">48</div><div class="sub">12 unassigned</div></div></div>
+  <div class="kpi"><div class="tile bg-info">{% icon "info" 22 %}</div><div><div class="label">Low</div><div class="value">52</div><div class="sub">5 unassigned</div></div></div>
+</section>
+<section class="grid g-3">
+  <div class="panel"><div class="panel-h"><h2>Incident Trend</h2><div class="right legend"><span><i style="background:#1565f0"></i>Created</span><span><i class="fill-ok"></i>Resolved</span></div></div><div class="chart" data-chart="line" data-src="d-trend" style="height:200px"></div></div>
+  <div class="panel"><div class="panel-h"><h2>Incidents by Status</h2></div><div class="donut-wrap"><div class="chart" data-chart="donut" data-src="d-status"></div>
+    <div class="donut-legend">{% for s in d.by_status.segments %}<span><i class="dot" style="background:{{ s.color }}"></i>{{ s.label }}</span><b>{{ s.value }}</b>{% endfor %}</div></div></div>
+  <div class="panel"><div class="panel-h"><h2>SLA Compliance</h2></div><div class="donut-wrap"><div class="chart" data-chart="donut" data-src="d-sla"></div>
+    <div class="donut-legend">{% for s in d.sla.segments %}<span><i class="dot" style="background:{{ s.color }}"></i>{{ s.label }}</span><b>{{ s.value }}</b>{% endfor %}</div></div></div>
+</section>
+<section class="grid g-main">
+  <div class="panel"><div class="panel-h"><h2>Recent Incidents</h2></div>
+    <div class="table-wrap"><table><thead><tr><th>#</th><th>Title</th><th>Priority</th><th>Status</th><th>Client</th><th>Category</th><th>Assigned To</th><th>SLA</th></tr></thead><tbody>
+    {% for r in d.rows %}<tr><td><a href="#">{{ r.id }}</a></td><td>{{ r.title }}</td><td>{% badge r.priority %}</td><td>{% badge r.status %}</td><td>{{ r.client }}</td><td>{{ r.category }}</td><td class="{% if r.assignee == 'Unassigned' %}t-mute{% endif %}">{{ r.assignee }}</td><td>{% if r.sla == '—' %}{% icon "check-circle" 15 "t-ok" %}{% else %}<span class="t-crit">{% icon "clock" 14 %} {{ r.sla }}</span>{% endif %}</td></tr>{% endfor %}
+    </tbody></table></div></div>
+  <div class="stack">
+    <div class="panel"><div class="panel-h"><h2>Major Incidents</h2></div>
+      <div class="table-wrap"><table><tbody>{% for i, t, sub, st in d.major %}<tr><td>{% icon "flame" 16 "t-crit" %}</td><td class="wrap"><a href="#">{{ i }}</a> {{ t }}<br><small class="t-mute">{{ sub }}</small></td><td>{% badge st %}</td></tr>{% endfor %}</tbody></table></div></div>
+    <div class="panel"><div class="panel-h"><h2>Top Incident Categories</h2></div>
+      <div class="hbar">{% for n, v in d.categories %}<span>{{ n }}</span><span class="track"><i class="fill-info" style="width:{% widthratio v 32 100 %}%"></i></span><span>{{ v }}</span>{% endfor %}</div></div>
+  </div>
+</section>
+{{ d.trend|json_script:"d-trend" }}{{ d.by_status|json_script:"d-status" }}{{ d.sla|json_script:"d-sla" }}
+{% endblock %}

@@ -1,0 +1,14 @@
+{% load le %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'domains:overview' %}">Domains</a></nav>
+<div class="head">
+  <div class="glyph bg-info" style="border-radius:14px">{% icon "globe" 32 %}</div>
+  <div><h1>Domains</h1><p>Monitor website availability, SSL certificates and DNS for all your domains</p></div>
+  <div class="actions">
+    {% if user.is_staff %}<button class="btn" data-post="{% url 'domains:run_all' %}" data-busy="Checking…">{% icon "refresh" 16 %}Check all now</button>
+    <a class="btn primary" href="{% url 'domains:list' %}?add=1#domain-form">{% icon "plus" 17 %}Add Domain</a>{% endif %}
+  </div>
+</div>
+<nav class="tabs">
+  <a href="{% url 'domains:overview' %}" class="{% if tab == 'overview' %}on{% endif %}">Overview</a>
+  <a href="{% url 'domains:list' %}" class="{% if tab == 'list' %}on{% endif %}">Domain List</a>
+  <a href="{% url 'domains:ssl' %}" class="{% if tab == 'ssl' %}on{% endif %}">SSL Certificates</a>
+</nav>

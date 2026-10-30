@@ -1,0 +1,26 @@
+from django.contrib import admin
+from django.contrib.auth import views as auth_views
+from django.urls import include, path
+
+from core import views as core
+from domainmonitor.urls import api_urlpatterns as domain_api
+
+admin.site.site_header = "LinkedEye administration"
+admin.site.site_title = "LinkedEye"
+
+urlpatterns = [
+    path("", core.dashboard, name="dashboard"),
+    path("search/", core.search, name="search"),
+    path("healthz", core.healthz, name="healthz"),
+    path("accounts/login/", auth_views.LoginView.as_view(), name="login"),
+    path("accounts/logout/", auth_views.LogoutView.as_view(), name="logout"),
+    path("monitoring/url-checker/", include("urlchecker.urls")),
+    path("monitoring/heatmap/", core.heatmap, name="heatmap"),
+    path("monitoring/exporters/", core.exporters, name="exporters"),
+    path("service-desk/incidents/", core.incidents, name="incidents"),
+    path("network/firewalls/fg-01/", core.firewall, name="firewall"),
+    path("domains/", include("domainmonitor.urls")),
+    path("configuration/domains/", include(domain_api)),
+    path("soon/<slug:slug>/", core.coming_soon, name="coming_soon"),
+    path("admin/", admin.site.urls),
+]
