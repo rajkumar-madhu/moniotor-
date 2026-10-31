@@ -33,6 +33,15 @@ INSTALLED_APPS = [
     "probes",
     "urlchecker",
     "domainmonitor",
+    "servicedesk",
+    "cmdb",
+    "network",
+    "telemetry",
+    "observe",
+    "tcpcheck",
+    "bodeod",
+    "automation",
+    "administration",
 ]
 
 MIDDLEWARE = [
@@ -116,3 +125,24 @@ LOGGING = {
     "handlers": {"console": {"class": "logging.StreamHandler"}},
     "loggers": {"linkedeye": {"handlers": ["console"], "level": env("LOG_LEVEL", "INFO")}},
 }
+
+# ---- Notifications (critical/warning events) ----
+NOTIFY_WEBHOOK_URLS = env_list("NOTIFY_WEBHOOK_URLS")        # JSON POST per event (Slack/Teams/Apprise/StackStorm…)
+NOTIFY_EMAILS = env_list("NOTIFY_EMAILS")
+NOTIFY_SEVERITIES = env_list("NOTIFY_SEVERITIES", "critical,warning")
+EMAIL_BACKEND = env("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend" if not DEBUG else "django.core.mail.backends.console.EmailBackend")
+EMAIL_HOST = env("EMAIL_HOST", "localhost")
+EMAIL_PORT = int(env("EMAIL_PORT", "25"))
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = env("EMAIL_USE_TLS", "false").lower() in ("1", "true", "yes")
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", "linkedeye@localhost")
+
+# ---- Integrations (all optional; pages show "not connected" when unset) ----
+PROMETHEUS_URL = env("PROMETHEUS_URL", "")                    # e.g. http://prometheus.fs-linkedeye:9090
+PROMETHEUS_TIMEOUT = float(env("PROMETHEUS_TIMEOUT", "8"))
+ALERTMANAGER_WEBHOOK_TOKEN = env("ALERTMANAGER_WEBHOOK_TOKEN", "")   # required bearer token for /api/v1/alertmanager/
+LOG_INGEST_TOKEN = env("LOG_INGEST_TOKEN", "")               # required bearer token for /api/v1/logs/
+STACKSTORM_URL = env("STACKSTORM_URL", "")                    # e.g. https://st2.fs-linkedeye/api/v1/webhooks/
+STACKSTORM_API_KEY = env("STACKSTORM_API_KEY", "")
+INCIDENT_AUTO_CREATE = env("INCIDENT_AUTO_CREATE", "true").lower() in ("1", "true", "yes")

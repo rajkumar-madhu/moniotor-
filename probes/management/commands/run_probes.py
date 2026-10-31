@@ -5,6 +5,7 @@ import time
 from django.core.management.base import BaseCommand
 from django.db import close_old_connections
 
+from core import jobs
 from probes import runner
 
 log = logging.getLogger("linkedeye.probes")
@@ -29,6 +30,9 @@ class Command(BaseCommand):
                 urls, domains = runner.run_due()
                 if urls or domains:
                     self.stdout.write(f"checked {urls} URL(s), {domains} domain(s) in {time.monotonic() - started:.1f}s")
+                for name, summary in jobs.run_due().items():
+                    if summary:
+                        self.stdout.write(f"{name}: {summary}")
                 if time.monotonic() - last_prune > 3600:
                     removed = runner.prune()
                     last_prune = time.monotonic()

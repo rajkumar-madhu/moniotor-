@@ -21,6 +21,16 @@ urlpatterns = [
     path("network/firewalls/fg-01/", core.firewall, name="firewall"),
     path("domains/", include("domainmonitor.urls")),
     path("configuration/domains/", include(domain_api)),
+    # module apps define full paths in their own urls.py
+    path("", include("servicedesk.urls")),
+    path("", include("cmdb.urls")),
+    path("", include("network.urls")),
+    path("", include("telemetry.urls")),
+    path("", include("observe.urls")),
+    path("", include("tcpcheck.urls")),
+    path("", include("bodeod.urls")),
+    path("", include("automation.urls")),
+    path("", include("administration.urls")),
     path("soon/<slug:slug>/", core.coming_soon, name="coming_soon"),
     path("admin/", admin.site.urls),
 ]

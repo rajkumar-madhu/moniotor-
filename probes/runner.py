@@ -10,6 +10,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.utils import timezone
 
+from core.events import emit
 from domainmonitor.models import Domain, DomainCheck
 from urlchecker.models import Status, UrlCheck, UrlResult
 
@@ -54,6 +55,11 @@ def save_url_result(check, r, now):
     check.save(update_fields=["last_checked_at", "last_status", "last_http_status", "last_response_ms", "last_error"])
     if previous != status:
         log.info("url %s: %s -> %s (%s)", check.name, previous, status, message)
+        if previous != Status.UNKNOWN or status != Status.ONLINE:
+            sev = {Status.DOWN: "critical", Status.DEGRADED: "warning", Status.ONLINE: "ok"}.get(status, "info")
+            emit("urlchecker", f"{check.name} is {status.label if hasattr(status, 'label') else status}", severity=sev,
+                 message=message, site=check.site, obj=check, fingerprint=f"url:{check.pk}",
+                 previous=str(previous), status=str(status), url=check.url)
     return status
 
 
@@ -95,10 +101,15 @@ def save_domain_result(domain, probe, now):
     domain.response_ms = http.response_ms if up else None
     if tls and tls.expires_at:
         domain.ssl_expires_at = tls.expires_at
+    previous = domain.status
     domain.last_checked_at = now
     domain.last_error = message[:500]
     domain.save(update_fields=["status", "dns_status", "ssl_status", "ip_address", "http_status", "response_ms",
                                "ssl_expires_at", "last_checked_at", "last_error", "updated_at"])
+    if previous != domain.status and not (previous == "unknown" and domain.status == "up"):
+        emit("domainmonitor", f"{domain.hostname} is {domain.status}", severity="critical" if domain.status == "down" else "ok",
+             message=message, site=domain.site_key, obj=domain, fingerprint=f"domain:{domain.pk}",
+             previous=previous, status=domain.status, dns=domain.dns_status, ssl=domain.ssl_status)
     return domain.status
 
 
