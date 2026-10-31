@@ -89,7 +89,7 @@
         if (s.endDot) { let li = s.values.length - 1; while (li >= 0 && (s.values[li] === null || s.values[li] === undefined)) li--; if (li >= 0) el('circle', { cx: X(li), cy: Y(s.values[li]), r: 3.5, fill: s.color, stroke: '#fff', 'stroke-width': 1.5 }, svg); }
       });
     } else {
-      const bw = Math.max(3, Math.min(42, step * 0.62));
+      const bw = Math.max(3, Math.min(46, step * 0.7));
       d.labels.forEach((_, i) => {
         let base = lo;
         d.series.forEach((s, si) => {

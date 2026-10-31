@@ -43,7 +43,7 @@ def heatmap(request):
 
 
 def exporters(request):
-    return render(request, "core/exporters.html", {"d": s_exporters.exporters(), "sample": True})
+    return render(request, "core/exporters.html", {"d": s_exporters.exporters(request), "sample": True})
 
 
 def incidents(request):

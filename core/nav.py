@@ -24,7 +24,7 @@ NAV = [
     {"label": "Domains", "icon": "browser", "children": [
         {"label": "Overview", "url": "domains:overview"},
         {"label": "Domain List", "url": "domains:list"},
-        {"label": "DNS Records"},
+        {"label": "DNS Records", "url": "domains:dns"},
         {"label": "SSL Certificates", "url": "domains:ssl"},
         {"label": "Uptime Monitoring"}, {"label": "Performance"}, {"label": "Security"}, {"label": "Export Reports"},
     ]},

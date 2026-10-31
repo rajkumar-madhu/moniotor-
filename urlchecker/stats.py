@@ -40,11 +40,25 @@ def response_trend(checks, hours=24, buckets=48):
         avg.append(round(sum(v) / len(v), 1) if v else None)
         mn.append(min(v) if v else None)
         mx.append(max(v) if v else None)
-    return {"labels": labels, "tipLabels": tips, "unit": "ms", "series": [
+    data = {"labels": labels, "tipLabels": tips, "unit": "ms", "series": [
         {"name": "Average", "color": "#1565f0", "values": avg, "width": 2},
         {"name": "Minimum", "color": "#16a34a", "values": mn},
         {"name": "Maximum", "color": "#dc2626", "values": mx, "area": True, "areaOpacity": 0.08},
     ]}
+    data.update(axis_scale(max((v for v in mx if v is not None), default=0)))
+    return data
+
+
+def axis_scale(peak, max_ticks=5):
+    """Tight y axis for a peak value: a round tick step (1/2/2.5/5 x 10^k) and at most max_ticks steps."""
+    if not peak or peak <= 0:
+        return {}
+    k = 10 ** max(0, len(str(int(peak))) - 2)
+    for step in (m * k * f for f in (1, 10, 100) for m in (1, 2, 2.5, 5) if m * k * f >= 10 or m != 2.5):
+        n = -(-peak // step)
+        if n <= max_ticks:
+            return {"yMax": step * n, "yTicks": max(2, int(n))} if n >= 2 else {"yMax": step * 2, "yTicks": 2}
+    return {}
 
 
 def daily_history(checks, days=7):
@@ -80,6 +94,10 @@ def daily_history(checks, days=7):
     ]}
 
 
-def avg_response(checks):
-    return UrlResult.objects.filter(url_check__in=checks, checked_at__gte=timezone.now() - timedelta(hours=24),
-                                    response_ms__isnull=False).aggregate(v=Avg("response_ms"))["v"]
+def avg_response(checks, hours=24, offset_hours=0):
+    """Mean response time over [now - offset - hours, now - offset)."""
+    end = timezone.now() - timedelta(hours=offset_hours)
+    qs = UrlResult.objects.filter(url_check__in=checks, checked_at__gte=end - timedelta(hours=hours), response_ms__isnull=False)
+    if offset_hours:
+        qs = qs.filter(checked_at__lt=end)
+    return qs.aggregate(v=Avg("response_ms"))["v"]

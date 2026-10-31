@@ -1,4 +1,5 @@
 import csv
+from datetime import timedelta
 
 from django.conf import settings
 from django.contrib import messages
@@ -7,6 +8,7 @@ from django.core.paginator import Paginator
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from probes import runner
@@ -32,6 +34,20 @@ def _filtered(request):
     return qs
 
 
+def _per_page(request, default=10):
+    try:
+        return max(5, min(100, int(request.GET.get("per", default))))
+    except (TypeError, ValueError):
+        return default
+
+
+def _change(now, then):
+    """Whole-number % change between two stored values, or None when there is nothing to compare with."""
+    if now is None or not then:
+        return None
+    return round(100.0 * (now - then) / then)
+
+
 def index(request, pk=None):
     scope = _scope(request)
     checks = list(scope.filter(enabled=True))
@@ -55,14 +71,22 @@ def index(request, pk=None):
     else:
         form = UrlCheckForm(instance=editing)
 
-    page = Paginator(_filtered(request), int(request.GET.get("per", 10))).get_page(request.GET.get("page"))
+    page = Paginator(_filtered(request), _per_page(request)).get_page(request.GET.get("page"))
     up24 = stats.uptime_map([c.pk for c in page], 24)
     for c in page:
         c.uptime24 = up24.get(c.pk)
     avg = stats.avg_response(checks)
+    avg_prev = stats.avg_response(checks, hours=24, offset_hours=24)
+    # Total URLs trend: enabled checks now vs the ones that already existed 7 days ago.
+    before = sum(1 for c in checks if c.created_at <= timezone.now() - timedelta(days=7))
+    all_events = request.GET.get("events") == "all"
+    history = stats.daily_history(checks)
+    history["xLabelEvery"] = 1
+    history.update(stats.axis_scale(max((sum(s["values"][i] or 0 for s in history["series"]) for i in range(len(history["labels"]))), default=0)))
     ctx = {
         "page": page, "form": form, "editing": editing, "total": total, "counts": counts,
         "pct": {k: pct(v) for k, v in counts.items()}, "avg_response": avg,
+        "total_delta": _change(total, before), "avg_delta": _change(avg, avg_prev),
         "uptime7": stats.overall_uptime(checks, 24 * 7),
         "donut": {"segments": [
             {"label": "Online", "value": counts["online"], "color": "#16a34a"},
@@ -70,8 +94,8 @@ def index(request, pk=None):
             {"label": "Degraded", "value": counts["degraded"], "color": "#f59e0b"},
             {"label": "Unknown", "value": counts["unknown"], "color": "#cbd5e1"}],
             "center": {"value": str(total), "label": "Total URLs"}},
-        "trend": stats.response_trend(checks), "history": stats.daily_history(checks),
-        "events": UrlResult.objects.filter(url_check__tenant_key=settings.LINKEDEYE_TENANT).select_related("url_check")[:8],
+        "trend": stats.response_trend(checks), "history": history, "all_events": all_events,
+        "events": UrlResult.objects.filter(url_check__tenant_key=settings.LINKEDEYE_TENANT).select_related("url_check")[:50 if all_events else 6],
         "sites": scope.order_by().values_list("site", flat=True).distinct(),
         "statuses": Status.choices, "types": UrlCheck.TYPES,
         "query": request.GET.copy(),
