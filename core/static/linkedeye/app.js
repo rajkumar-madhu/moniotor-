@@ -35,6 +35,18 @@
   // filters that submit on change
   document.querySelectorAll('[data-autosubmit]').forEach(s => s.addEventListener('change', () => s.form.submit()));
 
+  // hamburger: collapse the sidebar on desktop, slide it in on phones
+  document.addEventListener('click', e => {
+    if (!e.target.closest('[data-toggle-menu]')) return;
+    if (window.innerWidth > 860) document.getElementById('shell').classList.toggle('collapsed');
+    else document.getElementById('side').classList.toggle('open');
+  });
+
+  // per-page selector in pagers keeps the other query parameters
+  document.querySelectorAll('[data-per-page]').forEach(s => s.addEventListener('change', () => {
+    const u = new URL(location.href); u.searchParams.set('per', s.value); u.searchParams.delete('page'); location.href = u;
+  }));
+
   // optional auto refresh: <body data-refresh="60">
   const page = document.querySelector('[data-refresh]');
   if (page) setTimeout(() => { if (!document.hidden) location.reload(); }, +page.dataset.refresh * 1000);

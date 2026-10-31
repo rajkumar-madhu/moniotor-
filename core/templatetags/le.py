@@ -50,6 +50,51 @@ ICONS = {
     "info": '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5h.01"/>',
     "users": '<circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.6 3.1-6 7-6s7 2.4 7 6"/><path d="M16 4.5a3.5 3.5 0 010 7M18 14c2.4.6 4 2.6 4 6"/>',
     "key": '<circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3L20 3M16 7l3 3M14 9l2 2"/>',
+    "menu": '<path d="M9 6h12M9 12h12M9 18h12M4 6h.01M4 12h.01M4 18h.01"/>',
+    "template": '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+    "exporters": '<path d="M4 20V10M9 20V6M14 20v-8M20 4l-4 4M20 4h-4M20 4v4"/>',
+    "logs": '<path d="M4 20V12M9 20V8M14 20V4M19 20v-6M3 20h18"/>',
+    "analytics": '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 16v-4M12 16V8M16 16v-6"/>',
+    "browser": '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M6.5 6.5h.01M9 6.5h.01"/>',
+    "gauge": '<circle cx="12" cy="12" r="9"/><path d="M12 12l4-4M7 15h.01M12 7h.01M17 15h.01"/>',
+    "bot": '<rect x="5" y="8" width="14" height="11" rx="2"/><path d="M12 4v4M9 13h.01M15 13h.01M9 17h6"/>',
+    "user": '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/>',
+    "alarm": '<circle cx="12" cy="13" r="7"/><path d="M12 10v3l2 2M5 4L2 7M19 4l3 3"/>',
+    "arrow-up": '<path d="M12 19V5M6 11l6-6 6 6"/>',
+    "arrow-down": '<path d="M12 5v14M6 13l6 6 6-6"/>',
+    "arrow-right": '<path d="M5 12h14M13 6l6 6-6 6"/>',
+    "upload": '<path d="M12 21V9M7 14l5-5 5 5"/><path d="M5 3h14"/>',
+    "book": '<path d="M4 4h6a3 3 0 013 3v13a2 2 0 00-2-2H4V4z"/><path d="M20 4h-6a3 3 0 00-3 3v13a2 2 0 012-2h7V4z"/>',
+    "grid": '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+    "wifi": '<path d="M2 9a15 15 0 0120 0M5 12.5a10 10 0 0114 0M8.5 16a5 5 0 017 0M12 19.5h.01"/>',
+    "hdd": '<rect x="3" y="12" width="18" height="8" rx="2"/><path d="M5 12l2.5-7h9l2.5 7M7 16h.01M11 16h.01"/>',
+    "hexagon": '<path d="M12 2l8.7 5v10L12 22l-8.7-5V7L12 2z"/><circle cx="12" cy="12" r="3"/>',
+    "brick": '<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9.3h18M3 14.6h18M9 4v5.3M15 9.3v5.3M9 14.6V20"/>',
+    "layers": '<path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/>',
+    "app": '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 9h8M8 13h5"/>',
+    "external": '<path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5"/>',
+    "radar": '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="M12 12l6-6"/>',
+    "share": '<circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.2 10.9l7.6-3.8M8.2 13.1l7.6 3.8"/>',
+    "terminal": '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/>',
+    "code": '<path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/>',
+    "tag": '<path d="M3 12V4a1 1 0 011-1h8l9 9-9 9-9-9z"/><circle cx="7.5" cy="7.5" r="1.3"/>',
+    "sort": '<path d="M8 4v16M4 8l4-4 4 4M16 20V4M12 16l4 4 4-4"/>',
+    "sun": '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+    "mail": '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
+    "award": '<circle cx="12" cy="9" r="6"/><path d="M8.5 14L7 22l5-3 5 3-1.5-8"/>',
+    "file-search": '<path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h4"/><path d="M14 3v5h5v3"/><circle cx="16.5" cy="16.5" r="3"/><path d="M21 21l-2.3-2.3"/>',
+    "heartbeat": '<path d="M3 12h4l2-5 4 10 2-5h6"/>',
+    "list": '<path d="M9 6h12M9 12h12M9 18h12M4 6h.01M4 12h.01M4 18h.01"/>',
+    "x": '<path d="M6 6l12 12M18 6L6 18"/>',
+    "expand": '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+    "sliders": '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+    "memory": '<rect x="3" y="7" width="18" height="10" rx="1"/><path d="M7 7v10M11 7v10M15 7v10M5 20v-3M19 20v-3"/>',
+    "shield-alert": '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3z"/><path d="M12 8v4M12 15.5h.01"/>',
+    "file-check": '<path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5M9 14l2 2 4-4"/>',
+    "users-cog": '<circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.6 3.1-6 7-6 1.4 0 2.6.3 3.7.8"/><circle cx="18" cy="17" r="2.5"/><path d="M18 13v1.5M18 19.5V21M14 17h1.5M20.5 17H22"/>',
+    "cloud": '<path d="M7 18a4.5 4.5 0 01-.6-9A6 6 0 0118 9a4 4 0 01-1 9H7z"/>',
+    "plug": '<path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 01-12 0V8zM12 18v4"/>',
+    "calendar-range": '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4M7 14h4M13 17h4"/>',
     "logout": '<path d="M15 4h4a1 1 0 011 1v14a1 1 0 01-1 1h-4M10 17l-5-5 5-5M5 12h12"/>',
 }
 
@@ -78,12 +123,46 @@ TONES = {
 }
 
 
+FILLED = {
+    "check-circle": '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M7.5 12.2l3 3 6-6.4" stroke="#fff" stroke-width="2.4"/>',
+    "x-circle": '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M8.5 8.5l7 7M15.5 8.5l-7 7" stroke="#fff" stroke-width="2.4"/>',
+    "alert": '<path d="M12 2.5l10 18H2l10-18z" fill="currentColor" stroke="none"/><path d="M12 9.5v5M12 17.3h.01" stroke="#fff" stroke-width="2.4"/>',
+    "clock": '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M12 7v5l3 2" stroke="#fff" stroke-width="2.2"/>',
+    "info": '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M12 11v6M12 7.5h.01" stroke="#fff" stroke-width="2.4"/>',
+    "pause": '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M10 8.5v7M14 8.5v7" stroke="#fff" stroke-width="2.4"/>',
+    "help": '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M9.3 9.4a2.8 2.8 0 015.4 1c0 1.8-2.7 2.3-2.7 3.6M12 17.2h.01" stroke="#fff" stroke-width="2.1"/>',
+    "check": '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M7.5 12.2l3 3 6-6.4" stroke="#fff" stroke-width="2.4"/>',
+}
+
+
+@register.simple_tag
+def ficon(name, size=14, cls=""):
+    """Filled status glyph (solid circle/triangle with a white mark)."""
+    body = FILLED.get(name, FILLED["info"])
+    return mark_safe(
+        f'<svg class="ic {cls}" width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        f'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{body}</svg>'
+    )
+
+
 @register.simple_tag
 def badge(status, label=None):
     key = str(status or "unknown").lower()
     tone, ic = TONES.get(key, ("mute", "help"))
     text = label or str(status or "Unknown").replace("_", " ").title()
-    return format_html('<span class="badge {}">{}{}</span>', tone, icon(ic, 13), text)
+    return format_html('<span class="badge {}">{}{}</span>', tone, ficon(ic, 14), text)
+
+
+@register.simple_tag
+def delta(value, good="up", suffix="%"):
+    """Trend pill: arrow + value; green when the change goes in the `good` direction."""
+    if value is None:
+        return ""
+    v = float(value)
+    up = v >= 0
+    tone = "t-ok" if (up and good == "up") or (not up and good == "down") else "t-crit"
+    return format_html('<span class="delta {}">{}{}{}</span>', tone, icon("arrow-up" if up else "arrow-down", 12),
+                       f"{abs(v):g}", suffix)
 
 
 @register.filter

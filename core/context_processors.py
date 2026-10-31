@@ -13,7 +13,7 @@ def _resolve(item, path):
             href = reverse("coming_soon", args=[slugify(item["label"])])
     else:
         href = reverse("coming_soon", args=[slugify(item["label"])])
-    return {"label": item["label"], "icon": item.get("icon"), "href": href, "active": False}
+    return {"label": item["label"], "icon": item.get("icon"), "href": href, "active": False, "chev": item.get("chev", False)}
 
 
 def shell(request):
@@ -36,4 +36,8 @@ def shell(request):
     tenant = settings.LINKEDEYE_TENANT
     problems = (UrlCheck.objects.filter(tenant_key=tenant, enabled=True, last_status__in=["down", "degraded"]).count()
                 + Domain.objects.filter(tenant_key=tenant, is_active=True, status="down").count())
-    return {"nav": nav, "le_version": settings.LINKEDEYE_VERSION, "le_problem_count": problems}
+    sites = sorted({s for s in UrlCheck.objects.filter(tenant_key=tenant).values_list("site", flat=True)}
+                   | {s for s in Domain.objects.filter(tenant_key=tenant).values_list("site_key", flat=True)}
+                   - {"", "All Sites"})
+    return {"nav": nav, "le_version": settings.LINKEDEYE_VERSION, "le_problem_count": problems,
+            "le_sites": sites, "le_site": request.GET.get("site", "")}

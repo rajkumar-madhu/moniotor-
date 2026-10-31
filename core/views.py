@@ -8,7 +8,7 @@ from domainmonitor.models import Domain
 from urlchecker.models import UrlCheck, UrlResult
 from urlchecker.stats import overall_uptime
 
-from . import sample_data
+from .samples import exporters as s_exporters, firewall as s_firewall, heatmap as s_heatmap, incidents as s_incidents
 from .nav import NAV
 
 
@@ -39,19 +39,19 @@ def search(request):
 
 
 def heatmap(request):
-    return render(request, "core/heatmap.html", {"d": sample_data.heatmap(), "sample": True})
+    return render(request, "core/heatmap.html", {"d": s_heatmap.heatmap(), "sample": True})
 
 
 def exporters(request):
-    return render(request, "core/exporters.html", {"d": sample_data.exporters(), "sample": True})
+    return render(request, "core/exporters.html", {"d": s_exporters.exporters(), "sample": True})
 
 
 def incidents(request):
-    return render(request, "core/incidents.html", {"d": sample_data.incidents(), "sample": True})
+    return render(request, "core/incidents.html", {"d": s_incidents.incidents(), "sample": True})
 
 
 def firewall(request):
-    return render(request, "core/firewall.html", {"d": sample_data.firewall(), "sample": True})
+    return render(request, "core/firewall.html", {"d": s_firewall.firewall(), "sample": True})
 
 
 def coming_soon(request, slug):

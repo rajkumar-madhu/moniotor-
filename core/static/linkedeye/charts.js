@@ -1,6 +1,8 @@
 /* LinkedEye charts: dependency-free SVG charts.
  * Markup: <div class="chart" data-chart="line|bars|donut|spark" data-src="json-script-id" style="height:200px"></div>
  * Data comes from a {{ value|json_script:"id" }} block. null values are gaps (never drawn as zero).
+ * Options: labels, series[{name,color,values,area,areaOpacity,width,dash,endDot}], unit, yMin, yMax, yTicks,
+ *   tipLabels, xLabelEvery, stacked (bars), thickness/center (donut).
  */
 (function () {
   'use strict';
@@ -57,7 +59,7 @@
       el('line', { x1: m.l, x2: W - m.r, y1: y, y2: y, stroke: GRID }, svg);
       el('text', { x: m.l - 8, y: y + 4, 'text-anchor': 'end', 'font-size': 11, fill: TEXT }, svg).textContent = fmt(v, d.unit);
     }
-    const every = Math.max(1, Math.ceil(n / Math.max(2, Math.floor(pw / 70))));
+    const every = d.xLabelEvery || Math.max(1, Math.ceil(n / Math.max(2, Math.floor(pw / 70))));
     d.labels.forEach((lab, i) => {
       if (i % every) return;
       el('text', { x: X(i), y: H - 8, 'text-anchor': 'middle', 'font-size': 11, fill: TEXT }, svg).textContent = lab;
@@ -83,7 +85,8 @@
           if (v !== null && v !== undefined && (prev === null || prev === undefined) && (next === null || next === undefined))
             el('circle', { cx: X(i), cy: Y(v), r: 3, fill: s.color }, svg);
         });
-        el('path', { d: path, fill: 'none', stroke: s.color, 'stroke-width': s.width || 1.8, 'stroke-linejoin': 'round' }, svg);
+        el('path', { d: path, fill: 'none', stroke: s.color, 'stroke-width': s.width || 1.8, 'stroke-linejoin': 'round', 'stroke-dasharray': s.dash || 'none' }, svg);
+        if (s.endDot) { let li = s.values.length - 1; while (li >= 0 && (s.values[li] === null || s.values[li] === undefined)) li--; if (li >= 0) el('circle', { cx: X(li), cy: Y(s.values[li]), r: 3.5, fill: s.color, stroke: '#fff', 'stroke-width': 1.5 }, svg); }
       });
     } else {
       const bw = Math.max(3, Math.min(42, step * 0.62));
