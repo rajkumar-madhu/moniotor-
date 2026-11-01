@@ -9,8 +9,8 @@
   --ink-2: #3d3a35;
   --muted: #6f6a61;
   --brand: #ff5b2e;            /* decorative coral: logo, icons, eyebrows, active markers */
-  --primary: #cc4216;          /* coral for links and filled buttons (white text passes 4.5:1) */
-  --primary-hover: #b53a12;
+  --primary: #c23f14;          /* coral for links and filled buttons (>= 4.5:1 on white text and on every panel) */
+  --primary-hover: #a93711;
   --primary-ink: #ffffff;
   --primary-soft: #ffece4;
   --accent-blue: #2b4cff;
@@ -22,7 +22,10 @@
   --warn: #e08a00;   --warn-bg: #fdf0d8;  --warn-ink: #9a4a06;
   --crit: #d92d20;   --crit-bg: #fde7e4;  --crit-ink: #b42318;
   --info: #2b4cff;   --info-bg: #e6eaff;  --info-ink: #2338c9;
-  --purple: #7a4fd6; --purple-bg: #efe8fb;
+  --purple: #7a4fd6; --purple-bg: #efe8fb; --purple-ink: #6a3fc4;
+  --teal: #0e8a7a;   --teal-bg: #e1f3ef;  --teal-ink: #0a6b5f;
+  --stone: #a8a398;  --stone-2: #d6cfc1;
+  --ok-line: #c2e2d2; --warn-line: #f2d6a6; --crit-line: #f6c5bf; --info-line: #c9d1ff;
   --mute-bg: #efebe2; --mute-ink: #6f6a61;
   --radius: 14px;
   --shadow: 0 1px 2px rgb(14 17 22 / 6%), 0 12px 32px -18px rgb(14 17 22 / 16%);
@@ -571,3 +574,15 @@ dl.kv dt { color: var(--muted); }
   .hero-stat .k { letter-spacing: .1em; font-size: 9.5px; }
   .hero-stat .v { font-size: 22px; }
 }
+
+/* v3 shared fixes requested by the module passes */
+td.num, .num { font-family: var(--mono); font-size: 12.5px; }
+th.num { font: 600 10.5px/1.3 var(--font); letter-spacing: .12em; text-transform: uppercase; }
+.field label.inline-check, .field .inline-check label, label.inline-check { font: 500 13.5px/1.4 var(--font); letter-spacing: 0; text-transform: none; color: var(--ink); }
+.chip.purple { color: var(--purple-ink); }
+.chip.teal { background: var(--teal-bg); color: var(--teal-ink); border-color: #bfe0d8; }
+.fill-mute, .fill-nodata { background: var(--stone-2); }
+.fill-down { background: #7a1f16; }
+.fill-stone { background: var(--stone); }
+@media (min-width: 861px) { .kpis:has(> .kpi:nth-child(6):last-child) { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 860px) { .kpi .label, .kpi .sub { white-space: normal; overflow: visible; text-overflow: clip; } }
