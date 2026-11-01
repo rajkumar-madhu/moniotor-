@@ -39,7 +39,11 @@ spec:
         - name: migrate
           image: registry.example.com/linkedeye:9.0
           imagePullPolicy: IfNotPresent
-          command: ["python", "manage.py", "migrate", "--noinput"]
+          # preflight: refuse to run with unedited secret.template.yaml placeholders
+          command:
+            - sh
+            - -c
+            - python /app/deploy/docker/healthcheck.py preflight && exec python manage.py migrate --noinput
           envFrom:
             - configMapRef:
                 name: linkedeye-config

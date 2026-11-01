@@ -57,6 +57,8 @@ spec:
             - sh
             - -c
             - |
+              # refuse to start with unedited secret.template.yaml placeholders
+              python /app/deploy/docker/healthcheck.py preflight || exit 1
               until python manage.py migrate --check > /dev/null 2>&1; do
                 echo "waiting for the linkedeye-migrate Job (unapplied migrations or database unreachable)"
                 sleep 5

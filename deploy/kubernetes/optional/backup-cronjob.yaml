@@ -67,9 +67,13 @@ spec:
                 - |
                   set -eu
                   file="/backups/linkedeye-$(date +%Y%m%d-%H%M%S).dump"
+                  # a failed or interrupted dump must not leave a half-written file behind
+                  trap 'rm -f "$file.partial"' EXIT
                   pg_dump --format=custom --file="$file.partial"
                   mv "$file.partial" "$file"
                   find /backups -name 'linkedeye-*.dump' -mtime +"$RETENTION_DAYS" -print -delete
+                  # leftovers of runs killed outright (OOM, node loss), where the trap could not run
+                  find /backups -name 'linkedeye-*.dump.partial' -mmin +360 -print -delete
                   ls -lh /backups
               env:
                 - name: PGHOST

@@ -155,7 +155,10 @@ services:
     ports:
       - "${ALERTMANAGER_PUBLISH:-127.0.0.1:9093}:9093"
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9093/-/healthy"]
+      # Unhealthy while LINKEDEYE_ALERTMANAGER_WEBHOOK_TOKEN is empty: compose then mounts no token file and
+      # every notification to the console would fail. Compose cannot refuse to start here because variable
+      # checks apply to every profile.
+      test: ["CMD-SHELL", "test -s /run/secrets/alertmanager_webhook_token && wget -q -O /dev/null http://127.0.0.1:9093/-/healthy"]
       interval: 30s
       timeout: 5s
       retries: 3

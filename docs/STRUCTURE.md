@@ -10,9 +10,10 @@ moniotor-/
 ├── requirements.txt            Django 4.2 LTS, gunicorn, whitenoise (+ requirements-postgres.txt / -mysql.txt)
 ├── Dockerfile, docker-compose.yml, gunicorn.conf.py   production image and stack (see docs/DEPLOYMENT.md)
 ├── deploy/                     docker/ (WSGI entry, healthcheck), kubernetes/, prometheus/, alertmanager/,
-│                               compose.env.example, validate.py (checks the bundle and settings docs)
+│                               compose.env.example, validate.py (checks the bundle and settings docs),
+│                               tests/ (bundle regression tests: python -m unittest discover -s deploy/tests)
 ├── .env.example                every LINKEDEYE_* setting, documented
-├── .github/workflows/ci.yml    check · makemigrations --check · test
+├── .github/workflows/ci.yml    check · makemigrations --check · test · deploy bundle checks
 ├── docs/
 │   ├── STRUCTURE.md            this file
 │   ├── MODULES.md              module contract: shared APIs, UI kit, data rules, cross-module interfaces

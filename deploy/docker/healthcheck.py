@@ -3,13 +3,17 @@
 
     python deploy/docker/healthcheck.py           web process: GET /healthz on the local gunicorn must answer 200
     python deploy/docker/healthcheck.py probes    scheduler (manage.py run_probes): its heartbeat must be fresh
+    python deploy/docker/healthcheck.py preflight no LINKEDEYE_* variable may still hold a "<REPLACE ...>"
+                                                  placeholder from secret.template.yaml (init containers,
+                                                  migration Job and gunicorn start-up run this)
 
 Exit status 0 = healthy, 1 = unhealthy; one line of explanation goes to stdout (Docker shows it in
 `docker inspect`).
 
 web
-    Connects to 127.0.0.1 on the port from GUNICORN_BIND (default 8000). Django rejects unknown Host headers,
-    so the request carries the first usable entry of LINKEDEYE_ALLOWED_HOSTS ("localhost" when unset).
+    Connects to the first TCP address in GUNICORN_BIND (default 0.0.0.0:8000; a wildcard address means
+    loopback). Django rejects unknown Host headers, so the request carries the first usable entry of
+    LINKEDEYE_ALLOWED_HOSTS ("localhost" when unset).
     /healthz is public and checks the database connection.
 
 probes
@@ -36,22 +40,47 @@ def _host_header():
     return "localhost"
 
 
-def _port():
-    bind = os.environ.get("GUNICORN_BIND", "").strip() or "0.0.0.0:8000"
-    try:
-        return int(bind.split(",")[0].rsplit(":", 1)[1])
-    except (IndexError, ValueError):
-        return 8000
+PLACEHOLDER_MARK = "<REPLACE"
+
+
+def placeholder_variables(environ):
+    """Names of LINKEDEYE_* variables whose value is still a secret.template.yaml placeholder."""
+    return sorted(k for k, v in environ.items() if k.startswith("LINKEDEYE_") and PLACEHOLDER_MARK in (v or ""))
+
+
+def _target(bind=None):
+    """(address, port) to probe: the first TCP entry of GUNICORN_BIND; wildcard addresses map to loopback."""
+    if bind is None:
+        bind = os.environ.get("GUNICORN_BIND", "")
+    for entry in (bind or "0.0.0.0:8000").split(","):
+        entry = entry.strip()
+        if not entry or entry.startswith(("unix:", "fd://")):
+            continue
+        host, sep, port = entry.rpartition(":")
+        if not sep:  # bare host name, gunicorn's default port
+            host, port = entry, "8000"
+        host = host.strip("[]")
+        try:
+            port = int(port)
+        except ValueError:
+            continue
+        if host in ("", "0.0.0.0", "*"):
+            host = "127.0.0.1"
+        elif host == "::":
+            host = "::1"
+        return host, port
+    return "127.0.0.1", 8000
 
 
 def check_web(timeout=4.0):
-    conn = http.client.HTTPConnection("127.0.0.1", _port(), timeout=timeout)
+    host, port = _target()
+    conn = http.client.HTTPConnection(host, port, timeout=timeout)
     try:
         conn.request("GET", "/healthz", headers={"Host": _host_header(), "User-Agent": "linkedeye-healthcheck"})
         resp = conn.getresponse()
         body = resp.read(512).decode("utf-8", "replace")
     except OSError as exc:
-        return False, f"web: /healthz unreachable on port {_port()}: {exc}"
+        return False, f"web: /healthz unreachable on {host} port {port}: {exc}"
     finally:
         conn.close()
     if resp.status != 200:
@@ -95,12 +124,21 @@ def check_probes(max_age=None):
     return True, f"probes: heartbeat {age:.0f}s ago"
 
 
+def check_preflight(environ=None):
+    unedited = placeholder_variables(os.environ if environ is None else environ)
+    if unedited:
+        return False, ("preflight: these variables still hold '<REPLACE ...>' placeholders from "
+                       "secret.template.yaml; set real values: " + ", ".join(unedited))
+    return True, "preflight: ok"
+
+
 def main(argv):
     mode = argv[1] if len(argv) > 1 else "web"
-    if mode not in ("web", "probes"):
-        print(f"usage: {argv[0]} [web|probes]")
+    checks = {"web": check_web, "probes": check_probes, "preflight": check_preflight}
+    if mode not in checks:
+        print(f"usage: {argv[0]} [web|probes|preflight]")
         return 2
-    ok, message = check_web() if mode == "web" else check_probes()
+    ok, message = checks[mode]()
     print(message)
     return 0 if ok else 1
 

@@ -5,7 +5,7 @@ containers:  gunicorn --config gunicorn.conf.py
 
 Every value can be overridden with an environment variable (all optional):
 
-    GUNICORN_BIND                   listen address                         0.0.0.0:8000
+    GUNICORN_BIND                   listen address(es), comma-separated    0.0.0.0:8000
     GUNICORN_WORKERS                worker processes                       2 x CPUs + 1, capped at 8 (CPU limit aware)
     GUNICORN_THREADS                threads per worker (gthread)           4
     GUNICORN_TIMEOUT                seconds before a silent worker is killed   60
@@ -36,11 +36,17 @@ def _env(name, default):
     return value.strip() if value.strip() else default
 
 
-def _int(name, default):
+def _int(name, default, minimum=None):
     try:
-        return int(_env(name, str(default)))
+        value = int(_env(name, str(default)))
     except ValueError:
-        return default
+        value = default
+    return value if minimum is None else max(minimum, value)
+
+
+def _binds(value):
+    """GUNICORN_BIND may list several addresses separated by commas ("0.0.0.0:8000,[::]:8000")."""
+    return [b.strip() for b in value.split(",") if b.strip()] or ["0.0.0.0:8000"]
 
 
 def _cpu_limit():
@@ -70,14 +76,14 @@ pythonpath = os.path.join(BASE_DIR, "deploy", "docker")
 wsgi_app = _env("GUNICORN_WSGI_APP", "container_wsgi:application")
 chdir = BASE_DIR
 
-bind = [_env("GUNICORN_BIND", "0.0.0.0:8000")]
-workers = _int("GUNICORN_WORKERS", min(2 * _cpu_limit() + 1, 8))
-threads = _int("GUNICORN_THREADS", 4)
+bind = _binds(_env("GUNICORN_BIND", "0.0.0.0:8000"))
+workers = _int("GUNICORN_WORKERS", min(2 * _cpu_limit() + 1, 8), minimum=1)
+threads = _int("GUNICORN_THREADS", 4, minimum=1)
 worker_class = "gthread" if threads > 1 else "sync"
-timeout = _int("GUNICORN_TIMEOUT", 60)
-graceful_timeout = _int("GUNICORN_GRACEFUL_TIMEOUT", 30)
-keepalive = _int("GUNICORN_KEEPALIVE", 5)
-max_requests = _int("GUNICORN_MAX_REQUESTS", 1000)
+timeout = _int("GUNICORN_TIMEOUT", 60, minimum=1)
+graceful_timeout = _int("GUNICORN_GRACEFUL_TIMEOUT", 30, minimum=0)
+keepalive = _int("GUNICORN_KEEPALIVE", 5, minimum=0)
+max_requests = _int("GUNICORN_MAX_REQUESTS", 1000, minimum=0)
 max_requests_jitter = max(0, max_requests // 10)
 
 # Worker heartbeat files: /dev/shm is a tmpfs, so this works with a read-only root filesystem and avoids
@@ -120,5 +126,14 @@ preload_app = False
 
 
 def on_starting(server):
+    # Refuse to serve with values copied unedited from deploy/kubernetes/secret.template.yaml: a published
+    # placeholder used as LINKEDEYE_SECRET_KEY or as a webhook token would be a publicly known secret.
+    import sys
+    sys.path.insert(0, os.path.join(BASE_DIR, "deploy", "docker"))
+    from healthcheck import placeholder_variables
+    unedited = placeholder_variables(os.environ)
+    if unedited:
+        raise RuntimeError("refusing to start: these variables still hold '<REPLACE ...>' template placeholders: "
+                           + ", ".join(unedited))
     server.log.info("LinkedEye web: %s worker(s) x %s thread(s), timeout %ss, bind %s",
                     workers, threads, timeout, ", ".join(bind))

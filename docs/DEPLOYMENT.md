@@ -136,8 +136,13 @@ server {
 
 **Using an external database.** Set `LINKEDEYE_DB_ENGINE`, `LINKEDEYE_DB_HOST`, `LINKEDEYE_DB_PORT`,
 `LINKEDEYE_DB_NAME`, `LINKEDEYE_DB_USER`, `LINKEDEYE_DB_PASSWORD` in `.env` and start only the application
-services: `docker compose up -d --no-deps migrate web probes` (after `migrate` exits). For MySQL build with
-`LINKEDEYE_DB_EXTRAS="postgres mysql"` in `.env`.
+services, migrations first (`--no-deps` also skips the "wait for migrate" ordering, so run it on its own):
+
+```bash
+docker compose run --rm --no-deps migrate && docker compose up -d --no-deps web probes
+```
+
+For MySQL build with `LINKEDEYE_DB_EXTRAS="postgres mysql"` in `.env`.
 
 ### Observability profile
 
@@ -154,7 +159,10 @@ docker compose up -d web probes        # pick up LINKEDEYE_PROMETHEUS_URL if you
 * `deploy/alertmanager/alertmanager.yml` sends every alert to `http://web:8000/api/v1/alertmanager/` with
   `Authorization: Bearer <token>`. The token is read from `/run/secrets/alertmanager_webhook_token`, which
   compose creates from `LINKEDEYE_ALERTMANAGER_WEBHOOK_TOKEN`, the same variable the console checks. The host
-  name `web` must be in `LINKEDEYE_ALLOWED_HOSTS` (it is in the example file).
+  name `web` must be in `LINKEDEYE_ALLOWED_HOSTS` (it is in the example file). While the token is empty compose
+  mounts no token file, so the `alertmanager` container reports **unhealthy** instead of silently failing every
+  notification. Compose copies the token into the container only when it is (re)created: after changing it run
+  `docker compose --profile observability up -d --force-recreate web alertmanager`.
 * Prometheus and Alertmanager have no authentication; their ports are published on `127.0.0.1` only
   (`PROMETHEUS_PUBLISH`, `ALERTMANAGER_PUBLISH`).
 * With `LINKEDEYE_PROMETHEUS_URL=http://prometheus:9090` the console's Prometheus, metrics explorer, heatmap and
@@ -225,6 +233,9 @@ your own StatefulSet), and the image pushed to a registry the cluster can pull f
 
 Web and probes pods start with an init container that loops on `manage.py migrate --check` until the
 migration Job has applied every migration the image contains, so new code never runs against an old schema.
+That init container, the migration Job and gunicorn first run `healthcheck.py preflight`, which refuses to
+start while any `LINKEDEYE_*` value still contains a `<REPLACE ...>` placeholder from `secret.template.yaml`
+(an unedited template would otherwise make the published placeholder your signing key or webhook token).
 
 ### Health checks and security (Kubernetes)
 
@@ -309,7 +320,7 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 
 | Variable | Default | Read by | Description |
 |---|---|---|---|
-| `GUNICORN_BIND` | `0.0.0.0:8000` | gunicorn.conf.py, healthcheck | Listen address. |
+| `GUNICORN_BIND` | `0.0.0.0:8000` | gunicorn.conf.py, healthcheck | Listen address(es), comma-separated (e.g. `0.0.0.0:8000,[::]:8000`). The health check probes the first TCP one. |
 | `GUNICORN_WORKERS` | `2 × CPU limit + 1` (max 8) | gunicorn.conf.py | Worker processes (CPU quota aware). |
 | `GUNICORN_THREADS` | `4` | gunicorn.conf.py | Threads per worker (`1` switches to sync workers). |
 | `GUNICORN_TIMEOUT` | `60` | gunicorn.conf.py | Seconds before a stuck worker is restarted. |
@@ -402,7 +413,8 @@ release had no migrations; otherwise restore the backup with the old image. With
 migration as a PreSync / pre-upgrade hook.
 
 **Rotating secrets:** `LINKEDEYE_SECRET_KEY` (signs everyone out), webhook / ingest tokens (update Alertmanager
-and log shippers at the same time) and the database password (`ALTER USER linkedeye WITH PASSWORD '…'` first,
+and log shippers at the same time; in compose `docker compose --profile observability up -d --force-recreate web
+alertmanager`, because the Alertmanager token file is only written when the container is created) and the database password (`ALTER USER linkedeye WITH PASSWORD '…'` first,
 then update `.env` / the Secret and restart; for the compose `db` service the variable only initialises an
 empty volume).
 
@@ -425,7 +437,9 @@ empty volume).
 | Pods stuck in `Init:0/1` | The migration Job has not run or failed: `kubectl -n fs-linkedeye logs job/linkedeye-migrate`. |
 | `probes` unhealthy, "heartbeat from another host" | A second scheduler is writing to this database. Find and stop it. |
 | `probes` unhealthy, "run_probes is stalled" | A pass is hanging; check its logs and the targets' timeouts, then restart it. |
-| Alertmanager gets 503 / 401 | `LINKEDEYE_ALERTMANAGER_WEBHOOK_TOKEN` unset in the console / token mismatch with Alertmanager's credentials file. |
+| Alertmanager gets 503 / 401 | `LINKEDEYE_ALERTMANAGER_WEBHOOK_TOKEN` unset in the console / token mismatch with Alertmanager's credentials file. In compose, recreate both after a change (`up -d --force-recreate web alertmanager`). |
+| `alertmanager` container unhealthy (compose) | `LINKEDEYE_ALERTMANAGER_WEBHOOK_TOKEN` is empty in `.env`, so there is no token file to send. Set it and recreate the container. |
+| Pod / gunicorn exits with `still hold '<REPLACE ...>' placeholders` | A Secret was created from `secret.template.yaml` without replacing every value. Set real values or delete the unused keys. |
 | Container exits with `ValueError` at start-up | A numeric `LINKEDEYE_*` variable is set to an empty string; remove the line. |
 | `RuntimeError: Set LINKEDEYE_SECRET_KEY` | No secret key and DEBUG off. |
 
@@ -434,6 +448,10 @@ empty volume).
 `python deploy/validate.py` (needs PyYAML) checks the compose file, Kubernetes manifests, Prometheus /
 Alertmanager configuration and this document against each other: single probes replica and Recreate strategy,
 `/healthz` probes, non-root read-only pods, matching labels and selectors, placeholder-only secrets, every
-`LINKEDEYE_*` name being a real setting and every setting being documented here. CI runs it together with
+`LINKEDEYE_*` name being a real setting and every setting being documented here (and nothing documented that
+the application does not read), and the preflight placeholder guard in the init containers and migration Job.
+`python -m unittest discover -s deploy/tests -v` holds the regression tests for `gunicorn.conf.py`,
+`deploy/docker/healthcheck.py` and `validate.py` itself (it runs the validator against deliberately broken
+copies of the bundle). CI runs both together with
 `docker compose config`, `promtool` / `amtool`, the test suite on SQLite and PostgreSQL, and an image build plus
 smoke test (no push).

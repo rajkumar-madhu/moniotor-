@@ -73,9 +73,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install pyyaml
+      - run: pip install pyyaml -r requirements.txt
       - name: Static checks (compose, Kubernetes, Prometheus, Alertmanager, docs)
         run: python deploy/validate.py
+      - name: Bundle regression tests (gunicorn.conf.py, healthcheck.py, validate.py)
+        run: python -m unittest discover -s deploy/tests -v
       - name: docker compose config
         run: |
           cp deploy/compose.env.example .env

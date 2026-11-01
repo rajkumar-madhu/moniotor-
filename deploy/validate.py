@@ -137,8 +137,19 @@ def check_workload(d, web=None, app=True):
         for m in c.get("volumeMounts") or []:
             if m["name"] not in volumes:
                 err(cw, f"mounts undefined volume {m['name']}")
-        images.add(c.get("image", "").rsplit(":", 1)[0])
+        images.add(image_name(c.get("image", "")))
     return images
+
+
+def image_name(ref):
+    """Repository part of an image reference: drops ":tag" and "@digest", keeps a registry ":port"."""
+    ref = ref.split("@", 1)[0]
+    head, sep, tail = ref.rpartition(":")
+    return head if sep and "/" not in tail else ref
+
+
+def runs_preflight(container):
+    return "healthcheck.py preflight" in " ".join(container.get("command") or []) + " ".join(container.get("args") or [])
 
 
 def check_optional():
@@ -195,6 +206,13 @@ def check_kubernetes():
     probe_cmd = probes["spec"]["template"]["spec"]["containers"][0].get("command") or []
     if probe_cmd[-1:] != ["run_probes"]:
         err("probes-deployment.yaml", "container must run manage.py run_probes")
+    # unedited secret.template.yaml placeholders must stop a release before anything uses them
+    for dep in (web, probes):
+        if not any(runs_preflight(c) for c in dep["spec"]["template"]["spec"].get("initContainers") or []):
+            err(f"Deployment/{dep['metadata']['name']}", "an init container must run healthcheck.py preflight")
+    for job in by_kind.get("Job", []):
+        if not any(runs_preflight(c) for c in pod_spec(job).get("containers") or []):
+            err(f"Job/{job['metadata']['name']}", "must run healthcheck.py preflight before migrating")
 
     workloads = [d for k in WORKLOAD_KINDS for d in by_kind.get(k, [])]
     images = set()
@@ -291,6 +309,11 @@ def check_compose():
     if not docs:
         return
     services = docs[0].get("services", {})
+
+    def deps_of(name):  # depends_on in short (list) or long (mapping) syntax
+        deps = services.get(name, {}).get("depends_on") or {}
+        return {d: {} for d in deps} if isinstance(deps, list) else deps
+
     missing = [name for name in ("db", "web", "probes", "migrate") if name not in services]
     for name in missing:
         err("docker-compose.yml", f"service {name} missing")
@@ -307,11 +330,10 @@ def check_compose():
     for name in ("web", "probes", "migrate"):
         if services[name].get("env_file") not in (".env", [".env"]):
             err("docker-compose.yml", f"{name} must use env_file .env")
-        deps = services[name].get("depends_on") or {}
-        if (deps.get("db") or {}).get("condition") != "service_healthy":
+        if (deps_of(name).get("db") or {}).get("condition") != "service_healthy":
             err("docker-compose.yml", f"{name} must wait for a healthy db")
     for name in ("web", "probes"):
-        if (services[name]["depends_on"].get("migrate") or {}).get("condition") != "service_completed_successfully":
+        if (deps_of(name).get("migrate") or {}).get("condition") != "service_completed_successfully":
             err("docker-compose.yml", f"{name} must start after migrate completed")
     if not str(services["db"].get("image", "")).startswith("postgres:16"):
         err("docker-compose.yml", "db must be PostgreSQL 16")
@@ -323,6 +345,9 @@ def check_compose():
             err("docker-compose.yml", f"{name} must be in the observability profile only")
         elif not svc.get("healthcheck"):
             err("docker-compose.yml", f"{name} needs a healthcheck")
+    am_test = " ".join(((services.get("alertmanager") or {}).get("healthcheck") or {}).get("test") or [])
+    if services.get("alertmanager") and "/run/secrets/alertmanager_webhook_token" not in am_test:
+        err("docker-compose.yml", "alertmanager healthcheck must fail while the webhook token file is missing")
     if "pgdata" not in (docs[0].get("volumes") or {}):
         err("docker-compose.yml", "the database needs the named volume pgdata")
     env_example = ROOT / "deploy" / "compose.env.example"
@@ -377,6 +402,8 @@ def check_docs():
     for name in sorted(SETTINGS):
         if f"`{name}`" not in doc:
             err("docs/DEPLOYMENT.md", f"environment variable {name} is not documented")
+    # and the other way round: nothing documented that the application does not read
+    check_env_names("docs/DEPLOYMENT.md", set(re.findall(r"\b(LINKEDEYE_[A-Z0-9_]+)", doc)))
 
 
 def main():
