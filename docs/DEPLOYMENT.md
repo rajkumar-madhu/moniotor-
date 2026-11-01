@@ -283,6 +283,7 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 | `LINKEDEYE_DB_PASSWORD` | empty | yes | Database password. |
 | `LINKEDEYE_DB_HOST` | empty | | Database host (`db` in compose). |
 | `LINKEDEYE_DB_PORT` | empty (driver default) | | `5432` PostgreSQL, `3306` MySQL. |
+| `LINKEDEYE_DB_CONN_MAX_AGE` | `60` | | Seconds a database connection is reused (`0` = close after each request). Connections are health-checked before reuse. |
 | `LINKEDEYE_TIME_ZONE` | `Asia/Kolkata` | | Display time zone (IANA name). Data is stored in UTC. |
 | `LINKEDEYE_TENANT` | `default` | | Tenant whose records this deployment shows (single-tenant deployment). |
 | `LINKEDEYE_LOG_LEVEL` | `INFO` | | Level of the `linkedeye.*` loggers (probes, jobs, integrations). |
