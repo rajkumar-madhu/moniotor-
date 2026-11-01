@@ -112,13 +112,13 @@ def kpis(user):
             return qs.count(), qs.filter(priority__in=["P1", "P2"]).count()
         n = _safe(incidents, None)
         if n is not None:
-            tiles.append({"label": "Open incidents", "value": n[0], "sub": f"{n[1]} P1/P2", "icon": "alert",
+            tiles.append({"label": "Incidents", "value": n[0], "sub": f"Open · {n[1]} P1/P2", "icon": "alert",
                           "tile": "s-crit" if n[1] else "s-info", "href": _url("servicedesk:incidents")})
     Alert = model("telemetry", "Alert")
     if Alert:
         n = _safe(lambda: _scoped(Alert, user).filter(status="firing").count(), None)
         if n is not None:
-            tiles.append({"label": "Firing alerts", "value": n, "sub": "From Alertmanager", "icon": "bell",
+            tiles.append({"label": "Alerts", "value": n, "sub": "Firing in Alertmanager", "icon": "bell",
                           "tile": "s-warn" if n else "s-ok", "href": _url("telemetry:alertmanager")})
 
     def ratio(label, m, up_q, total_q, icon, href, sub):
@@ -127,12 +127,12 @@ def kpis(user):
         r = _safe(lambda: (up_q().count(), total_q().count()), None)
         if r is not None:
             up, total = r
-            tiles.append({"label": label, "value": f"{up} / {total}", "sub": sub, "icon": icon,
+            tiles.append({"label": label, "value": f"{up}/{total}", "sub": sub, "icon": icon,
                           "tile": "s-ok" if up == total else "s-warn", "href": href})
 
     UrlCheck, Domain = model("urlchecker", "UrlCheck"), model("domainmonitor", "Domain")
     Device, TcpCheck = model("network", "Device"), model("tcpcheck", "TcpCheck")
-    ratio("URL checks online", UrlCheck, lambda: _scoped(UrlCheck, user).filter(enabled=True, last_status="online"),
+    ratio("URLs online", UrlCheck, lambda: _scoped(UrlCheck, user).filter(enabled=True, last_status="online"),
           lambda: _scoped(UrlCheck, user).filter(enabled=True), "link", _url("urlchecker:index"), "Enabled checks")
     ratio("Domains up", Domain, lambda: _scoped(Domain, user, "site_key").filter(is_active=True, status="up"),
           lambda: _scoped(Domain, user, "site_key").filter(is_active=True), "globe", _url("domains:overview"),
@@ -141,7 +141,7 @@ def kpis(user):
         ratio("Devices up", Device, lambda: _scoped(Device, user).filter(enabled=True, status="up"),
               lambda: _scoped(Device, user).filter(enabled=True), "network", _url("network:all"), "Monitored devices")
     if TcpCheck:
-        ratio("TCP ports online", TcpCheck, lambda: _scoped(TcpCheck, user).filter(enabled=True, last_status="online"),
+        ratio("TCP online", TcpCheck, lambda: _scoped(TcpCheck, user).filter(enabled=True, last_status="online"),
               lambda: _scoped(TcpCheck, user).filter(enabled=True), "plug", _url("tcpcheck:index"), "Enabled checks")
     return tiles
 
