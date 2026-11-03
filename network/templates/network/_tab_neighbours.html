@@ -1,0 +1,4 @@
+{% load le %}
+<section class="panel"><div class="panel-h"><div><h2>LLDP neighbours</h2><small>Link-layer neighbours reported by the device</small></div>{% if topology_url %}<a class="right btn sm ghost-primary" href="{{ topology_url }}">{% icon "share" 15 %}Open topology</a>{% endif %}</div>
+  <div class="nw-empty sm">{% icon "network" 24 %}<p>LLDP neighbour collection is not connected for this device yet. The local monitor currently stores reachability checks and IF-MIB interface metrics only.</p></div>
+</section>
