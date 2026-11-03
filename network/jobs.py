@@ -118,7 +118,8 @@ def _maybe_prune():
         return 0
     _state["last_prune"] = time.monotonic()
     cutoff = timezone.now() - timedelta(days=settings.PROBE_RETENTION_DAYS)
-    removed, _ = DevicePoll.objects.filter(checked_at__lt=cutoff).delete()
+    # Only this instance's tenant: other tenants sharing the database prune their own polls (their own retention).
+    removed, _ = DevicePoll.objects.filter(device__tenant_key=_tenant(), checked_at__lt=cutoff).delete()
     return removed
 
 

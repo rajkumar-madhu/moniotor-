@@ -638,12 +638,19 @@ class SiteMutationTests(Base):
         self.assertEqual(Site.objects.count(), 2)
 
     def test_edit_site_and_rename_warning(self):
-        UrlCheck.objects.create(name="a", url="https://a.example", site="DR Site")
-        r = self.c.post(reverse("administration:site_edit", args=[self.dr.pk]), {
-            "name": "DR Chennai", "code": "dr", "region": "South", "timezone": "Asia/Kolkata", "criticality": "critical"}, follow=True)
+        # (F25) a rename now asks first, then updates the records that store the name instead of only warning
+        u = UrlCheck.objects.create(name="a", url="https://a.example", site="DR Site")
+        data = {"name": "DR Chennai", "code": "dr", "region": "South", "timezone": "Asia/Kolkata", "criticality": "critical"}
+        r = self.c.post(reverse("administration:site_edit", args=[self.dr.pk]), data)
+        self.assertContains(r, "Rename and update 1 record")
+        self.dr.refresh_from_db()
+        self.assertEqual(self.dr.name, "DR Site")
+        r = self.c.post(reverse("administration:site_edit", args=[self.dr.pk]), {**data, "confirm_rename": "1"}, follow=True)
         self.dr.refresh_from_db()
         self.assertEqual(self.dr.name, "DR Chennai")
-        self.assertContains(r, "still refer to")
+        u.refresh_from_db()
+        self.assertEqual(u.site, "DR Chennai")
+        self.assertContains(r, "1 url checks")
         a = AuditEvent.objects.get(action="update", object_type="core.site")
         self.assertEqual(a.details["previous_name"], "DR Site")
 

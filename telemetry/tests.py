@@ -429,7 +429,8 @@ class WebhookTests(TestCase):
         self.assertEqual(a.status, "resolved")
         self.assertIsNotNone(a.ends_at)
         self.assertEqual(Event.objects.filter(fingerprint="am:abc123").latest("pk").severity, "ok")
-        self.post(am_payload(am_alert()))  # re-fires: new event, acknowledgement cleared
+        # re-fires (a new firing has a newer startsAt): new event, acknowledgement cleared
+        self.post(am_payload(dict(am_alert(), startsAt="2026-10-31T12:00:00Z")))
         a.refresh_from_db()
         self.assertEqual((a.status, a.fire_count, a.acknowledged_at), ("firing", 2, None))
         self.assertEqual(Event.objects.filter(fingerprint="am:abc123").count(), 3)

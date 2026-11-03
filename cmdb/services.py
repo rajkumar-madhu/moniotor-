@@ -51,15 +51,17 @@ URL_STATE = {"online": "healthy", "degraded": "warning", "down": "critical"}
 DOMAIN_STATE = {"up": "healthy", "down": "critical"}
 
 
-def check_rows(ci):
-    """Linked URL checks and domains of one CI with their latest status (for the detail page)."""
+def check_rows(ci, user=None):
+    """Linked URL checks and domains of one CI with their latest status (for the detail page). With a user, only
+    the checks and domains on that user's sites (a shared CI may link checks of sites the user cannot see)."""
+    from .forms import link_queryset
     rows = []
-    for c in ci.url_checks.all():
+    for c in link_queryset(ci.url_checks.all(), user, "site"):
         state = URL_STATE.get(c.last_status, "unknown") if c.enabled else "unknown"
         rows.append({"kind": "URL check", "name": c.name, "target": c.url, "status": c.last_status if c.enabled else "paused",
                      "state": state, "response_ms": c.last_response_ms, "checked": c.last_checked_at,
                      "message": c.last_error, "url": _safe_reverse("urlchecker:detail", c.pk)})
-    for d in ci.domains.all():
+    for d in link_queryset(ci.domains.all(), user, "site_key"):
         active = d.is_active and d.monitor_enabled
         state = DOMAIN_STATE.get(d.status, "unknown") if active else "unknown"
         if state == "healthy" and d.ssl_status in ("Expiring",):
@@ -73,20 +75,30 @@ def check_rows(ci):
     return rows
 
 
-def link_health(cis):
-    """{ci_pk: healthy|warning|critical|unknown} from the latest status of linked checks and domains."""
+def link_health(cis, user=None):
+    """{ci_pk: healthy|warning|critical|unknown} from the latest status of linked checks and domains.
+
+    With a user, only links on that user's sites count (a shared CI must not turn red because of a check the user
+    cannot see); without one (jobs, server-side summaries) every link counts."""
     cis = list(cis)
     ids = [c.pk for c in cis]
     out = {pk: [] for pk in ids}
     if not ids:
         return {}
-    Through = ConfigurationItem.url_checks.through
-    for ci_id, status, enabled in Through.objects.filter(configurationitem_id__in=ids).values_list(
+    links = ConfigurationItem.url_checks.through.objects.filter(configurationitem_id__in=ids)
+    dlinks = ConfigurationItem.domains.through.objects.filter(configurationitem_id__in=ids)
+    if user is not None:
+        from core.access import visible_sites
+        sites = visible_sites(user)
+        if sites is not None:
+            allowed = list(sites) + ["All Sites", ""]
+            links = links.filter(urlcheck__site__in=allowed)
+            dlinks = dlinks.filter(domain__site_key__in=allowed)
+    for ci_id, status, enabled in links.values_list(
             "configurationitem_id", "urlcheck__last_status", "urlcheck__enabled"):
         if enabled:
             out[ci_id].append(URL_STATE.get(status))
-    DThrough = ConfigurationItem.domains.through
-    for ci_id, status, active, mon, ssl in DThrough.objects.filter(configurationitem_id__in=ids).values_list(
+    for ci_id, status, active, mon, ssl in dlinks.values_list(
             "configurationitem_id", "domain__status", "domain__is_active", "domain__monitor_enabled", "domain__ssl_status"):
         if active and mon:
             s = DOMAIN_STATE.get(status)

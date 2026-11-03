@@ -456,24 +456,37 @@ def site_edit(request, pk):
     fields = SiteForm.Meta.fields
     before = {f: getattr(site, f) for f in fields}
     form = SiteForm(request.POST or None, instance=site)
+    rename_preview = None
     if request.method == "POST" and form.is_valid():
-        site = form.save()
-        changed = {f: getattr(site, f) for f in fields if getattr(site, f) != before[f]}
-        if changed:
-            audit(request, "update", site, **{f: str(v) for f, v in changed.items()},
-                  **({"previous_name": old_name} if "name" in changed else {}))
-            messages.success(request, f"Saved site “{site.name}”.")
-            if "name" in changed:
-                u = services.site_usage().get(old_name, {})
-                if u.get("urls") or u.get("domains"):
-                    messages.warning(request, f"{u.get('urls', 0)} URL check(s) and {u.get('domains', 0)} domain(s) still "
-                                              f"refer to “{old_name}”; update them in their modules.")
+        renaming = form.cleaned_data["name"] != old_name
+        refs = services.site_references(old_name) if renaming else []
+        if refs and not request.POST.get("confirm_rename"):
+            # Records in other modules store the site name: show what the rename will update and ask first.
+            rename_preview = {"old": old_name, "new": form.cleaned_data["name"], "refs": refs,
+                              "total": sum(n for _label, n in refs)}
         else:
-            messages.info(request, "No changes to save.")
-        return redirect("administration:sites")
-    u = services.site_usage().get(site.name, {})
+            updated = []
+            with transaction.atomic():
+                site = form.save()
+                if renaming:
+                    updated = services.rename_site_references(old_name, site.name)
+            changed = {f: getattr(site, f) for f in fields if getattr(site, f) != before[f]}
+            if changed:
+                extra = {}
+                if "name" in changed:
+                    extra = {"previous_name": old_name, "renamed_records": {label: n for label, n in updated}}
+                audit(request, "update", site, **{f: str(v) for f, v in changed.items()}, **extra)
+                messages.success(request, f"Saved site “{site.name}”.")
+                if updated:
+                    messages.info(request, f"Renamed “{old_name}” to “{site.name}” in "
+                                           + ", ".join(f"{n} {label.lower()}" for label, n in updated) + ".")
+            else:
+                messages.info(request, "No changes to save.")
+            return redirect("administration:sites")
+    site.name = old_name   # form validation copied the posted name onto the instance; it is not saved
+    u = services.site_usage().get(old_name, {})
     ctx = {"form": form, "site": site, "n_urls": u.get("urls", 0), "n_domains": u.get("domains", 0),
-           "members": _memberships_qs().filter(site=site).select_related("user")}
+           "members": _memberships_qs().filter(site=site).select_related("user"), "rename_preview": rename_preview}
     return render(request, "administration/site_form.html", ctx)
 
 

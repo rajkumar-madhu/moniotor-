@@ -16,7 +16,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_http_methods, require_POST
 
 from core import prometheus
-from core.access import can, require, visible_sites
+from core.access import can, can_on, require, visible_sites
 from core.audit import audit
 
 from . import discovery, jobs, metrics, services
@@ -403,8 +403,10 @@ def discovery_view(request):
         form = DiscoveryForm(request.POST)
         if form.is_valid():
             site = form.cleaned_data["site"]
-            if site and not services.can_manage(request.user, "operate", site):
-                form.add_error("site", "You cannot manage devices on this site.")
+            # a run without a site (or "All Sites") scans for every site: it needs operate on every site
+            if not can_on(request.user, "operate", site or None):
+                form.add_error("site", "You cannot manage devices on this site." if site else
+                               "Choose one of your sites: a discovery for all sites needs the operator role on every site.")
             elif DiscoveryRun.objects.filter(tenant_key=settings.LINKEDEYE_TENANT, status__in=["queued", "running"]).count() >= 3:
                 form.add_error(None, "Three discovery runs are already in progress. Wait for one to finish.")
             else:

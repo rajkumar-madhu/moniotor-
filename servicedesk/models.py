@@ -244,3 +244,18 @@ class TimelineEntry(models.Model):
         if self.author_id:
             return self.author.get_full_name() or self.author.get_username()
         return self.author_name or "system"
+
+
+class IncidentKey(models.Model):
+    """Lock row per alert fingerprint: services.open_incident takes it with SELECT … FOR UPDATE so concurrent alerts
+    with one fingerprint (two scheduler passes, Alertmanager HA peers) open one incident, not two. A plain unique
+    row rather than a partial unique index on open tickets, so it works the same on PostgreSQL, MySQL and SQLite."""
+    tenant_key = models.CharField(max_length=100, default=_tenant)
+    fingerprint = models.CharField(max_length=200)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["tenant_key", "fingerprint"], name="sd_incidentkey_unique")]
+
+    def __str__(self):
+        return f"{self.tenant_key}:{self.fingerprint}"

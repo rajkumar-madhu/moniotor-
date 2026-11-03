@@ -86,11 +86,17 @@ def _is_number(text):
         return False
 
 
-def _execution_filters(g, qs):
-    """Filter executions by the query parameters in `g` (a QueryDict)."""
+def _execution_filters(g, qs, user=None):
+    """Filter executions by the query parameters in `g` (a QueryDict).
+
+    Webhook URLs (secret in the path) are only searchable by users who operate every site; anyone else could
+    otherwise recover a hidden URL one character at a time through the search box."""
     q = g.get("q", "").strip()
     if q:
-        qs = qs.filter(Q(trigger__icontains=q) | Q(error__icontains=q) | Q(triggered_by__icontains=q)
+        trig = Q(trigger__icontains=q)
+        if not services.can_see_secrets(user, "All Sites"):
+            trig &= ~Q(kind="webhook")
+        qs = qs.filter(trig | Q(error__icontains=q) | Q(triggered_by__icontains=q)
                        | Q(rule__name__icontains=q) | Q(result_label__icontains=q))
     if g.get("status") in dict(Execution.STATUSES):
         qs = qs.filter(status=g["status"])
@@ -242,7 +248,7 @@ def runbook_delete(request, pk):
 @require("view")
 def stackstorm(request, form=None):
     scope = services.executions_for(request.user).filter(kind="stackstorm")
-    qs = _execution_filters(request.GET, scope).select_related("rule")
+    qs = _execution_filters(request.GET, scope, request.user).select_related("rule")
     page = Paginator(qs, _per_page(request)).get_page(request.GET.get("page"))
     initial = {}
     src = request.GET.get("from", "")
@@ -305,7 +311,7 @@ def execution_detail(request, pk):
         from core.models import Event
         event = Event.objects.filter(pk=ex.event_id).first()
     return render(request, "automation/execution_detail.html", {
-        **_perms(request), "ex": ex, "event": event,
+        **_perms(request), "ex": ex, "event": event, "trigger_display": services.execution_trigger(ex, request.user),
         "can_rerun": services.can_manage(request.user, "operate", ex.site)
                      and (ex.kind == "webhook" or ex.kind == "stackstorm" and services.stackstorm_configured()),
         "can_retrigger": services.can_manage(request.user, "operate", ex.site),
@@ -337,11 +343,11 @@ def execution_rerun(request, pk):
 
 @require("view")
 def execution_export(request):
-    qs = _execution_filters(request.GET, services.executions_for(request.user)).select_related("rule")[:EXPORT_LIMIT]
+    qs = _execution_filters(request.GET, services.executions_for(request.user), request.user).select_related("rule")[:EXPORT_LIMIT]
     return _csv("automation-executions.csv",
                 ["id", "kind", "trigger", "status", "http_status", "started_at", "finished_at", "duration_ms", "triggered_by",
                  "rule", "site", "result", "error"],
-                ([e.pk, e.kind, e.trigger, e.status, e.http_status, e.started_at.isoformat(),
+                ([e.pk, e.kind, services.execution_trigger(e, request.user), e.status, e.http_status, e.started_at.isoformat(),
                   e.finished_at.isoformat() if e.finished_at else "", round(e.duration_ms) if e.duration_ms is not None else "",
                   e.triggered_by, e.rule.name if e.rule else "", e.site, e.result_label, e.error] for e in qs))
 
@@ -359,7 +365,7 @@ def workflows(request):
     execs = services.executions_for(request.user).filter(rule__isnull=False)
     log_get = request.GET.copy()
     log_get.pop("q", None)   # the search box filters the rules table only
-    page = Paginator(_execution_filters(log_get, execs).select_related("rule"), _per_page(request)).get_page(request.GET.get("page"))
+    page = Paginator(_execution_filters(log_get, execs, request.user).select_related("rule"), _per_page(request)).get_page(request.GET.get("page"))
     stats = _exec_stats(execs)
     since = timezone.now() - timedelta(hours=24)
     return render(request, "automation/workflows.html", {
@@ -431,8 +437,9 @@ def _sample_initial(request, rule):
 def _rule_detail_context(request, rule, test_form=None, result=None):
     from core.access import scope_by_site
     from core.models import Event
-    execs = services.executions_for(request.user).filter(rule=rule)
+    execs = services.executions_for(request.user).filter(rule=rule).select_related("rule")
     page = Paginator(execs, _per_page(request, 10)).get_page(request.GET.get("page"))
+    can_edit = services.can_manage(request.user, "operate", rule.site)
     recent = scope_by_site(Event.objects.filter(tenant_key=services.tenant()).exclude(source="automation"), request.user)
     if rule.sources:
         recent = recent.filter(source__in=rule.sources)
@@ -440,8 +447,9 @@ def _rule_detail_context(request, rule, test_form=None, result=None):
         **_perms(request), "rule": rule, "page": page, "query": _query(request, "event"),
         "test_form": test_form or RuleTestForm(initial=_sample_initial(request, rule)), "result": result,
         "recent_events": recent[:8], "stats": _exec_stats(execs, hours=24 * 7),
-        "can_edit": services.can_manage(request.user, "operate", rule.site),
-        "can_delete": services.can_manage(request.user, "admin", rule.site),
+        "can_edit": can_edit, "can_delete": services.can_manage(request.user, "admin", rule.site),
+        "webhook_url": services.rule_target(rule, request.user) if rule.action == "webhook" else "",
+        "action_summary": rule.action_summary(full=can_edit),
     }
 
 

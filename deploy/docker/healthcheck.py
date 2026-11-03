@@ -17,11 +17,14 @@ web
     /healthz is public and checks the database connection.
 
 probes
-    The administration app's `administration.heartbeat` job (run by run_probes every 60 s) stores
-    Heartbeat(key="scheduler") with this container's hostname. Healthy when that row was written by this
-    host less than HEALTHCHECK_MAX_HEARTBEAT_AGE seconds ago (default 300). This catches a scheduler loop that
-    hangs as well as one that died. If the administration app is not installed, the check falls back to
-    "the database is reachable".
+    run_probes' heartbeat thread stores Heartbeat(key="scheduler") with this container's hostname every
+    LINKEDEYE_SCHEDULER_HEARTBEAT_SECONDS (default 30), independent of how long a pass takes; its data carries
+    `loop_at`, when the main loop last finished a pass. Healthy when that row was written by this host less than
+    HEALTHCHECK_MAX_HEARTBEAT_AGE seconds ago (default 300) and `loop_at` is younger than
+    HEALTHCHECK_MAX_PASS_AGE seconds (default 900). This catches a scheduler that died, one whose heartbeat
+    thread stopped and one whose loop hangs. A standby scheduler (another instance holds the scheduler lease)
+    is healthy while its own Heartbeat(key="scheduler-standby:<hostname>") is fresh. If the administration app
+    is not installed, the check falls back to "the database is reachable".
 """
 import http.client
 import os
@@ -89,14 +92,63 @@ def check_web(timeout=4.0):
     return True, f"web: ok {body.strip()[:80]}"
 
 
-def check_probes(max_age=None):
-    if max_age is None:
+def _env_int(name, default):
+    try:
+        return int(os.environ.get(name, str(default)))
+    except ValueError:
+        return default
+
+
+def _age(now, value):
+    """Seconds since `value` (a datetime or an ISO string), or None."""
+    if not value:
+        return None
+    if isinstance(value, str):
+        from datetime import datetime
         try:
-            max_age = int(os.environ.get("HEALTHCHECK_MAX_HEARTBEAT_AGE", "300"))
+            value = datetime.fromisoformat(value)
         except ValueError:
-            max_age = 300
+            return None
+    try:
+        return (now - value).total_seconds()
+    except TypeError:
+        return None
+
+
+def evaluate_probes(beat, standby, me, now, max_age, max_pass_age):
+    """(ok, message) from the scheduler heartbeat row and this host's standby row (dicts with seen_at, host, data)."""
+    if not beat and not standby:
+        return False, "probes: no scheduler heartbeat recorded yet"
+    if beat and beat["host"] and beat["host"] != me:
+        age = _age(now, beat["seen_at"])
+        sb_age = _age(now, standby["seen_at"]) if standby else None
+        if sb_age is not None and sb_age <= max_age:
+            return True, f"probes: standby, {beat['host']!r} holds the scheduler lease (standby heartbeat {sb_age:.0f}s ago)"
+        return False, (f"probes: last heartbeat came from {beat['host']!r}, not this container ({me!r}), "
+                       f"{age:.0f}s ago, and this container has no fresh standby heartbeat")
+    if not beat:
+        sb_age = _age(now, standby["seen_at"])
+        if sb_age <= max_age:
+            return True, f"probes: standby (heartbeat {sb_age:.0f}s ago)"
+        return False, f"probes: last standby heartbeat {sb_age:.0f}s ago (limit {max_age}s)"
+    age = _age(now, beat["seen_at"])
+    if age > max_age:
+        return False, f"probes: last heartbeat {age:.0f}s ago (limit {max_age}s); run_probes is stalled"
+    loop_age = _age(now, (beat.get("data") or {}).get("loop_at"))
+    if loop_age is not None and loop_age > max_pass_age:
+        return False, (f"probes: heartbeat {age:.0f}s ago but the scheduler loop last finished a pass {loop_age:.0f}s ago "
+                       f"(limit {max_pass_age}s); a pass is hung")
+    return True, f"probes: heartbeat {age:.0f}s ago"
+
+
+def check_probes(max_age=None, max_pass_age=None):
+    if max_age is None:
+        max_age = _env_int("HEALTHCHECK_MAX_HEARTBEAT_AGE", 300)
+    if max_pass_age is None:
+        max_pass_age = _env_int("HEALTHCHECK_MAX_PASS_AGE", 900)
     sys.path.insert(0, str(BASE_DIR))
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "linkedeye.settings")
+    me = socket.gethostname()[:255]
     try:
         import django
         django.setup()
@@ -109,19 +161,13 @@ def check_probes(max_age=None):
             Heartbeat = apps.get_model("administration", "Heartbeat")
         except LookupError:
             return True, "probes: database reachable (administration app absent, no heartbeat to check)"
-        beat = Heartbeat.objects.filter(key="scheduler").values("seen_at", "host").first()
+        fields = ("seen_at", "host", "data")
+        beat = Heartbeat.objects.filter(key="scheduler").values(*fields).first()
+        standby = Heartbeat.objects.filter(key=("scheduler-standby:" + socket.gethostname())[:60]).values(*fields).first()
+        now = timezone.now()
     except Exception as exc:  # any setup/database error means unhealthy, never a traceback
         return False, f"probes: {type(exc).__name__}: {str(exc)[:200]}"
-    if not beat:
-        return False, "probes: no scheduler heartbeat recorded yet"
-    age = (timezone.now() - beat["seen_at"]).total_seconds()
-    me = socket.gethostname()[:255]
-    if beat["host"] and beat["host"] != me:
-        return False, (f"probes: last heartbeat came from {beat['host']!r}, not this container ({me!r}), "
-                       f"{age:.0f}s ago; is a second scheduler running?")
-    if age > max_age:
-        return False, f"probes: last heartbeat {age:.0f}s ago (limit {max_age}s); run_probes is stalled"
-    return True, f"probes: heartbeat {age:.0f}s ago"
+    return evaluate_probes(beat, standby, me, now, max_age, max_pass_age)
 
 
 def check_preflight(environ=None):

@@ -35,15 +35,33 @@ def unsafe(value):
     return value
 
 
-def write_cis(fileobj, cis):
+def _visible_link_pks(user):
+    """(url check pks, domain pks) the user may see, or (None, None) when every link is visible."""
+    from core.access import visible_sites
+    if user is None or visible_sites(user) is None:
+        return None, None
+    from django.conf import settings
+    from domainmonitor.models import Domain
+    from urlchecker.models import UrlCheck
+    tenant = settings.LINKEDEYE_TENANT
+    return (set(link_queryset(UrlCheck.objects.filter(tenant_key=tenant), user, "site").values_list("pk", flat=True)),
+            set(link_queryset(Domain.objects.filter(tenant_key=tenant), user, "site_key").values_list("pk", flat=True)))
+
+
+def write_cis(fileobj, cis, user=None):
+    """CSV of the CIs. With a user, the url_checks/domains columns list only links on that user's sites; an
+    import of the file keeps the other links (CIForm._save_m2m), so a round trip loses nothing."""
+    checks_ok, domains_ok = _visible_link_pks(user)
     w = csv.writer(fileobj)
     w.writerow(COLUMNS)
     for c in cis:
+        url_checks = [u for u in c.url_checks.all() if checks_ok is None or u.pk in checks_ok]
+        domains = [d for d in c.domains.all() if domains_ok is None or d.pk in domains_ok]
         w.writerow([safe(x) for x in [
             c.name, c.ci_type, c.status, c.environment, c.site, c.owner, c.business_domain, c.ip_address or "", c.vendor,
             c.model, c.serial, c.asset_tag, c.purchase_date or "", c.warranty_end or "", c.eol_date or "",
             "" if c.cost is None else c.cost, c.prometheus_instance,
-            ";".join(u.name for u in c.url_checks.all()), ";".join(d.hostname for d in c.domains.all()), c.description]])
+            ";".join(u.name for u in url_checks), ";".join(d.hostname for d in domains), c.description]])
 
 
 def template_csv():

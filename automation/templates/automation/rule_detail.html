@@ -46,7 +46,7 @@
       {% elif rule.action == "stackstorm" %}
         <dt>Trigger</dt><dd class="mono">{{ rule.params.trigger|default:"–" }}</dd>
       {% elif rule.action == "webhook" %}
-        <dt>URL</dt><dd class="mono">{{ rule.params.url|default:"–" }}</dd>
+        <dt>URL</dt><dd class="mono">{{ webhook_url|default:"–" }}{% if webhook_url and not can_edit %} <small class="t-mute">(path hidden: it may contain the webhook's secret)</small>{% endif %}</dd>
       {% endif %}
       {% if rule.runbook or rule.action == "link_runbook" %}<dt>Runbook</dt><dd>{% if rule.runbook %}<a href="{% url 'automation:runbook_detail' rule.runbook_id %}">{{ rule.runbook.title }}</a>{% else %}<span class="t-crit">Missing</span>{% endif %}</dd>{% endif %}
       {% if rule.params.payload %}<dt>Extra payload</dt><dd><pre class="log small">{{ rule.params.payload|pretty_json }}</pre></dd>{% endif %}
@@ -77,7 +77,7 @@
     <div class="test-result {% if result.matched %}ok{% else %}crit{% endif %}" role="status">
       <h3>{% if result.matched %}{% ficon "check-circle" 18 %} The event matches this rule{% else %}{% ficon "x-circle" 18 %} The event does not match{% endif %}</h3>
       <ul>{% for c, ok, d in result.checks %}<li class="{% if ok %}t-ok{% else %}t-crit{% endif %}">{% if ok %}{% icon "check" 14 %}{% else %}{% icon "x" 14 %}{% endif %}<b>{{ c }}</b> {{ d }}</li>{% endfor %}</ul>
-      {% if result.matched %}<p>{% if result.ignored %}But events from <b>automation</b> are always ignored by rules.{% elif not result.enabled %}The rule is <b>disabled</b>, so real events are not evaluated until you enable it.{% elif result.cooldown %}A real event with this fingerprint would be <b>skipped</b>: the rule already fired for it within the last {{ rule.cooldown_minutes|minutes }}.{% else %}A real event like this would run: <b>{{ rule.action_summary }}</b>.{% endif %}</p>{% endif %}
+      {% if result.matched %}<p>{% if result.ignored %}But events from <b>automation</b> are always ignored by rules.{% elif not result.enabled %}The rule is <b>disabled</b>, so real events are not evaluated until you enable it.{% elif result.cooldown %}A real event with this fingerprint would be <b>skipped</b>: the rule already fired for it within the last {{ rule.cooldown_minutes|minutes }}.{% else %}A real event like this would run: <b>{{ action_summary }}</b>.{% endif %}</p>{% endif %}
     </div>
     {% endif %}
   </div>

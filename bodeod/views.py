@@ -13,7 +13,7 @@ from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from core.access import can, require, scope_by_site
+from core.access import can, can_on, require, scope_by_site
 from core.audit import audit
 from core.models import Event
 
@@ -629,14 +629,23 @@ def _months(year, holidays):
     return months
 
 
+def _can_edit_holidays(user):
+    """The trading calendar is tenant-wide (a holiday cancels BOD/EOD on every site): changing it needs the
+    administrator role on every site, for adding and uploading as for deleting."""
+    return can_on(user, "admin", None)
+
+
+HOLIDAYS_DENIED = "Only administrators of all sites can change the holiday calendar: it applies to every site."
+
+
 @require_http_methods(["GET", "POST"])
 def holidays(request):
     year = _year(request)
-    can_configure = can(request.user, "configure")
+    can_edit = _can_edit_holidays(request.user)
     form = HolidayForm(initial={"exchange": "NSE"})
     if request.method == "POST":
-        if not can_configure:
-            return _deny(request, "Only operators and administrators can add holidays.", reverse("bodeod:holidays"))
+        if not can_edit:
+            return _deny(request, HOLIDAYS_DENIED, reverse("bodeod:holidays"))
         form = HolidayForm(request.POST)
         if form.is_valid():
             h = form.save(commit=False)
@@ -654,13 +663,15 @@ def holidays(request):
            "k": {"total": len(hs), "weekday": len(weekdays), "examples": sum(1 for h in hs if h.source == "example"),
                  "trading_closed": len({h.date for h in weekdays if h.exchange in services.TRADING_EXCHANGES})},
            "banner": services.trading_banner(), "phases": services.PHASES, "query": _query(request), "weekday_names": ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"],
-           **_perms(request)}
+           **_perms(request), "can_configure": can_edit, "can_admin": can_edit}
     return render(request, "bodeod/holidays.html", ctx, status=400 if request.method == "POST" else 200)
 
 
 @require_POST
 @require("configure")
 def holiday_upload(request):
+    if not _can_edit_holidays(request.user):
+        return _deny(request, HOLIDAYS_DENIED, reverse("bodeod:holidays"))
     form = HolidayUploadForm(request.POST, request.FILES)
     if not form.is_valid():
         for errs in form.errors.values():
@@ -685,6 +696,8 @@ def holiday_upload(request):
 @require_POST
 @require("admin")
 def holiday_delete(request, pk):
+    if not _can_edit_holidays(request.user):
+        return _deny(request, HOLIDAYS_DENIED, reverse("bodeod:holidays"))
     h = get_object_or_404(Holiday, pk=pk, tenant_key=services.tenant())
     audit(request, "delete", h, exchange=h.exchange, date=h.date.isoformat(), description=h.description)
     year = h.date.year

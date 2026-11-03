@@ -11,13 +11,13 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import IntegrityError
-from django.db.models import Count, Q
+from django.db.models import Count, F, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST
 
-from core.access import can, require, scope_by_site
+from core.access import can, can_on, require, scope_by_site
 from core.audit import audit
 from probes import checks, runner
 from urlchecker.models import UrlCheck
@@ -40,19 +40,32 @@ UP_RANGES = {"7": ("Last 7 days", 7, 1), "14": ("Last 14 days", 14, 2), "30": ("
 
 
 GLOBAL_SITES = ("", "All Sites")
+RUN_ALL_LIMIT = 50   # domains checked synchronously by one "Check all now" click
 CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
 
+# Two rules, on purpose (product decision):
+#   * RUNNING a check or a security scan (can_operate_on) only reads from the target and records its result.
+#     A site domain needs operate on that site; an "All Sites" domain may be checked by an operator of ANY site,
+#     because operators need to re-check shared domains during incidents.
+#   * CHANGING a domain (can_change_domain: create, edit, monitor settings, (de)activate, move to another site)
+#     needs operate on the domain's site, and for "All Sites" domains operate on EVERY site (core.access.can_on),
+#     so a one-site operator cannot reconfigure or switch off monitoring that every site relies on.
 def can_operate_on(user, site_key):
-    """Operate permission for one domain's site. 'All Sites' domains need operate on any site (as Service Desk does);
-    a site domain needs operate on that site, so an operator of site A who only views site B cannot change B."""
+    """May the user RUN checks/scans on a domain of this site (see the rules above)."""
     return can(user, "operate", None if (site_key or "") in GLOBAL_SITES else site_key)
 
 
+def can_change_domain(user, site_key):
+    """May the user CHANGE a domain of this site (see the rules above)."""
+    return can_on(user, "operate", site_key)
+
+
 def mark_operable(user, domains):
-    """Set d.can_op on each domain so templates show per-row actions only where the user may use them."""
+    """Set d.can_op (run checks) and d.can_edit (change settings) so templates show only the usable actions."""
     for d in domains:
         d.can_op = can_operate_on(user, d.site_key)
+        d.can_edit = can_change_domain(user, d.site_key)
     return domains
 
 
@@ -289,7 +302,7 @@ def domain_list(request):
     editing = None
     if request.GET.get("edit"):
         editing = get_object_or_404(scope, pk=edit_pk or 0)
-        if not can_operate_on(request.user, editing.site_key):
+        if not can_change_domain(request.user, editing.site_key):
             editing = None
     if request.method == "POST":
         if not can(request.user, "operate"):
@@ -299,12 +312,15 @@ def domain_list(request):
         if request.POST.get("pk"):
             # an unknown or out-of-scope pk must not silently turn the edit into a new domain
             editing = get_object_or_404(scope, pk=_int(request.POST.get("pk")) or 0)
-            if not can_operate_on(request.user, editing.site_key):
-                messages.error(request, f"You can only view domains of {editing.site_key}.")
+            if not can_change_domain(request.user, editing.site_key):
+                messages.error(request, f"You cannot change domains of {editing.site_key}"
+                               + (" (that needs operator rights on every site)." if editing.site_key in GLOBAL_SITES
+                                  else "."))
                 return redirect(f"{request.path}?selected={editing.pk}")
         form = DomainForm(request.POST, instance=editing)
-        if form.is_valid() and not can_operate_on(request.user, form.cleaned_data["site_key"]):
-            form.add_error("site_key", "You do not have operator rights on this site.")
+        if form.is_valid() and not can_change_domain(request.user, form.cleaned_data["site_key"]):
+            form.add_error("site_key", "You do not have operator rights on this site." if form.cleaned_data["site_key"]
+                           not in GLOBAL_SITES else "\"All Sites\" domains need operator rights on every site.")
         if form.is_valid():
             obj = form.save(commit=False)
             obj.tenant_key = settings.LINKEDEYE_TENANT
@@ -425,8 +441,9 @@ def export_csv(request):
 @require("operate")
 def deactivate(request, pk):
     d = get_object_or_404(_scope(request), pk=pk)
-    if not can_operate_on(request.user, d.site_key):
-        messages.error(request, f"You do not have operator rights on {d.site_key}.")
+    if not can_change_domain(request.user, d.site_key):
+        messages.error(request, f"You do not have operator rights on {d.site_key}"
+                       + (" (all sites)." if d.site_key in GLOBAL_SITES else "."))
         return redirect(f"/domains/list/?selected={d.pk}")
     d.is_active = not d.is_active
     d.save(update_fields=["is_active", "updated_at"])
@@ -467,15 +484,40 @@ def action(request, pk, kind):
 @require_POST
 @require("operate")
 def run_all(request):
-    items = [d for d in _scope(request).filter(is_active=True, monitor_enabled=True)
-             if can_operate_on(request.user, d.site_key)]
+    """Check at most RUN_ALL_LIMIT domains in this request (the ones checked longest ago first, never-checked
+    ones before all others); the rest stay with the scheduler, so one click cannot tie up a web worker."""
+    qs = (_scope(request).filter(is_active=True, monitor_enabled=True)
+          .order_by(F("last_checked_at").asc(nulls_first=True), "pk"))
+    operable = [d for d in qs if can_operate_on(request.user, d.site_key)]
+    items, deferred = operable[:RUN_ALL_LIMIT], len(operable) - min(len(operable), RUN_ALL_LIMIT)
     runner.run_domain_checks(items)
-    audit(request, "run", None, object_type="domainmonitor.domain", check="all", count=len(items))
-    return JsonResponse({"checked": len(items), "summary": f"Checked {len(items)} domain(s)"})
+    audit(request, "run", None, object_type="domainmonitor.domain", check="all", count=len(items), deferred=deferred)
+    summary = f"Checked {len(items)} domain(s) now."
+    if deferred:
+        summary += (f" {deferred} more were not checked now (at most {RUN_ALL_LIMIT} per run, the ones checked longest"
+                    f" ago first); the scheduler checks them at their normal interval.")
+    (messages.warning if deferred else messages.success)(request, summary)
+    return JsonResponse({"checked": len(items), "deferred": deferred, "limit": RUN_ALL_LIMIT, "summary": summary})
 
 
 # ------------------------------------------------------------------ JSON API (contract from the integration patch)
-# SECURITY: staff-only until existing tenant RBAC and site membership are mapped.
+# Staff only, and inside that the same tenant and site rules as the console: the tenant is always this
+# deployment's (LINKEDEYE_TENANT; a different `tenant` value is refused), reads are limited to the caller's
+# sites and every write needs operate on the domain's site ("All Sites" domains: operate on every site).
+
+def _api_tenant(value):
+    """(tenant, None) for this deployment's tenant; (None, 400 response) when it is missing or another tenant."""
+    value = str(value if value is not None else "").strip()
+    if not value:
+        return None, JsonResponse({"error": "tenant required"}, status=400)
+    if value != settings.LINKEDEYE_TENANT:
+        return None, JsonResponse({"error": "unknown tenant"}, status=400)
+    return value, None
+
+
+def _api_denied(site):
+    return JsonResponse({"error": f"'operate' permission required on {site or 'All Sites'}"}, status=403)
+
 
 @staff_member_required
 def page(request):
@@ -486,10 +528,10 @@ def page(request):
 @require_http_methods(["GET", "POST"])
 def api_domains(request):
     if request.method == "GET":
-        tenant = request.GET.get("tenant", "").strip()
-        if not tenant:
-            return JsonResponse({"error": "tenant query parameter required"}, status=400)
-        rows = Domain.objects.filter(tenant_key=tenant)
+        tenant, err = _api_tenant(request.GET.get("tenant"))
+        if err:
+            return err
+        rows = _scope(request).order_by("hostname")
         return JsonResponse({"results": [{
             "id": x.id, "hostname": x.hostname, "site": x.site_key,
             "type": x.domain_type, "active": x.is_active,
@@ -501,11 +543,15 @@ def api_domains(request):
         } for x in rows[:500]]})
     try:
         data = json.loads(request.body)
-        tenant = str(data["tenant"]).strip()
+        tenant, err = _api_tenant(data["tenant"])
+        if err:
+            return err
         site = str(data["site"]).strip()
         hostname = str(data["hostname"]).strip().lower().rstrip(".")
-        if not tenant or not site:
+        if not site:
             return JsonResponse({"error": "tenant and site are required"}, status=400)
+        if not can_change_domain(request.user, site):
+            return _api_denied(site)
         obj = Domain(tenant_key=tenant, site_key=site, hostname=hostname,
                      domain_type=str(data.get("type", "Production"))[:32],
                      description=str(data.get("description", ""))[:5000])
@@ -520,13 +566,14 @@ def api_domains(request):
 @staff_member_required
 @require_http_methods(["PATCH", "DELETE"])
 def api_detail(request, pk):
-    tenant = request.GET.get("tenant", "").strip()
-    if not tenant:
-        return JsonResponse({"error": "tenant required"}, status=400)
-    try:
-        obj = Domain.objects.get(pk=pk, tenant_key=tenant)
-    except Domain.DoesNotExist:
+    _tenant, err = _api_tenant(request.GET.get("tenant"))
+    if err:
+        return err
+    obj = _scope(request).filter(pk=pk).first()
+    if obj is None:
         return JsonResponse({"error": "Not found"}, status=404)
+    if not can_change_domain(request.user, obj.site_key):
+        return _api_denied(obj.site_key)
     if request.method == "DELETE":
         obj.is_active = False  # non-destructive deactivation
         obj.save(update_fields=["is_active", "updated_at"])
@@ -534,7 +581,16 @@ def api_detail(request, pk):
         return JsonResponse({"status": "deactivated"})
     try:
         data = json.loads(request.body)
+        if not isinstance(data, dict):
+            raise ValueError("a JSON object is required")
         allowed = {"site": "site_key", "type": "domain_type", "description": "description", "active": "is_active"}
+        if "site" in data:
+            new_site = str(data["site"]).strip()
+            if not new_site:
+                raise ValueError("site cannot be blank")
+            if not can_change_domain(request.user, new_site):   # moving a domain changes both sites
+                return _api_denied(new_site)
+            data["site"] = new_site
         for key, field in allowed.items():
             if key in data:
                 setattr(obj, field, data[key])

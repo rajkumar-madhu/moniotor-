@@ -77,3 +77,18 @@ def get_item(d, key):
         return d.get(key)
     except AttributeError:
         return None
+
+
+@register.filter
+def redact_url(url):
+    """scheme://host/… for display (see automation.services.redact_url)."""
+    from ..services import redact_url as _redact
+    return _redact(url)
+
+
+@register.simple_tag(takes_context=True)
+def exec_trigger(context, ex):
+    """An execution's trigger for the current user: webhook URLs in full only for operators of its site."""
+    from ..services import execution_trigger
+    request = context.get("request")
+    return execution_trigger(ex, getattr(request, "user", None))

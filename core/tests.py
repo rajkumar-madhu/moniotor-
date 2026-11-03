@@ -69,9 +69,11 @@ class EventAuditTests(TestCase):
         a = AuditEvent.objects.get()
         self.assertEqual((a.actor_name, a.source_ip, a.details), ("a", "10.0.0.5", {"name": "x"}))
 
-    @override_settings(NOTIFY_WEBHOOK_URLS=["http://hook.example/x"], NOTIFY_EMAILS=[], INCIDENT_AUTO_CREATE=False)
+    @override_settings(NOTIFY_WEBHOOK_URLS=["http://hook.example/x"], NOTIFY_EMAILS=[], INCIDENT_AUTO_CREATE=False,
+                       NOTIFY_ASYNC=False)
     def test_webhook_notification_for_critical(self):
-        with mock.patch("core.notify._post") as post:
+        # notifications are delivered after the event's transaction commits
+        with mock.patch("core.notify._post") as post, self.captureOnCommitCallbacks(execute=True):
             emit("test", "Down", severity="critical")
             emit("test", "Just info", severity="info")
         self.assertEqual(post.call_count, 1)
@@ -125,7 +127,7 @@ class OverviewTests(TestCase):
         self.assertContains(resp, "core-sw-01")
         self.assertContains(resp, "Oracle (db.example.com:1521)")
         self.assertNotContains(resp, "dr-fw-01")
-        self.assertContains(resp, "Devices up")
+        self.assertContains(resp, ">Devices</a></th>")  # site matrix column replaced the "Devices up" tile
 
     def test_recent_events_render_in_one_wrapping_cell(self):
         # The events panel is a narrow column: the time sits on the source line and the title cell may wrap,

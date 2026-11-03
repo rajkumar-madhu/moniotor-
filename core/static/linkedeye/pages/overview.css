@@ -1,0 +1,87 @@
+/* Operations overview. Layout: a header line with four figures, then the market-day strip (the one bold
+   element: IST 06:00–24:00 with phase bands, BOD/EOD windows and today's events), then a site matrix, then the
+   attention queue beside the event stream. Colours come from app.css tokens only. */
+.ov-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px 32px; margin-bottom: 16px; }
+.ov-title h1 { font: 600 30px/1.1 var(--serif); letter-spacing: -.015em; }
+.ov-title p { margin: 6px 0 0; color: var(--muted); }
+.ov-figs { display: flex; flex-wrap: wrap; gap: 8px 32px; margin: 0; }
+.ov-fig { display: grid; grid-template-rows: auto auto auto; min-width: 7.5rem; }
+.ov-fig dt { color: var(--muted); font-size: 12.5px; }
+.ov-fig dd { margin: 0; }
+.ov-fig dd:nth-of-type(1) { font: 600 30px/1.15 var(--font); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.ov-fig dd a { color: inherit; }
+.ov-fig.is-crit dd:nth-of-type(1) { color: var(--crit-ink); }
+.ov-fig.is-warn dd:nth-of-type(1) { color: var(--warn-ink); }
+.ov-fig-note { color: var(--muted); font-size: 12.5px; }
+
+/* ---- market-day strip ---- */
+.ov-day { margin-bottom: 16px; }
+.ov-day-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 14px; }
+.ov-day-head h2 { font: 600 19px/1.25 var(--serif); }
+.ov-day-head p { margin: 0; color: var(--muted); }
+.ov-link { margin-left: auto; font-weight: 500; }
+.ov-strip-scroll { overflow-x: auto; padding-bottom: 2px; }
+.ov-strip { --lane-h: 30px; position: relative; min-width: 760px; padding-top: 22px;
+  display: grid; grid-template-rows: calc(var(--lanes) * var(--lane-h)) 46px 20px 18px; row-gap: 6px; }
+.ov-lanes, .ov-track, .ov-marks, .ov-hours { position: relative; }
+.ov-win { position: absolute; top: calc(var(--lane) * var(--lane-h)); height: calc(var(--lane-h) - 6px);
+  min-width: 9%; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 7px;
+  font-size: 12.5px; white-space: nowrap; overflow: hidden; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink-2); }
+.ov-win:hover { text-decoration: none; border-color: var(--ink-2); }
+.ov-win b { font-family: var(--mono); font-weight: 600; letter-spacing: .02em; }
+.ov-win.st-pass { background: var(--ok-bg); border-color: var(--ok-line); color: var(--ok-ink); }
+.ov-win.st-warn { background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn-ink); }
+.ov-win.st-fail { background: var(--crit-bg); border-color: var(--crit-line); color: var(--crit-ink); }
+.ov-win.st-running { background: var(--info-bg); border-color: var(--info-line); color: var(--info-ink); }
+.ov-win.st-missed { background: var(--panel); border: 1px dashed var(--crit); color: var(--crit-ink); }
+.ov-lanes-empty { color: var(--muted); font-size: 12.5px; line-height: var(--lane-h); }
+
+.ov-track { border-radius: 8px; overflow: hidden;
+  background: repeating-linear-gradient(90deg, var(--panel-2) 0 calc(100% / 18 - 1px), var(--line-soft) calc(100% / 18 - 1px) calc(100% / 18)); }
+.ov-phase { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; padding: 0 10px; font-size: 12.5px; font-weight: 500; overflow: hidden; white-space: nowrap; }
+.ov-phase.ph-bod { background: var(--info-bg); color: var(--info-ink); }
+.ov-phase.ph-trading { background: var(--ink); color: #fff; }
+.ov-phase.ph-eod { background: var(--purple-bg); color: var(--purple-ink); }
+.ov-phase.is-current { box-shadow: inset 0 0 0 2px var(--primary); }
+.ov-phase.is-narrow span { display: none; }
+.is-closed .ov-phase { opacity: .45; }
+
+.ov-mark { position: absolute; top: 5px; width: 9px; height: 9px; margin-left: -4.5px; transform: rotate(45deg); border-radius: 1.5px; }
+.ov-mark.sev-critical { background: var(--crit); }
+.ov-mark.sev-warning { background: var(--warn); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.ov-hours span { position: absolute; transform: translateX(-50%); font: 500 11.5px/1 var(--mono); color: var(--muted); }
+.ov-hours span:first-child { transform: none; }
+.ov-hours span:last-child { transform: translateX(-100%); }
+
+.ov-now { position: absolute; top: 18px; bottom: 22px; width: 0; border-left: 2px solid var(--primary); pointer-events: none; }
+.ov-now span { position: absolute; top: -18px; left: 0; transform: translateX(-50%); background: var(--primary); color: var(--primary-ink);
+  font: 600 11.5px/1 var(--mono); padding: 3px 6px; border-radius: 5px; }
+
+/* ---- site matrix ---- */
+.ov-sites { margin-bottom: 16px; }
+.ov-matrix { width: 100%; }
+.ov-matrix th[scope="col"] { font-weight: 500; }
+.ov-matrix th[scope="col"] a { color: inherit; }
+.ov-matrix th[scope="row"] { font-weight: 600; white-space: nowrap; text-align: left; text-transform: none; letter-spacing: 0; font-size: 14px; color: var(--ink); background: none; }
+.ov-matrix td.ov-cell { background: none; }
+.ov-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; vertical-align: 1px; }
+.ov-dot.t-ok { background: var(--ok); } .ov-dot.t-warn { background: var(--warn); } .ov-dot.t-crit { background: var(--crit); }
+.ov-cell { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ov-cell a { color: inherit; display: inline-flex; align-items: baseline; gap: 1px; flex-wrap: wrap; }
+.ov-cell a:hover { text-decoration: none; }
+.ov-cell b { font-size: 15px; }
+.ov-cell span { color: var(--muted); }
+.ov-cell em { font-style: normal; font-size: 12px; margin-left: 8px; padding: 1px 6px; border-radius: 5px; }
+.ov-cell.ov-c-crit em { background: var(--crit-bg); color: var(--crit-ink); }
+.ov-cell.ov-c-warn em { background: var(--warn-bg); color: var(--warn-ink); }
+.ov-cell.ov-c-crit b { color: var(--crit-ink); }
+.ov-none { color: var(--stone); }
+
+@media (max-width: 860px) {
+  .ov-title h1 { font-size: 26px; }
+  .ov-figs { gap: 8px 20px; }
+  .ov-fig dd:nth-of-type(1) { font-size: 24px; }
+  .ov-link { margin-left: 0; }
+}

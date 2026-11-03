@@ -8,7 +8,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from core.access import can, require, visible_sites
+from core.access import can, can_on, require, visible_sites
 from core.audit import audit
 from core.models import Site
 
@@ -70,8 +70,15 @@ def _report_or_404(user, key):
     return report
 
 
+def _is_tenant_admin(user):
+    """Administrator of every site: may see and manage everyone's schedules and runs. A one-site admin may not,
+    since a schedule delivers rows from all of its owner's sites to its recipients."""
+    return can_on(user, "admin", None)
+
+
 def _can_manage(user, schedule):
-    return can(user, "admin") or (schedule.owner_id == user.pk and can(user, "operate"))
+    return _is_tenant_admin(user) or (schedule.owner_id is not None and schedule.owner_id == user.pk
+                                      and can(user, "operate"))
 
 
 @require("view")
@@ -84,7 +91,7 @@ def index(request):
             groups.append({"name": cat, "reports": items})
     schedules = ScheduledReport.objects.filter(tenant_key=settings.LINKEDEYE_TENANT).select_related("owner")
     runs = ReportRun.objects.filter(tenant_key=settings.LINKEDEYE_TENANT).select_related("schedule")
-    if not can(user, "admin"):
+    if not _is_tenant_admin(user):
         schedules = schedules.filter(owner=user)
         runs = runs.filter(requested_by=user) | runs.filter(schedule__owner=user)
     titles = {k: r.title for k, r in registry.REPORTS.items()}

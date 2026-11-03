@@ -5,14 +5,16 @@ Rows are always limited to the sites the requesting user can see, and optionally
 """
 import csv
 import io
+from itertools import islice
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Callable
 
 from django.apps import apps
 from django.conf import settings
-from django.db import DatabaseError
-from django.db.models import Avg, Count, Max, Q
+from django.db import DatabaseError, connections
+from django.db.models import Aggregate, Avg, Count, F, FloatField, Max, Q, Window
+from django.db.models.functions import Mod, RowNumber
 from django.utils import timezone
 
 from core.access import can, scope_by_site, visible_sites
@@ -99,6 +101,52 @@ def _p95(values):
     return round(values[min(len(values) - 1, int(round(0.95 * (len(values) - 1))))], 1)
 
 
+class _Percentile95(Aggregate):
+    """PostgreSQL ordered-set aggregate: percentile_cont(0.95) WITHIN GROUP (ORDER BY expr)."""
+    function = "PERCENTILE_CONT"
+    name = "Percentile95"
+    template = "%(function)s(0.95) WITHIN GROUP (ORDER BY %(expressions)s)"
+    output_field = FloatField()
+
+
+P95_SAMPLE = 5000            # portable p95: at most this many evenly spaced samples per check
+P95_ROWS_PER_QUERY = 50_000  # checks are batched so one query returns at most about this many samples
+
+
+def _window_p95(model, fk, totals, start, end, sample=P95_SAMPLE):
+    """{object id: p95} over the whole [start, end) window on any backend.
+
+    Each check's results are numbered in time order (ROW_NUMBER() OVER (PARTITION BY fk ORDER BY checked_at)) and
+    every k-th one is kept, k = ceil(total / sample), so at most `sample` values spread evenly across the window
+    reach Python per check. Checks sharing a k are batched into one query."""
+    by_k = {}
+    for pk, total in totals.items():
+        if total:
+            by_k.setdefault(max(1, -(-total // sample)), []).append(pk)
+    out = {}
+    if not connections[model.objects.db].features.supports_over_clause:  # pragma: no cover - very old SQLite/MySQL
+        for k, ids in by_k.items():
+            for oid in ids:
+                rows = (model.objects.filter(**{fk: oid}, checked_at__gte=start, checked_at__lt=end, response_ms__isnull=False)
+                        .order_by("checked_at", "pk").values_list("response_ms", flat=True).iterator(chunk_size=5000))
+                out[oid] = _p95(islice(rows, 0, None, k))
+        return out
+    per_query = max(1, P95_ROWS_PER_QUERY // sample)
+    for k, ids in by_k.items():
+        for i in range(0, len(ids), per_query):
+            chunk = ids[i:i + per_query]
+            qs = (model.objects.filter(**{f"{fk}__in": chunk}, checked_at__gte=start, checked_at__lt=end,
+                                       response_ms__isnull=False)
+                  .annotate(rn=Window(RowNumber(), partition_by=[F(fk)], order_by=[F("checked_at").asc(), F("pk").asc()])))
+            if k > 1:
+                qs = qs.annotate(m=Mod(F("rn"), k)).filter(m=0)
+            vals = {}
+            for oid, v in qs.values_list(fk, "response_ms"):
+                vals.setdefault(oid, []).append(v)
+            out.update({oid: _p95(v) for oid, v in vals.items()})
+    return out
+
+
 # ------------------------------------------------------------------ Service Desk
 def _tickets(ctx, kinds=("incident",)):
     Ticket = _model("servicedesk", "Ticket")
@@ -144,17 +192,23 @@ def sla_rows(ctx):
 def url_availability_rows(ctx):
     UrlCheck, UrlResult = _model("urlchecker", "UrlCheck"), _model("urlchecker", "UrlResult")
     checks = ctx.scope(UrlCheck.objects.filter(tenant_key=settings.LINKEDEYE_TENANT)).order_by("name")
-    stats = {r["url_check_id"]: r for r in UrlResult.objects.filter(
-        url_check__in=checks, checked_at__gte=ctx.start, checked_at__lt=ctx.end).values("url_check_id").annotate(
-        total=Count("id"), down=Count("id", filter=Q(status="down")),
-        degraded=Count("id", filter=Q(status="degraded")), avg=Avg("response_ms"), mx=Max("response_ms"))}
+    window = UrlResult.objects.filter(url_check__in=checks, checked_at__gte=ctx.start, checked_at__lt=ctx.end)
+    aggs = dict(total=Count("id"), down=Count("id", filter=Q(status="down")),
+                degraded=Count("id", filter=Q(status="degraded")), avg=Avg("response_ms"), mx=Max("response_ms"),
+                timed=Count("response_ms"))
+    pg = connections[window.db].vendor == "postgresql"
+    if pg:  # exact p95 over the whole window, computed by the database in the same grouped query
+        aggs["p95"] = _Percentile95("response_ms")
+    stats = {r["url_check_id"]: r for r in window.values("url_check_id").order_by().annotate(**aggs)}
+    if pg:
+        p95 = {pk: round(r["p95"], 1) for pk, r in stats.items() if r["p95"] is not None}
+    else:
+        p95 = _window_p95(UrlResult, "url_check_id", {pk: r["timed"] for pk, r in stats.items()}, ctx.start, ctx.end)
     for c in checks:
         s = stats.get(c.pk) or {"total": 0, "down": 0, "degraded": 0, "avg": None, "mx": None}
-        times = UrlResult.objects.filter(url_check=c, checked_at__gte=ctx.start, checked_at__lt=ctx.end) \
-            .values_list("response_ms", flat=True)[:20000] if s["total"] else []
         yield [c.name, c.url, c.site, c.get_check_type_display(), s["total"],
                _pct(s["total"] - s["down"], s["total"]), s["down"], s["degraded"],
-               round(s["avg"], 1) if s["avg"] is not None else "", _p95(times),
+               round(s["avg"], 1) if s["avg"] is not None else "", p95.get(c.pk, ""),
                round(s["mx"], 1) if s["mx"] is not None else "", c.get_last_status_display(), _dt(c.last_checked_at)]
 
 

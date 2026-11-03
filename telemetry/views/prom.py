@@ -5,6 +5,7 @@ from core.access import require
 
 from .. import palette as pal, targets as svc
 from .common import csv_response, matches, paginate, perms, prom_context, query_without_page
+from .infra import visible_rows
 
 HEALTHS = [("up", "Up"), ("down", "Down"), ("unknown", "Unknown")]
 
@@ -16,7 +17,8 @@ def prometheus_targets(request):
     rows, stats = [], None
     if ctx["prom_configured"]:
         try:
-            rows = svc.fetch_targets(use_cache=not refresh)
+            # targets of hosts on other sites are hidden, as on the Infrastructure page
+            rows = visible_rows(request.user, svc.fetch_targets(use_cache=not refresh))
         except prometheus.PrometheusError as e:
             ctx["error"] = str(e)
         if not ctx["error"]:

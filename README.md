@@ -1,7 +1,7 @@
 # LinkedEye console
 
 The LinkedEye ITSM & monitoring console, as a Django project. It is built so its apps can also be dropped
-into the existing **LinkedEyeWebProject** (Django 4.x); see [docs/INTEGRATION.md](docs/INTEGRATION.md).
+into the existing **LinkedEyeWebProject** (the apps run on Django 4.2 and 5.2; this project ships on 5.2 LTS); see [docs/INTEGRATION.md](docs/INTEGRATION.md).
 
 Every page shows real data from the database or a configured integration. When an integration is not set up the
 page says "Not connected" and names the setting; nothing is invented. Each module has an optional

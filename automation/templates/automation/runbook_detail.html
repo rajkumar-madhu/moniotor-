@@ -53,7 +53,7 @@
     <div class="panel">
       <div class="panel-h"><h2>Recent rule runs</h2></div>
       {% for e in runs %}
-        <div class="am-row"><a href="{% url 'automation:execution_detail' e.pk %}">{{ e.started_at|date:"d M H:i" }}</a>{% badge e.badge_key e.get_status_display %}<small>{{ e.rule.name }} · {{ e.result_label|default:e.trigger }}</small></div>
+        <div class="am-row"><a href="{% url 'automation:execution_detail' e.pk %}">{{ e.started_at|date:"d M H:i" }}</a>{% badge e.badge_key e.get_status_display %}{% exec_trigger e as trig %}<small>{{ e.rule.name }} · {{ e.result_label|default:trig }}</small></div>
       {% empty %}<p class="t-mute small">No rule that links this runbook has fired yet.</p>{% endfor %}
     </div>
   </div>

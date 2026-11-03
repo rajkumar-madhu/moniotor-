@@ -116,6 +116,9 @@ STORAGES = {
 WHITENOISE_MANIFEST_STRICT = False  # a template naming a missing static file gets a 404 asset, not a 500 page
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Django 6 makes https the default scheme for URL form fields; opt in now (no effect on 4.2)
+FORMS_URLFIELD_ASSUME_HTTPS = True
+
 LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "dashboard"
 LOGOUT_REDIRECT_URL = "login"
@@ -157,6 +160,32 @@ EMAIL_HOST_USER = env("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = env("EMAIL_USE_TLS", "false").lower() in ("1", "true", "yes")
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", "linkedeye@localhost")
+# seconds; an unreachable SMTP server must not hang the notifier (Django's default is "no timeout")
+EMAIL_TIMEOUT = float(env("EMAIL_TIMEOUT", "10"))
+
+# ---- Sign-in throttling (administration.LoginThrottle; shared by every web worker) ----
+LOGIN_MAX_FAILURES = int(env("LOGIN_MAX_FAILURES", "5"))                 # per username, within the window
+LOGIN_MAX_FAILURES_PER_IP = int(env("LOGIN_MAX_FAILURES_PER_IP", "20"))  # per client address (TRUSTED_PROXIES honoured)
+LOGIN_WINDOW_MINUTES = int(env("LOGIN_WINDOW_MINUTES", "15"))            # counting window and lock-out time
+# Deliver notifications on a small background pool (after the event's transaction commits) instead of on the
+# emitting thread, so a slow webhook/SMTP server never stalls the scheduler or a request. false = synchronous.
+NOTIFY_ASYNC = env("NOTIFY_ASYNC", "true").lower() in ("1", "true", "yes")
+NOTIFY_WORKERS = int(env("NOTIFY_WORKERS", "2"))
+NOTIFY_QUEUE_SIZE = int(env("NOTIFY_QUEUE_SIZE", "500"))      # pending deliveries; beyond this they are dropped (logged)
+# more than this many notifications of one severity within NOTIFY_DIGEST_WINDOW seconds: the rest are collapsed
+# into one summary notification at the end of the window (0 = never collapse)
+NOTIFY_DIGEST_THRESHOLD = int(env("NOTIFY_DIGEST_THRESHOLD", "10"))
+NOTIFY_DIGEST_WINDOW = int(env("NOTIFY_DIGEST_WINDOW", "60"))
+
+# ---- Scheduler (manage.py run_probes) ----
+# Only one run_probes per database runs passes: PostgreSQL uses a session advisory lock, other databases a lease
+# row (core.SchedulerLease) renewed every SCHEDULER_HEARTBEAT_SECONDS. A second instance idles as a standby.
+SCHEDULER_LEASE = env("SCHEDULER_LEASE", "true").lower() in ("1", "true", "yes")
+SCHEDULER_LEASE_TTL = int(env("SCHEDULER_LEASE_TTL", "90"))
+SCHEDULER_HEARTBEAT_SECONDS = int(env("SCHEDULER_HEARTBEAT_SECONDS", "30"))
+# a pass that has run this long skips the remaining non-critical jobs to the next pass (most overdue run first)
+SCHEDULER_PASS_BUDGET = float(env("SCHEDULER_PASS_BUDGET", "60"))
+SCHEDULER_CRITICAL_JOBS = env_list("SCHEDULER_CRITICAL_JOBS", "tcpcheck.run_due,servicedesk.sla")
 
 # ---- Integrations (all optional; pages show "not connected" when unset) ----
 PROMETHEUS_URL = env("PROMETHEUS_URL", "")                    # e.g. http://prometheus.fs-linkedeye:9090
