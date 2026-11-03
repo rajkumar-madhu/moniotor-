@@ -8,7 +8,7 @@ Cross-module interface (docs/MODULES.md):
 import logging
 
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from . import sla
@@ -64,22 +64,13 @@ def _normalise_source(source):
 def can_on(user, perm, site):
     """`perm` on a ticket's site (site_scope). Global tickets (site None) need the permission tenant-wide, so a
     role held on one site never counts for another site or for every site."""
-    from core.access import PERMS, RANK, _memberships, can
-    if site:
-        return can(user, perm, site)
-    if not can(user, perm):
-        return False
-    if user.is_superuser:
-        return True
-    ms = _memberships(user)
-    if not ms:  # users without memberships hold their default role everywhere
-        return True
-    return any(m.site is None and RANK[m.role] >= PERMS[perm] for m in ms)
+    from core.access import can_on as _can_on
+    return _can_on(user, perm, site)
 
 
 # ---------------------------------------------------------------- creation
-def create_ticket(user=None, **fields):
-    """Create a ticket (any kind), its 'opened' timeline entry and an event."""
+def _create_ticket_rows(user=None, **fields):
+    """Create a ticket and its opening timeline entries (no event)."""
     from .models import Ticket
     kind = fields.get("kind") or "incident"
     fields.setdefault("status", wf.INITIAL[kind])
@@ -95,47 +86,94 @@ def create_ticket(user=None, **fields):
               new=t.status)
         if t.assignee_id:
             _note(t, "assignment", f"Assigned to {_name(t.assignee)}.", user, author_name=t.reporter_name, new=t.assignee.get_username())
-    _emit(t, f"opened: {t.title}", severity=_created_severity(t), message=t.description or t.title, kind="ticket_opened")
     return t
+
+
+def _emit_opened(t):
+    _emit(t, f"opened: {t.title}", severity=_created_severity(t), message=t.description or t.title, kind="ticket_opened")
+
+
+def create_ticket(user=None, **fields):
+    """Create a ticket (any kind), its 'opened' timeline entry and an event."""
+    t = _create_ticket_rows(user, **fields)
+    _emit_opened(t)
+    return t
+
+
+def _lock_fingerprint(fingerprint):
+    """Inside transaction.atomic(): lock the IncidentKey row of this fingerprint, creating it on first use, so
+    open_incident calls for one fingerprint run one at a time (the second sees the first's incident).
+
+    The plain existence check comes first so the common case takes the row lock directly (on MySQL a locking read of
+    a missing key takes a gap lock, and two of those plus two inserts deadlock)."""
+    from .models import IncidentKey
+    keys = IncidentKey.objects.filter(tenant_key=settings.LINKEDEYE_TENANT, fingerprint=fingerprint)
+    if not keys.exists():
+        try:
+            with transaction.atomic():
+                IncidentKey.objects.create(tenant_key=settings.LINKEDEYE_TENANT, fingerprint=fingerprint)
+        except IntegrityError:
+            pass  # a concurrent caller created it; the locking read below waits for its transaction
+    list(keys.select_for_update())
+
+
+def _realert(existing, title, description, priority, src, origin):
+    """A duplicate alert for an open incident: timeline note, escalate priority, reopen from Mitigated. Returns the
+    list of what changed (no event)."""
+    _note(existing, "system", f"Duplicate alert received{' from ' + (origin or src) if (origin or src) else ''}: {title}"
+          + (f"\n{description}" if description else ""), author_name=origin or "alert")
+    changed = []
+    if priority < existing.priority:   # "P1" < "P2": escalate, never downgrade
+        old = existing.priority
+        existing.priority = priority
+        sla.apply_due_dates(existing)
+        cleared = sla.clear_stale_breaches(existing)   # a higher priority is not always a stricter target
+        existing.save(update_fields=["priority", "response_due", "resolution_due", "response_breached",
+                                     "resolution_breached", "updated_at"])
+        _note(existing, "priority", f"Priority raised from {old} to {priority} by a new alert.", author_name=origin or "alert",
+              old=old, new=priority)
+        _note_cleared(existing, cleared, author_name=origin or "alert")
+        changed.append("priority")
+    if existing.status == "mitigated":   # the problem came back
+        existing.status = "investigating"
+        existing.save(update_fields=["status", "updated_at"])
+        _note(existing, "status", "Alert fired again: back to Investigating.", author_name=origin or "alert",
+              old="mitigated", new="investigating")
+        changed.append("status")
+    return changed
 
 
 def open_incident(title, description="", priority="P3", site="", source="", fingerprint="", ci_name="", **extra):
     """Open an incident, or — when an open incident already has this fingerprint — add a timeline note to it
-    instead of creating a duplicate. Returns the (new or existing) Ticket."""
+    instead of creating a duplicate. Returns the (new or existing) Ticket.
+
+    Calls for one fingerprint are serialised on its IncidentKey row, so concurrent alerts cannot both see "no open
+    incident" and open two. Events are emitted after the locked block."""
     from .models import Ticket
     priority = priority if priority in wf.PRIORITY_LABELS else "P3"
     src, origin = _normalise_source(source)
     fingerprint = (fingerprint or "")[:200]
-    if fingerprint:
-        existing = (Ticket.objects.for_tenant().open().filter(kind="incident", fingerprint=fingerprint).order_by("-opened_at").first())
+    fields = dict(kind="incident", title=(title or "Untitled incident")[:200], description=description or "",
+                  priority=priority, site=site or "", source=src, origin=origin, fingerprint=fingerprint,
+                  ci_name=(ci_name or "")[:200], reporter_name=extra.pop("reporter_name", "") or origin or src,
+                  **{k: v for k, v in extra.items() if k in ("category", "client")})
+    if not fingerprint:
+        return create_ticket(**fields)
+    with transaction.atomic():
+        _lock_fingerprint(fingerprint)
+        # a locking read: on MySQL (REPEATABLE READ) it sees an incident committed while we waited for the lock
+        existing = (Ticket.objects.for_tenant().open().filter(kind="incident", fingerprint=fingerprint)
+                    .order_by("-opened_at", "-pk").select_for_update().first())
         if existing:
-            _note(existing, "system", f"Duplicate alert received{' from ' + (origin or src) if (origin or src) else ''}: {title}"
-                  + (f"\n{description}" if description else ""), author_name=origin or "alert")
-            changed = []
-            if priority < existing.priority:   # "P1" < "P2": escalate, never downgrade
-                old = existing.priority
-                existing.priority = priority
-                sla.apply_due_dates(existing)
-                cleared = sla.clear_stale_breaches(existing)   # a higher priority is not always a stricter target
-                existing.save(update_fields=["priority", "response_due", "resolution_due", "response_breached",
-                                             "resolution_breached", "updated_at"])
-                _note(existing, "priority", f"Priority raised from {old} to {priority} by a new alert.", author_name=origin or "alert",
-                      old=old, new=priority)
-                _note_cleared(existing, cleared, author_name=origin or "alert")
-                changed.append("priority")
-            if existing.status == "mitigated":   # the problem came back
-                existing.status = "investigating"
-                existing.save(update_fields=["status", "updated_at"])
-                _note(existing, "status", "Alert fired again: back to Investigating.", author_name=origin or "alert",
-                      old="mitigated", new="investigating")
-                changed.append("status")
-            if changed:
-                _emit(existing, f"re-alerted: {existing.title}", severity="warning", kind="ticket_updated")
-            return existing
-    return create_ticket(kind="incident", title=(title or "Untitled incident")[:200], description=description or "",
-                         priority=priority, site=site or "", source=src, origin=origin, fingerprint=fingerprint,
-                         ci_name=(ci_name or "")[:200], reporter_name=extra.pop("reporter_name", "") or origin or src,
-                         **{k: v for k, v in extra.items() if k in ("category", "client")})
+            changed = _realert(existing, title, description, priority, src, origin)
+        else:
+            created = _create_ticket_rows(**fields)
+    if existing:
+        if changed:
+            _emit(existing, f"re-alerted: {existing.title}", severity="warning", kind="ticket_updated")
+        return existing
+    _emit_opened(created)
+    return created
 
 
 def resolve_by_fingerprint(fingerprint, note=""):
@@ -158,6 +196,12 @@ def request_from_catalog(item, user, details="", site="", client=""):
 
 
 # ---------------------------------------------------------------- changes
+# (field name for update_fields, attribute to compare) of everything transition() may change
+TRANSITION_FIELDS = (("status", "status"), ("acknowledged_at", "acknowledged_at"), ("resolved_at", "resolved_at"),
+                     ("closed_at", "closed_at"), ("approved_by", "approved_by_id"), ("approved_at", "approved_at"),
+                     ("resolution", "resolution"))
+
+
 def transition(ticket, target, user=None, note="", actor_name="", force=False):
     """Move a ticket to `target` if the workflow allows it from its current status.
 
@@ -177,6 +221,7 @@ def transition(ticket, target, user=None, note="", actor_name="", force=False):
         raise WorkflowError("The planned end must be after the planned start.")
 
     now = timezone.now()
+    before = {f: getattr(ticket, a) for f, a in TRANSITION_FIELDS}
     reopen = wf.is_reopen(old, target)
     if old == wf.INITIAL[ticket.kind] and ticket.acknowledged_at is None and target not in ("draft",):
         ticket.acknowledged_at = now
@@ -198,8 +243,11 @@ def transition(ticket, target, user=None, note="", actor_name="", force=False):
     if note and target in wf.RESOLVING:
         ticket.resolution = note
     ticket.status = target
+    # only what this transition changed: a full save() would write back stale SLA breach flags (set meanwhile by
+    # the servicedesk.sla job) and make sla.check() below flag and announce the same breach a second time
+    changed = [f for f, a in TRANSITION_FIELDS if getattr(ticket, a) != before[f]]
     with transaction.atomic():
-        ticket.save()
+        ticket.save(update_fields=changed + ["updated_at"])
         label = "Reopened" if reopen else f"Status changed to {wf.STATUS_LABELS[target]}"
         _note(ticket, "status", label + (f": {note}" if note else "."), user, author_name=actor_name, old=old, new=target)
     # outside the atomic block: check() emits events, and a listener's database error must not poison (and on
@@ -245,6 +293,8 @@ def set_priority(ticket, priority, user=None):
         return ticket
     ticket.priority = priority
     cleared = []
+    if ticket.pk:   # the breach flags are written below: start from what the SLA job may have flagged meanwhile
+        ticket.refresh_from_db(fields=["response_breached", "resolution_breached"])
     if ticket.kind in wf.SLA_KINDS:
         sla.apply_due_dates(ticket)
         cleared = sla.clear_stale_breaches(ticket)

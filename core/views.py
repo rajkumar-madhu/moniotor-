@@ -18,10 +18,12 @@ def dashboard(request):
     t = settings.LINKEDEYE_TENANT
     urls = scope_by_site(UrlCheck.objects.filter(tenant_key=t, enabled=True), user)
     return render(request, "core/dashboard.html", {
-        "kpis": overview.kpis(user),
         "problems": overview.problems(user, limit=50),
         "events": overview.recent_events(user, limit=10),
         "uptime7": overall_uptime(list(urls), 24 * 7),
+        "desk": overview.desk_summary(user),
+        "matrix": overview.site_matrix(user),
+        "md": overview.market_day(user),
         "heatmap_url": overview._url("cmdb:heatmap") or overview._url("heatmap"),
     })
 

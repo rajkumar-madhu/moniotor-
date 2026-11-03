@@ -20,6 +20,16 @@ def _site_ok(user, site, selected=""):
     return sites is None or site in ("", "All Sites") or site in sites
 
 
+def visible_rows(user, rows, key="instance"):
+    """Rows (hosts, scrape targets) the user may see: the site of the CMDB item whose prometheus_instance is the
+    row's instance must be one of the user's sites (rows without a CMDB item, or on "All Sites", stay visible)."""
+    if visible_sites(user) is None:
+        return list(rows)
+    rows = list(rows)
+    cis = svc.cmdb_map([r[key] for r in rows])
+    return [r for r in rows if _site_ok(user, (getattr(cis.get(r[key]), "site", "") or ""))]
+
+
 def _attach_cmdb(hosts):
     cis = svc.cmdb_map([h["instance"] for h in hosts])
     for h in hosts:

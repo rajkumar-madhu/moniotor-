@@ -1,6 +1,9 @@
 """Periodic job registered as `administration.heartbeat` (runs inside `manage.py run_probes`).
 
-* Records a scheduler heartbeat so System health can tell whether run_probes is alive.
+* Records a scheduler heartbeat so System health can tell whether run_probes is alive. run_probes also calls beat()
+  from a dedicated thread every SCHEDULER_HEARTBEAT_SECONDS, so a long pass never makes the heartbeat stale; the
+  row's data carries `loop_at` (when the main loop last finished a pass) so a hung loop is still detectable. A
+  standby scheduler (another instance holds the lease) writes Heartbeat(key="scheduler-standby:<host>") instead.
 * Probe-freshness watchdog: when enabled URL/domain checks stop producing results for longer than
   services.PROBE_STALE_SECONDS it emits one warning event (fingerprint administration:probe-freshness), and an
   "ok" event when results are fresh again. State is kept in Heartbeat(key="probe-freshness") so a restart does not
@@ -20,9 +23,29 @@ log = logging.getLogger("linkedeye.administration")
 FINGERPRINT = "administration:probe-freshness"
 
 
+STANDBY_PREFIX = "scheduler-standby:"
+
+
+def standby_key(host=None):
+    return (STANDBY_PREFIX + (host or socket.gethostname()))[:60]
+
+
 def _beat():
     Heartbeat.objects.update_or_create(key="scheduler", defaults={
         "seen_at": timezone.now(), "host": socket.gethostname()[:255], "pid": os.getpid()})
+
+
+def beat(active=True, data=None):
+    """Scheduler liveness from run_probes' heartbeat thread. `data` (JSON) replaces the row's data. Never raises."""
+    try:
+        defaults = {"seen_at": timezone.now(), "host": socket.gethostname()[:255], "pid": os.getpid()}
+        if data is not None:
+            defaults["data"] = data
+        Heartbeat.objects.update_or_create(key="scheduler" if active else standby_key(), defaults=defaults)
+        return True
+    except Exception:
+        log.warning("could not record the scheduler heartbeat", exc_info=True)
+        return False
 
 
 def _watchdog():

@@ -1,13 +1,13 @@
 # Project structure
 
-LinkedEye is one Django 4.2 project (`linkedeye/`) made of small apps. Each app owns one area of the sidebar.
+LinkedEye is one Django 5.2 LTS project (`linkedeye/`) made of small apps. Each app owns one area of the sidebar.
 Shared code lives in `core/` and `probes/`. Apps talk to each other only through the interfaces in
 [MODULES.md](MODULES.md).
 
 ```
 moniotor-/
 ├── manage.py
-├── requirements.txt            Django 4.2 LTS, gunicorn, whitenoise (+ requirements-postgres.txt / -mysql.txt)
+├── requirements.txt            Django 5.2 LTS, gunicorn, whitenoise (+ requirements-postgres.txt / -mysql.txt)
 ├── Dockerfile, docker-compose.yml, gunicorn.conf.py   production image and stack (see docs/DEPLOYMENT.md)
 ├── deploy/                     docker/ (WSGI entry, healthcheck), kubernetes/, prometheus/, alertmanager/,
 │                               compose.env.example, validate.py (checks the bundle and settings docs),

@@ -58,7 +58,7 @@ def topology_view(request):
     else:
         isolated = 0
     nodes = [ci_map[pk] for pk in keep]
-    health = services.link_health(nodes)
+    health = services.link_health(nodes, request.user)
     graph = topology.layout(nodes, sub_edges, health, root_id=root.pk if root else None)
     counts = {s: sum(1 for n in graph["nodes"] if n["state"] == s) for s in ("healthy", "warning", "critical", "unknown")}
     return render(request, "cmdb/topology.html", {
@@ -99,7 +99,7 @@ def heatmap_view(request):
         names = [sel["name"]] + [c.name for c in member_cis]
         incidents = services.recent_incidents(names, limit=8 if tab == "incidents" else 5,
                                               fingerprints=services.ci_fingerprints(member_cis), user=request.user)
-        health = services.link_health(d["ci_map"].values())
+        health = services.link_health(d["ci_map"].values(), request.user)
         health.update(hm.health_from_rows(domains))
         rows = sorted(sel["service_rows"], key=lambda r: r["name"].lower()) if tab == "services" else _top_services(sel["service_rows"])
         details = {

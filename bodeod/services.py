@@ -16,10 +16,10 @@ from django.db import DatabaseError, IntegrityError, transaction
 from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
-from core.access import can
+from core.access import can_on
 from core.events import emit
 
-from .models import GLOBAL_SITES, ChecklistItem, Holiday, Mode, Run, RunItem
+from .models import ChecklistItem, Holiday, Mode, Run, RunItem
 
 log = logging.getLogger("linkedeye.bodeod")
 
@@ -55,10 +55,9 @@ def modes_qs():
 
 
 def user_can(user, perm, site=""):
-    """Permission on a mode/site: global records use the user's best role, site records that site's role."""
-    if site in GLOBAL_SITES:
-        return can(user, perm)
-    return can(user, perm, site)
+    """Permission on a mode/site: site records need that site's role; global modes ("All Sites" / "") need the
+    role on every site, so a one-site operator cannot run or sign off the whole tenant's BOD/EOD."""
+    return can_on(user, perm, site)
 
 
 # ------------------------------------------------------------------ trading calendar

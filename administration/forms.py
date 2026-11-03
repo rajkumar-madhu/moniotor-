@@ -3,7 +3,9 @@ import zoneinfo
 from django import forms
 from django.conf import settings
 from django.contrib.auth import get_user_model, password_validation
-from django.contrib.auth.forms import UsernameField
+from django.contrib.admin.forms import AdminAuthenticationForm
+from django.contrib.auth.forms import AuthenticationForm, UsernameField
+from django.core.exceptions import ValidationError
 from django.utils.text import slugify
 
 from core.models import Membership, Site
@@ -199,3 +201,57 @@ class SiteForm(forms.ModelForm):
                 self.add_error("code", "A site with this code already exists.")
             cleaned["code"] = code
         return cleaned
+
+
+# ------------------------------------------------------------------ sign-in throttling
+class ThrottleMixin:
+    """Refuses sign-ins for a username or client address after too many failures (see services.login_limits).
+
+    The lock is checked *before* the password, so a locked account cannot be used as a password oracle. Client
+    addresses come from core.audit._ip, which honours settings.TRUSTED_PROXIES."""
+    throttle_message = ""
+
+    def clean(self):
+        from core.audit import _ip, audit
+
+        from . import services
+        username = self.cleaned_data.get("username")
+        password = self.cleaned_data.get("password")
+        ip = _ip(self.request)
+        lock = services.login_lock_remaining(username, ip)
+        if lock:
+            kind, remaining = lock
+            minutes = max(1, -(-int(remaining.total_seconds()) // 60))
+            self.throttle_message = f"Too many failed sign-ins. Try again in {minutes} minute{'s' if minutes != 1 else ''}."
+            try:
+                audit(self.request, "login_throttled", object_type="auth.user", result="denied",
+                      username=str(username or "")[:150], locked_by="username" if kind == "user" else "client address",
+                      minutes=minutes)
+            except Exception:
+                pass
+            raise ValidationError(self.throttle_message, code="throttled")
+        try:
+            cleaned = super().clean()
+        except ValidationError as e:
+            # only a wrong password counts (the admin form also says "invalid_login" to a non-staff user whose
+            # password was right; user_cache is set then)
+            if username and password and getattr(e, "code", None) == "invalid_login" \
+                    and getattr(self, "user_cache", None) is None:
+                for kind in services.login_failed(username, ip):
+                    try:
+                        audit(self.request, "login_locked", object_type="auth.user", result="denied",
+                              username=str(username)[:150], locked_by="username" if kind == "user" else "client address",
+                              minutes=int(services.login_limits()[2].total_seconds() // 60))
+                    except Exception:
+                        pass
+            raise
+        services.login_succeeded(username)
+        return cleaned
+
+
+class ThrottledAuthenticationForm(ThrottleMixin, AuthenticationForm):
+    pass
+
+
+class ThrottledAdminAuthenticationForm(ThrottleMixin, AdminAuthenticationForm):
+    pass

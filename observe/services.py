@@ -255,15 +255,41 @@ def _parse_ts(value, now):
     return ts
 
 
-def _no_nul(value):
-    """NUL characters cannot be stored in PostgreSQL text/jsonb columns (the whole batch would fail)."""
-    if isinstance(value, str):
-        return value.replace("\x00", "")
-    if isinstance(value, dict):
-        return {_no_nul(str(k)): _no_nul(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_no_nul(v) for v in value]
-    return value
+MAX_NESTING = 32   # JSON objects/arrays nested deeper than this in one log entry are rejected
+
+
+def _no_nul(value, max_depth=MAX_NESTING):
+    """NUL characters cannot be stored in PostgreSQL text/jsonb columns (the whole batch would fail).
+
+    Iterative (an explicit stack, no recursion), so a hostile entry nested a thousand levels deep cannot raise
+    RecursionError; containers nested more than `max_depth` levels deep raise ValueError instead (the caller rejects
+    that one entry)."""
+    def clean(v):
+        return v.replace("\x00", "") if isinstance(v, str) else v
+
+    if not isinstance(value, (dict, list)):
+        return clean(value)
+    root = {} if isinstance(value, dict) else []
+    stack = [(value, root, 1)]
+    while stack:
+        src, dst, depth = stack.pop()
+        if depth > max_depth:
+            raise ValueError(f"value is nested more than {max_depth} levels deep")
+        items = src.items() if isinstance(src, dict) else enumerate(src)
+        for k, v in items:
+            if isinstance(v, dict):
+                nv = {}
+                stack.append((v, nv, depth + 1))
+            elif isinstance(v, list):
+                nv = []
+                stack.append((v, nv, depth + 1))
+            else:
+                nv = clean(v)
+            if isinstance(dst, dict):
+                dst[clean(str(k))] = nv
+            else:
+                dst.append(nv)
+    return root
 
 
 def _text(entry, key, maxlen, required=False):
@@ -291,7 +317,7 @@ def validate_entry(entry, now):
     if message is None or (isinstance(message, str) and not message.strip()):
         raise ValueError("'message' is required")
     if not isinstance(message, str):
-        message = json.dumps(message, default=str) if isinstance(message, (dict, list)) else str(message)
+        message = json.dumps(_no_nul(message), default=str) if isinstance(message, (dict, list)) else str(message)
     message = _no_nul(message)
     if not message.strip():
         raise ValueError("'message' is required")
@@ -299,12 +325,15 @@ def validate_entry(entry, now):
     if not isinstance(attributes, dict):
         raise ValueError("'attributes' must be a JSON object")
     try:
+        attributes = _no_nul(attributes)   # depth-capped before json.dumps can recurse
+    except ValueError as e:
+        raise ValueError(f"'attributes' {e}") from None
+    try:
         size = len(json.dumps(attributes, default=str))
     except (RecursionError, ValueError):
         raise ValueError("'attributes' cannot be serialised")
     if size > 16000:
         raise ValueError("'attributes' is larger than 16 KB")
-    attributes = _no_nul(attributes)
     return LogEntry(
         tenant_key=tenant(), ts=_parse_ts(entry.get("ts", entry.get("timestamp")), now),
         source=_text(entry, "source", 120, required=True), level=level, message=message.strip()[:MAX_MESSAGE],
@@ -372,6 +401,8 @@ def ingest(raw_entries, now=None):
             good.append(validate_entry(raw, now))
         except (ValueError, OverflowError, OSError) as e:
             errors.append({"index": i, "error": str(e)})
+        except RecursionError:   # last resort: one pathological entry must not fail the whole batch
+            errors.append({"index": i, "error": "entry is nested too deeply"})
     if good:
         good = LogEntry.objects.bulk_create(good, batch_size=500)
         if any(e.pk is None for e in good if e.level in ERROR_LEVELS):

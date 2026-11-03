@@ -1,0 +1,19 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}Metrics Explorer{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'telemetry/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "telemetry/_crumbs.html" with crumb_here="Metrics Explorer" %}{% endblock %}
+{% block content %}
+<div class="pg-telemetry">
+<div class="head">
+  <div class="glyph g-purple">{% icon "analytics" 30 %}</div>
+  <div><h1>Metrics Explorer</h1><p>Run PromQL range queries against Prometheus</p></div>
+</div>
+<div class="panel tm-nc" role="status">
+  <div class="tile">{% icon "lock" 22 %}</div>
+  <div><h2>Metrics Explorer needs access to all sites</h2>
+    <p>{{ message }}</p>
+    <p><a class="btn sm" href="{% url 'telemetry:infrastructure' %}">{% icon "server" 14 %}Open Infrastructure</a></p>
+  </div>
+</div>
+</div>
+{% endblock %}

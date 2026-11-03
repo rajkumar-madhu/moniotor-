@@ -131,7 +131,7 @@ def software_detail(request, pk):
     sw = get_object_or_404(_software(request), pk=pk)
     visible = services.ci_queryset(request.user)
     installs = list(sw.installs.filter(pk__in=visible).order_by("name"))
-    health = services.link_health(installs)
+    health = services.link_health(installs, request.user)
     for c in installs:
         c.health = health.get(c.pk, "unknown")
     mark_row_perms(request, installs)

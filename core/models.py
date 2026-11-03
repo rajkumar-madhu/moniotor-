@@ -88,3 +88,31 @@ class Event(models.Model):
 
     def __str__(self):
         return f"[{self.severity}] {self.title}"
+
+
+class SchedulerLease(models.Model):
+    """Who runs scheduler passes (manage.py run_probes) on databases without advisory locks. The holder renews
+    `expires_at` from its heartbeat thread; another instance takes the lease only once it has expired."""
+    name = models.CharField(max_length=100, unique=True)
+    owner = models.CharField(max_length=200, blank=True)
+    acquired_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(default=timezone.now)
+
+    def __str__(self):
+        return f"{self.name} held by {self.owner or 'nobody'} until {self.expires_at:%Y-%m-%d %H:%M:%S}"
+
+
+class JobState(models.Model):
+    """Last run of each periodic job (core.jobs), so a restarted scheduler or `run_probes --once` from cron does not
+    re-run hourly jobs on every start."""
+    tenant_key = models.CharField(max_length=100, default=settings.LINKEDEYE_TENANT)
+    name = models.CharField(max_length=100)
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    last_duration_ms = models.FloatField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [models.UniqueConstraint(fields=["tenant_key", "name"], name="jobstate_tenant_name_unique")]
+
+    def __str__(self):
+        return f"{self.name} @ {self.last_run_at}"

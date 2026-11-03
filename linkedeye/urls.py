@@ -2,17 +2,19 @@ from django.contrib import admin
 from django.contrib.auth import views as auth_views
 from django.urls import include, path
 
+from administration.forms import ThrottledAdminAuthenticationForm, ThrottledAuthenticationForm
 from core import views as core
 from domainmonitor.urls import api_urlpatterns as domain_api
 
 admin.site.site_header = "LinkedEye administration"
 admin.site.site_title = "LinkedEye"
+admin.site.login_form = ThrottledAdminAuthenticationForm   # failed sign-ins are throttled on /admin/login/ too
 
 urlpatterns = [
     path("", core.dashboard, name="dashboard"),
     path("search/", core.search, name="search"),
     path("healthz", core.healthz, name="healthz"),
-    path("accounts/login/", auth_views.LoginView.as_view(), name="login"),
+    path("accounts/login/", auth_views.LoginView.as_view(authentication_form=ThrottledAuthenticationForm), name="login"),
     path("accounts/logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("monitoring/url-checker/", include("urlchecker.urls")),
     path("legacy/heatmap/", core.heatmap, name="heatmap"),

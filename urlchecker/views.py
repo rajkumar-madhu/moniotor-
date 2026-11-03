@@ -1,17 +1,18 @@
-import csv
 from datetime import timedelta
 
 from django.conf import settings
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import F, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
+from core import access
 from core.access import can, require, scope_by_site
+from domainmonitor.views import SafeCsvWriter
 from probes import runner
 
 from . import stats
@@ -20,6 +21,7 @@ from .models import Status, UrlCheck, UrlResult
 
 
 GLOBAL_SITES = ("", "All Sites")
+RUN_ALL_LIMIT = 50          # checks probed synchronously by one "Run all" request
 
 
 def _scope(request):
@@ -28,16 +30,23 @@ def _scope(request):
 
 
 def can_on(user, perm, site):
-    """`perm` on one check's site. 'All Sites' checks need `perm` on any site (as Domain Monitor does);
-    a site check needs it on that site, so an operator of site A who only views site B cannot change B."""
+    """RUNNING a check: `perm` on its site; an 'All Sites' check may be run by an operator of any site (read-only
+    against the target, and operators need it during incidents; same split as Domain Monitor)."""
     return can(user, perm, None if (site or "") in GLOBAL_SITES else site)
+
+
+def can_change(user, perm, site):
+    """CHANGING a check (create, edit, delete): an 'All Sites' check needs `perm` on every site, so a one-site
+    operator cannot alter or remove monitoring that other sites rely on."""
+    return access.can_on(user, perm, site)
 
 
 def mark_allowed(user, items):
     """Set c.can_op / c.can_admin so templates show per-row actions only where the user may use them."""
     for c in items:
-        c.can_op = can_on(user, "operate", c.site)
-        c.can_admin = can_on(user, "admin", c.site)
+        c.can_run = can_on(user, "operate", c.site)
+        c.can_op = can_change(user, "operate", c.site)      # edit
+        c.can_admin = can_change(user, "admin", c.site)     # delete
     return items
 
 
@@ -76,12 +85,12 @@ def index(request, pk=None):
 
     editing = get_object_or_404(scope, pk=pk) if pk else None
     if request.method == "POST":
-        if not can(request.user, "operate") or (editing and not can_on(request.user, "operate", editing.site)):
+        if not can(request.user, "operate") or (editing and not can_change(request.user, "operate", editing.site)):
             messages.error(request, "Only operators can add or change URL checks.")
             return redirect("urlchecker:index")
         form = UrlCheckForm(request.POST, instance=editing)
-        if form.is_valid() and not can_on(request.user, "operate", form.cleaned_data["site"]):
-            form.add_error("site", "You do not have operator rights on this site.")
+        if form.is_valid() and not can_change(request.user, "operate", form.cleaned_data["site"]):
+            form.add_error("site", "You do not have operator rights on this site (an All Sites check needs them on every site).")
         if form.is_valid():
             obj = form.save(commit=False)
             obj.tenant_key = settings.LINKEDEYE_TENANT
@@ -95,7 +104,7 @@ def index(request, pk=None):
                 messages.success(request, f"Saved “{obj.name}” and ran its first check.")
                 return redirect("urlchecker:index")
     else:
-        if editing and not can_on(request.user, "operate", editing.site):
+        if editing and not can_change(request.user, "operate", editing.site):
             editing = None
         form = UrlCheckForm(instance=editing)
 
@@ -142,17 +151,27 @@ def run_now(request, pk=None):
         if not can_on(request.user, "operate", items[0].site):
             return JsonResponse({"error": f"'operate' permission required on {items[0].site}"}, status=403)
     else:
-        items = [c for c in qs if can_on(request.user, "operate", c.site)]
+        # bound the request: probe at most RUN_ALL_LIMIT checks, the ones checked longest ago first; the rest stay due
+        # and run on the scheduler
+        ordered = qs.order_by(F("last_checked_at").asc(nulls_first=True), "pk")
+        allowed = [c for c in ordered if can_on(request.user, "operate", c.site)]
+        items, skipped = allowed[:RUN_ALL_LIMIT], len(allowed) - min(len(allowed), RUN_ALL_LIMIT)
     results = runner.run_url_checks(items)
-    summary = ", ".join(f"{c.name}: {s}" for c, s in zip(items, results)) if pk else f"Checked {len(items)} URL(s)"
-    return JsonResponse({"checked": len(items), "summary": summary})
+    if pk:
+        summary, skipped = ", ".join(f"{c.name}: {s}" for c, s in zip(items, results)), 0
+    else:
+        summary = f"Checked {len(items)} URL(s)"
+        if skipped:
+            summary += (f"; {skipped} more were not checked now (at most {RUN_ALL_LIMIT} per run, longest-unchecked "
+                        f"first) and will run on the scheduler")
+    return JsonResponse({"checked": len(items), "skipped": skipped, "summary": summary})
 
 
 @require_POST
 @require("admin")
 def delete(request, pk):
     obj = get_object_or_404(_scope(request), pk=pk)
-    if not can_on(request.user, "admin", obj.site):
+    if not can_change(request.user, "admin", obj.site):
         messages.error(request, f"You do not have admin rights on {obj.site}.")
         return redirect("urlchecker:index")
     obj.delete()
@@ -175,7 +194,7 @@ def detail(request, pk):
 def export_csv(request):
     resp = HttpResponse(content_type="text/csv")
     resp["Content-Disposition"] = 'attachment; filename="url-checks.csv"'
-    w = csv.writer(resp)
+    w = SafeCsvWriter(resp)   # names/messages may start with = + - @ (formula injection when opened in a spreadsheet)
     w.writerow(["name", "url", "type", "site", "status", "http_status", "response_ms", "last_checked", "message"])
     for c in _filtered(request):
         w.writerow([c.name, c.url, c.check_type, c.site, c.last_status, c.last_http_status or "",

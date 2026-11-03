@@ -10,6 +10,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model
+from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db.models import Count, Q
 from django.http import Http404, HttpResponse
@@ -18,7 +19,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from core.access import can, require, scope_by_site
+from core.access import can, can_on, require, scope_by_site
 from core.audit import audit
 
 from . import services, sla, stats
@@ -173,7 +174,7 @@ def _ticket(request, number):
 
 def _denied(request, ticket, perm="operate"):
     """None when allowed; otherwise a redirect back to the ticket with an error message."""
-    if can(request.user, perm, ticket.site_scope):
+    if can_on(request.user, perm, ticket.site_scope):
         return None
     messages.error(request, "You do not have permission to do that for tickets on this site.")
     return redirect(ticket)
@@ -345,7 +346,7 @@ def changes(request):
 # ---------------------------------------------------------------- service catalog
 def catalog(request):
     items = CatalogItem.objects.filter(tenant_key=_tenant())
-    show_all = request.GET.get("all") == "1" and can(request.user, "configure")
+    show_all = request.GET.get("all") == "1" and can_on(request.user, "configure", None)
     if not show_all:
         items = items.filter(active=True)
     q = request.GET.get("q", "").strip()
@@ -363,15 +364,29 @@ def catalog(request):
         "categories": _choices(CatalogItem.objects.filter(tenant_key=_tenant(), active=True), "category"),
         "my_requests": my_requests,
         "open_requests": _base(request).filter(kind="request").open().count(),
-        "can_operate": _can_operate(request), "can_configure": can(request.user, "configure"),
-        "can_admin": can(request.user, "admin"),
+        # the catalog is tenant-wide: changing it needs the role on every site
+        "can_operate": _can_operate(request), "can_configure": can_on(request.user, "configure", None),
+        "can_admin": can_on(request.user, "admin", None),
     }
     return render(request, "servicedesk/catalog.html", ctx)
+
+
+def _tenant_wide_denied(request, perm, what):
+    """None when the user holds `perm` on every site; otherwise 403 (GET) or a redirect with a message."""
+    if can_on(request.user, perm, None):
+        return None
+    if request.method == "GET":
+        raise PermissionDenied
+    messages.error(request, f"Only users with that role on all sites can change {what}: it applies to every site.")
+    return redirect("servicedesk:catalog")
 
 
 @require("configure")
 def catalog_edit(request, pk=None):
     _check_pk(pk)
+    denied = _tenant_wide_denied(request, "configure", "the service catalog")
+    if denied:
+        return denied
     item = get_object_or_404(CatalogItem, tenant_key=_tenant(), pk=pk) if pk else None
     form = CatalogItemForm(request.POST or None, instance=item)
     if request.method == "POST" and form.is_valid():
@@ -391,6 +406,9 @@ def catalog_edit(request, pk=None):
 @require("admin")
 def catalog_delete(request, pk):
     _check_pk(pk)
+    denied = _tenant_wide_denied(request, "admin", "the service catalog")
+    if denied:
+        return denied
     item = get_object_or_404(CatalogItem, tenant_key=_tenant(), pk=pk)
     name = item.name
     audit(request, "delete", item, name=name)
@@ -406,7 +424,7 @@ def catalog_request(request, pk):
     form = RequestForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         site = form.cleaned_data["site"].strip()
-        if not can(request.user, "operate", site if site not in ("", "All Sites") else None):
+        if not can_on(request.user, "operate", site):
             form.add_error("site", "You cannot raise requests for this site.")
         else:
             t = services.request_from_catalog(item, request.user, details=form.cleaned_data["details"], site=site,
@@ -468,7 +486,10 @@ def edit(request, number):
         new_priority, new_assignee = obj.priority, obj.assignee
         new_problem = obj.problem if "problem" in form.fields else old["problem"]
         obj.priority, obj.assignee, obj.problem = old["priority"], old["assignee"], old["problem"]
-        obj.save()
+        # write only what this form changed: a full save would overwrite SLA breach flags set meanwhile by the SLA job
+        plain = [f for f in form.changed_data if f not in ("priority", "assignee", "problem")]
+        if plain:
+            obj.save(update_fields=plain + ["updated_at"])
         if new_priority != old["priority"]:
             services.set_priority(obj, new_priority, user=request.user)
         if (new_assignee.pk if new_assignee else None) != (old["assignee"].pk if old["assignee"] else None):
@@ -502,7 +523,7 @@ def detail(request, number, section=None):
         return redirect(t)   # e.g. /service-desk/incidents/CHG-1001/ -> /service-desk/changes/CHG-1001/
     now = timezone.now()
     site = t.site_scope
-    can_op = can(request.user, "operate", site)
+    can_op = can_on(request.user, "operate", site)
     users = assignable_users(site) if can_op else []
     timeline = list(t.timeline.select_related("author").all()[:300])
     flow = wf.FLOW[t.kind]
@@ -512,7 +533,7 @@ def detail(request, number, section=None):
     ctx = {
         "t": t, "now": now, "timeline": timeline, "steps": steps,
         "transitions": _transitions(request, t) if can_op else [],
-        "can_operate": can_op, "can_admin": can(request.user, "admin", site),
+        "can_operate": can_op, "can_admin": can_on(request.user, "admin", site),
         "users": users, "priorities": wf.PRIORITIES,
         "response": sla.response_clock(t, now), "resolution": sla.resolution_clock(t, now), "sla_state": sla.overall(t, now),
         "policy": sla.policy_for(t) if t.kind in wf.SLA_KINDS else None,
@@ -525,7 +546,7 @@ def detail(request, number, section=None):
         # the linked problem may be on a site the user cannot see: show that it exists, never its title or status
         ctx["problem_visible"] = bool(t.problem_id) and _visible(request).filter(pk=t.problem_id).exists()
         # (re)linking writes to the old and the new problem, so it needs operate on their sites as well
-        ctx["can_relink"] = can_op and (not t.problem_id or can(request.user, "operate", t.problem.site_scope))
+        ctx["can_relink"] = can_op and (not t.problem_id or can_on(request.user, "operate", t.problem.site_scope))
         ctx["problem_choices"] = (operable(_visible(request).filter(kind="problem").exclude(status="closed"), request.user)
                                   .order_by("-opened_at")[:200]) if ctx["can_relink"] else []
         ctx["related"] = (_visible(request).filter(kind="incident").exclude(pk=t.pk)
@@ -581,7 +602,7 @@ def assign(request, number):
         user = None
     else:
         user = get_user_model().objects.filter(pk=parse_pk(value, MAX_USER_PK) or 0, is_active=True).first()
-        if user is None or not can(user, "operate", t.site_scope):
+        if user is None or not can_on(user, "operate", t.site_scope):
             messages.error(request, "Choose an active user who can work tickets on this site.")
             return redirect(t)
     old = t.assignee
@@ -643,7 +664,7 @@ def link(request, number):
             old = t.problem if t.problem_id else None
             if (old.pk if old else None) != (problem.pk if problem else None):
                 for p in (old, problem):
-                    if p is not None and not can(request.user, "operate", p.site_scope):
+                    if p is not None and not can_on(request.user, "operate", p.site_scope):
                         raise services.WorkflowError("You cannot change links of problems on that site.")
             services.link_problem(t, problem, user=request.user)
             audit(request, "link", t, number=t.number, problem=problem.number if problem else "")
@@ -653,12 +674,12 @@ def link(request, number):
             inc = _visible(request).filter(number=num, kind="incident").first()
             if inc is None:
                 raise services.WorkflowError(f"No incident {num or '(blank)'} found.")
-            if not can(request.user, "operate", inc.site_scope):
+            if not can_on(request.user, "operate", inc.site_scope):
                 raise services.WorkflowError("You cannot change incidents on that site.")
             unlink = request.POST.get("unlink") == "1"
             if unlink and inc.problem_id != t.pk:
                 raise services.WorkflowError(f"{inc.number} is not linked to {t.number}.")
-            if not unlink and inc.problem_id and inc.problem_id != t.pk and not can(request.user, "operate", inc.problem.site_scope):
+            if not unlink and inc.problem_id and inc.problem_id != t.pk and not can_on(request.user, "operate", inc.problem.site_scope):
                 raise services.WorkflowError(f"{inc.number} is linked to a problem on a site you cannot change.")
             services.link_problem(inc, None if unlink else t, user=request.user)
             audit(request, "link", inc, number=inc.number, problem="" if unlink else t.number)
@@ -720,11 +741,11 @@ def delete(request, number):
 # ---------------------------------------------------------------- SLA policies
 def sla_policies(request):
     policies = list(SlaPolicy.objects.filter(tenant_key=_tenant()).order_by("priority"))
-    can_admin = can(request.user, "admin")
+    can_admin = can_on(request.user, "admin", None)   # SLA policies apply to every site
     forms_by_pk = {}
     if request.method == "POST":
         if not can_admin:
-            messages.error(request, "Only administrators can change SLA policies.")
+            messages.error(request, "Only administrators of all sites can change SLA policies.")
             return redirect("servicedesk:sla")
         pk = parse_pk(request.POST.get("pk"))
         p = SlaPolicy.objects.filter(tenant_key=_tenant(), pk=pk).first() if pk else None

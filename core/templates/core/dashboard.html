@@ -1,32 +1,111 @@
-{% extends "core/base.html" %}{% load le %}
-{% block title %}Dashboard{% endblock %}
+{% extends "core/base.html" %}{% load static le %}
+{% block title %}Operations{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'linkedeye/pages/overview.css' %}">{% endblock %}
 {% block content %}
-<section class="hero">
-  <div class="hero-main">
-    <div class="eyebrow">Operations · {% if le_site %}{{ le_site }}{% else %}All sites{% endif %}</div>
-    <h1>Dashboard</h1>
-    <p>What needs attention across monitoring, network and the service desk. Open any row to see the evidence behind it.</p>
-    <div class="actions"><a class="btn primary-light" href="{% url 'urlchecker:index' %}#form">{% icon "plus" 16 %}Add URL check</a><a class="btn dark" href="{{ heatmap_url }}">{% icon "activity" 16 %}Heatmap</a></div>
+<section class="ov-head">
+  <div class="ov-title">
+    <h1>Operations</h1>
+    <p>{% if le_site %}{{ le_site }}{% else %}All sites{% endif %}{% if md %}, <time datetime="{{ md.now|date:'c' }}">{{ md.now|date:"l j F, H:i" }} IST</time>{% endif %}</p>
   </div>
-  <div class="hero-stats">
-    <div class="hero-stat"><div class="k">Needs attention</div><div class="v{% if problems %} crit{% endif %}">{{ problems|length }}</div><div class="s">down or degraded</div></div>
-    <div class="hero-stat"><div class="k">URL uptime</div><div class="v">{% if uptime7 is None %}–{% else %}{{ uptime7|pct }}{% endif %}</div><div class="s">last 7 days</div></div>
-    <div class="hero-stat"><div class="k">Sites</div><div class="v">{{ le_sites|length }}</div><div class="s">{% if le_site %}showing {{ le_site }}{% else %}in scope{% endif %}</div></div>
+  <dl class="ov-figs">
+    <div class="ov-fig{% if problems %} is-crit{% endif %}">
+      <dt>Needs attention</dt>
+      <dd><a href="#attention">{{ problems|length }}</a></dd>
+      <dd class="ov-fig-note">down or degraded now</dd>
+    </div>
+    {% if desk.incidents is not None %}
+    <div class="ov-fig{% if desk.p12 %} is-crit{% endif %}">
+      <dt>Open incidents</dt>
+      <dd><a href="{{ desk.incidents_href }}">{{ desk.incidents }}</a></dd>
+      <dd class="ov-fig-note">{{ desk.p12 }} at P1 or P2</dd>
+    </div>
+    {% endif %}
+    {% if desk.alerts is not None %}
+    <div class="ov-fig{% if desk.alerts %} is-warn{% endif %}">
+      <dt>Alerts firing</dt>
+      <dd><a href="{{ desk.alerts_href }}">{{ desk.alerts }}</a></dd>
+      <dd class="ov-fig-note">from Alertmanager</dd>
+    </div>
+    {% endif %}
+    <div class="ov-fig">
+      <dt>URL uptime</dt>
+      <dd>{% if uptime7 is None %}–{% else %}{{ uptime7|pct }}{% endif %}</dd>
+      <dd class="ov-fig-note">last 7 days</dd>
+    </div>
+  </dl>
+</section>
+
+{% if md %}
+<section class="panel ov-day{% if not md.trading %} is-closed{% endif %}" aria-labelledby="ov-day-h">
+  <div class="ov-day-head">
+    <h2 id="ov-day-h">{{ md.line }}</h2>
+    <p>{% if md.crit or md.warn %}{{ md.crit }} critical and {{ md.warn }} warning event{{ md.warn|pluralize }} since 06:00{% else %}No critical or warning events since 06:00{% endif %}</p>
+    <a class="ov-link" href="{% url 'bodeod:status' %}">BOD / EOD status</a>
+  </div>
+  <div class="ov-strip-scroll">
+    <div class="ov-strip" style="--lanes: {{ md.lanes }}">
+      <div class="ov-lanes" aria-label="Validation windows today">
+        {% for m in md.modes %}
+        <a class="ov-win st-{{ m.status }}" href="{{ m.href }}" style="left: {{ m.left }}%; width: {{ m.width }}%; --lane: {{ m.lane }}"
+           title="{{ m.name }} ({{ m.site }}), {{ m.start|time:'H:i' }}–{{ m.end|time:'H:i' }} IST">
+          <b>{{ m.code }}</b>
+          <span>{% if m.status == "pass" %}Passed{% elif m.status == "warn" %}Warnings{% elif m.status == "fail" %}Failed{% elif m.status == "running" %}Running{% elif m.status == "missed" %}No run{% else %}{{ m.start|time:"H:i" }}{% endif %}</span>
+        </a>
+        {% empty %}
+        <span class="ov-lanes-empty">No BOD or EOD validations set up. <a href="{% url 'bodeod:status' %}">Set one up</a></span>
+        {% endfor %}
+      </div>
+      <div class="ov-track">
+        {% for p in md.phases %}
+        <div class="ov-phase ph-{{ p.key }}{% if p.current %} is-current{% endif %}{% if p.width < 6 %} is-narrow{% endif %}" title="{{ p.label }}, {{ p.start|time:'H:i' }}–{{ p.end|time:'H:i' }} IST" style="left: {{ p.left }}%; width: {{ p.width }}%"><span>{{ p.label }}</span></div>
+        {% endfor %}
+      </div>
+      <div class="ov-marks" role="list" aria-label="Critical and warning events today">
+        {% for e in md.marks %}<i class="ov-mark sev-{{ e.severity }}" role="listitem" style="left: {{ e.left }}%" title="{{ e.at|time:'H:i' }} {{ e.title }}"><span class="sr">{{ e.at|time:"H:i" }} {{ e.severity }}: {{ e.title }}</span></i>{% endfor %}
+      </div>
+      <div class="ov-hours" aria-hidden="true">
+        {% for h in md.hours %}<span style="left: {{ h.left }}%">{{ h.h|stringformat:"02d" }}:00</span>{% endfor %}
+      </div>
+      {% if md.now_left is not None %}<div class="ov-now" style="left: {{ md.now_left }}%"><span>{{ md.now|time:"H:i" }}</span></div>{% endif %}
+    </div>
   </div>
 </section>
-<section class="kpis">
-  {% for k in kpis %}
-  <a class="kpi stacked" href="{{ k.href }}" style="color:inherit;text-decoration:none"><div class="kpi-top"><div class="tile {{ k.tile }}">{% icon k.icon 22 %}</div><div class="kpi-body"><div class="label">{{ k.label }}</div><div class="value">{{ k.value }}</div></div></div><div class="sub">{{ k.sub }}</div></a>
-  {% endfor %}
+{% endif %}
+
+{% if matrix.rows %}
+<section class="panel ov-sites" aria-labelledby="ov-sites-h">
+  <div class="panel-h"><h2 id="ov-sites-h">Sites</h2><small>Healthy out of monitored, worst site first</small></div>
+  <div class="table-wrap">
+    <table class="ov-matrix">
+      <thead><tr><th scope="col">Site</th>{% for k in matrix.kinds %}<th scope="col"><a href="{{ k.href }}">{{ k.label }}</a></th>{% endfor %}<th scope="col">Alerts firing</th></tr></thead>
+      <tbody>
+        {% for r in matrix.rows %}
+        <tr>
+          <th scope="row"><span class="ov-dot t-{{ r.tone }}" aria-hidden="true"></span>{{ r.site }}</th>
+          {% for c in r.cells %}
+          <td class="ov-cell ov-c-{{ c.tone }}">{% if c.c %}<a href="{{ c.href }}"><b>{{ c.c.ok }}</b><span>/{{ c.c.total }}</span>{% if c.c.bad %}<em>{{ c.c.bad }} down</em>{% elif c.c.other %}<em>{{ c.c.other }} degraded or unknown</em>{% endif %}</a>{% else %}<span class="ov-none">–</span>{% endif %}</td>
+          {% endfor %}
+          <td class="ov-cell{% if r.alerts.crit %} ov-c-crit{% elif r.alerts.n %} ov-c-warn{% else %} ov-c-ok{% endif %}">{% if r.alerts.n %}<b>{{ r.alerts.n }}</b>{% if r.alerts.crit %}<em>{{ r.alerts.crit }} critical</em>{% endif %}{% else %}<span class="ov-none">0</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
+{% endif %}
+
 <section class="grid g-main">
-  <div class="panel"><div class="panel-h"><h2>Needs attention ({{ problems|length }})</h2></div>
+  <div class="panel" id="attention">
+    <div class="panel-h"><h2>Needs attention</h2><small>{{ problems|length }} down or degraded, newest first</small></div>
     <div class="table-wrap"><table><thead><tr><th>Type</th><th>Name</th><th>Site</th><th>Status</th><th>Detail</th><th>Since</th></tr></thead><tbody>
     {% for p in problems %}<tr><td>{{ p.kind }}</td><td><a href="{{ p.href }}">{{ p.name }}</a></td><td>{{ p.site }}</td><td>{% badge p.status %}</td><td class="wrap">{{ p.detail|truncatechars:90 }}</td><td>{{ p.when|ago }}</td></tr>
-    {% empty %}<tr><td colspan="6" class="empty">Everything that is monitored is healthy.</td></tr>{% endfor %}</tbody></table></div></div>
-  <div class="panel"><div class="panel-h"><h2>Recent events</h2>{% if events %}<div class="right"><a class="view-all" href="{% url 'observe:events' %}">All events</a></div>{% endif %}</div>
+    {% empty %}<tr><td colspan="6" class="empty">Everything monitored is healthy. <a href="{% url 'urlchecker:index' %}#form">Add a URL check</a></td></tr>{% endfor %}</tbody></table></div>
+  </div>
+  <div class="panel">
+    <div class="panel-h"><h2>Recent events</h2>{% if events %}<div class="right"><a class="view-all" href="{% url 'observe:events' %}">All events</a></div>{% endif %}</div>
     <div class="table-wrap"><table><tbody>
     {% for e in events %}<tr><td class="ev-sev">{% badge e.severity %}</td><td class="wrap ev"><span class="t-mute small">{{ e.source }} · {{ e.occurred_at|short_dt }}</span><br>{{ e.title|truncatechars:70 }}</td></tr>
-    {% empty %}<tr><td class="empty">No warnings or failures recorded yet.</td></tr>{% endfor %}</tbody></table></div></div>
+    {% empty %}<tr><td class="empty">No warnings or failures recorded yet.</td></tr>{% endfor %}</tbody></table></div>
+  </div>
 </section>
 {% endblock %}

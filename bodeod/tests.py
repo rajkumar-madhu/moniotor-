@@ -572,17 +572,23 @@ class ViewTests(TestCase):
         data = {"date": "2026-12-25", "exchange": "NSE", "description": "Christmas"}
         client_for(self.viewer).post(reverse("bodeod:holidays"), data)
         self.assertFalse(Holiday.objects.exists())
-        r = client_for(self.operator).post(reverse("bodeod:holidays"), data)
+        # holidays cancel BOD/EOD on every site: adding one needs the administrator role on every site
+        client_for(self.operator).post(reverse("bodeod:holidays"), data)
+        self.assertFalse(Holiday.objects.exists())
+        r = client_for(self.admin).post(reverse("bodeod:holidays"), data)
         self.assertEqual(r.status_code, 302)
         h = Holiday.objects.get()
         self.assertEqual(h.source, "manual")
         self.assertTrue(AuditEvent.objects.filter(action="create", object_type="bodeod.holiday").exists())
-        r = client_for(self.operator).post(reverse("bodeod:holidays"), data)
+        r = client_for(self.admin).post(reverse("bodeod:holidays"), data)
         self.assertEqual(r.status_code, 400)
 
     def test_holiday_upload(self):
         f = SimpleUploadedFile("nse.csv", b"date,description\n26-Jan-2026,Republic Day\n2026-03-03,Holi\nnope,x\n", "text/csv")
-        r = client_for(self.operator).post(reverse("bodeod:holiday_upload"), {"file": f, "default_exchange": "NSE"})
+        client_for(self.operator).post(reverse("bodeod:holiday_upload"), {"file": f, "default_exchange": "NSE"})
+        self.assertFalse(Holiday.objects.exists())   # tenant-wide admin only
+        f.seek(0)
+        r = client_for(self.admin).post(reverse("bodeod:holiday_upload"), {"file": f, "default_exchange": "NSE"})
         self.assertEqual(r.status_code, 302)
         self.assertEqual(Holiday.objects.filter(exchange="NSE").count(), 2)
         self.assertEqual(AuditEvent.objects.get(action="import").details["created"], 2)
@@ -590,7 +596,7 @@ class ViewTests(TestCase):
         client_for(self.viewer).post(reverse("bodeod:holiday_upload"), {"file": f, "default_exchange": "NSE"})
         self.assertEqual(Holiday.objects.count(), 2)
         f = SimpleUploadedFile("x.exe", b"MZ", "application/octet-stream")
-        client_for(self.operator).post(reverse("bodeod:holiday_upload"), {"file": f, "default_exchange": "NSE"})
+        client_for(self.admin).post(reverse("bodeod:holiday_upload"), {"file": f, "default_exchange": "NSE"})
         self.assertEqual(Holiday.objects.count(), 2)
 
     def test_holiday_delete_admin_only_and_export(self):

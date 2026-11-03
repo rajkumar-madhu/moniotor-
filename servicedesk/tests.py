@@ -850,7 +850,11 @@ class ReviewRegressionTests(Base):
         c.post(reverse("servicedesk:link", args=[prob.number]), {"incident": dr_inc.number, "unlink": "1"})
         dr_inc.refresh_from_db()
         self.assertEqual(dr_inc.problem, prob)
+        # linking writes to the global problem too, which needs operate on every site (not just Mumbai)
         c.post(reverse("servicedesk:link", args=[prob.number]), {"incident": mum_inc.number})
+        mum_inc.refresh_from_db()
+        self.assertIsNone(mum_inc.problem)
+        self.login(self.admin).post(reverse("servicedesk:link", args=[prob.number]), {"incident": mum_inc.number})
         mum_inc.refresh_from_db()
         self.assertEqual(mum_inc.problem, prob)
 

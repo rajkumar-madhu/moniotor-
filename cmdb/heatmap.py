@@ -12,6 +12,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db.models import Prefetch
 from django.utils import timezone
 
 from core import prometheus
@@ -252,7 +253,14 @@ def _cell(col, value, base_ms, note=""):
 def build(user, domain="", service="", host="", window=DEFAULT_WINDOW):
     window = window if window in WINDOWS else DEFAULT_WINDOW
     since = timezone.now() - timedelta(seconds=WINDOWS[window][1])
-    cis = list(services.ci_queryset(user).exclude(status="retired").prefetch_related("url_checks", "domains"))
+    # linked checks and domains on sites the user cannot see do not feed the user's heatmap
+    from domainmonitor.models import Domain
+    from urlchecker.models import UrlCheck
+
+    from .forms import link_queryset
+    cis = list(services.ci_queryset(user).exclude(status="retired").prefetch_related(
+        Prefetch("url_checks", queryset=link_queryset(UrlCheck.objects.all(), user, "site")),
+        Prefetch("domains", queryset=link_queryset(Domain.objects.all(), user, "site_key"))))
     ci_map = {c.pk: c for c in cis}
     edges = [e for e in services.edges_for() if e[1] in ci_map and e[2] in ci_map]
     domain_names = services.domain_names(user)

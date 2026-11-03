@@ -194,14 +194,19 @@ class Rule(models.Model):
             parts.append(self.site)
         return " · ".join(parts)
 
-    def action_summary(self):
+    def action_summary(self, full=False):
+        """One-line description of the action. Webhook URLs are redacted (Slack/Teams keep the secret in the path)
+        unless `full` is set; callers pass full=True only for users who may operate the rule's site."""
         p = self.params
         if self.action == "open_incident":
             return f"Open {p.get('priority') or 'P3'} incident"
         if self.action == "stackstorm":
             return f"StackStorm: {p.get('trigger') or '–'}"
         if self.action == "webhook":
-            return f"Webhook: {p.get('url') or '–'}"
+            if not p.get("url"):
+                return "Webhook: –"
+            from .services import redact_url
+            return f"Webhook: {p['url'] if full else redact_url(p['url'])}"
         if self.action == "link_runbook":
             return f"Runbook: {self.runbook.title if self.runbook else '–'}"
         return self.get_action_display()
@@ -236,7 +241,11 @@ class Execution(models.Model):
                    models.Index(fields=["rule", "fingerprint", "started_at"])]
 
     def __str__(self):
-        return f"{self.get_kind_display()} {self.trigger[:60]} ({self.status})"
+        trigger = self.trigger
+        if self.kind == "webhook":
+            from .services import redact_url
+            trigger = redact_url(trigger)
+        return f"{self.get_kind_display()} {trigger[:60]} ({self.status})"
 
     def get_absolute_url(self):
         return reverse("automation:execution_detail", args=[self.pk])

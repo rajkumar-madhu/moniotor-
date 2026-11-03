@@ -20,11 +20,11 @@ from django.apps import apps
 from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from django.db import connection
-from django.db.models import Count
+from django.db import IntegrityError, connection, transaction
+from django.db.models import Count, Q
 from django.utils import timezone
 
-from .models import Heartbeat, IntegrationTest
+from .models import Heartbeat, IntegrationTest, LoginThrottle
 
 log = logging.getLogger("linkedeye.administration")
 
@@ -86,6 +86,94 @@ def generate_password(user=None, length=20):
         except ValidationError:
             continue
     raise RuntimeError("could not generate a password that passes the configured validators")
+
+
+# ------------------------------------------------------------------ sign-in throttling
+LOGIN_MAX_FAILURES_DEFAULT = 5          # per username
+LOGIN_MAX_FAILURES_PER_IP_DEFAULT = 20  # per client address
+LOGIN_WINDOW_MINUTES_DEFAULT = 15
+
+
+def _int_setting(name, default):
+    try:
+        v = int(_setting(name, default))
+    except (TypeError, ValueError):
+        return default
+    return v if v > 0 else default
+
+
+def login_limits():
+    """(max failures per username, max failures per client address, window) from LINKEDEYE_LOGIN_MAX_FAILURES,
+    LINKEDEYE_LOGIN_MAX_FAILURES_PER_IP and LINKEDEYE_LOGIN_WINDOW_MINUTES (settings or environment). The window
+    is both the counting window and the lock-out time."""
+    return (_int_setting("LOGIN_MAX_FAILURES", LOGIN_MAX_FAILURES_DEFAULT),
+            _int_setting("LOGIN_MAX_FAILURES_PER_IP", LOGIN_MAX_FAILURES_PER_IP_DEFAULT),
+            timedelta(minutes=_int_setting("LOGIN_WINDOW_MINUTES", LOGIN_WINDOW_MINUTES_DEFAULT)))
+
+
+def _throttle_keys(username, ip):
+    keys = []
+    name = str(username or "").strip().lower()[:191]
+    if name:
+        keys.append(("user", name))
+    if ip:
+        keys.append(("ip", str(ip)[:191]))
+    return keys
+
+
+def login_lock_remaining(username, ip, now=None):
+    """(kind, timedelta) of the longest active lock on the username or client address, or None."""
+    now = now or timezone.now()
+    keys = _throttle_keys(username, ip)
+    if not keys:
+        return None
+    q = None
+    for kind, value in keys:
+        q = Q(kind=kind, value=value) if q is None else q | Q(kind=kind, value=value)
+    row = LoginThrottle.objects.filter(q, locked_until__gt=now).order_by("-locked_until").first()
+    return (row.kind, row.locked_until - now) if row else None
+
+
+def login_failed(username, ip, now=None):
+    """Count one failed sign-in for the username and the client address. Returns the kinds that became locked by
+    this failure (e.g. ["user"]). Never raises: a throttle error must not turn a wrong password into a 500."""
+    now = now or timezone.now()
+    max_user, max_ip, window = login_limits()
+    locked = []
+    try:
+        for kind, value in _throttle_keys(username, ip):
+            limit = max_user if kind == "user" else max_ip
+            for _attempt in range(2):   # a concurrent first failure may win the insert; retry the update once
+                try:
+                    with transaction.atomic():
+                        row = LoginThrottle.objects.select_for_update().filter(kind=kind, value=value).first()
+                        if row is None:
+                            row = LoginThrottle.objects.create(kind=kind, value=value, failures=0, window_started_at=now)
+                        if row.window_started_at <= now - window:
+                            row.failures, row.window_started_at = 0, now
+                        row.failures += 1
+                        row.updated_at = now
+                        if row.failures >= limit and not (row.locked_until and row.locked_until > now):
+                            row.locked_until = now + window
+                            locked.append(kind)
+                        row.save(update_fields=["failures", "window_started_at", "locked_until", "updated_at"])
+                    break
+                except IntegrityError:
+                    continue
+        # housekeeping: forget counters that are neither counting nor locking any more
+        LoginThrottle.objects.filter(updated_at__lt=now - 2 * window).exclude(locked_until__gt=now).delete()
+    except Exception:
+        log.exception("could not record a failed sign-in")
+    return locked
+
+
+def login_succeeded(username):
+    """A successful sign-in clears the username's counter (the client address keeps its count)."""
+    try:
+        for kind, value in _throttle_keys(username, None):
+            LoginThrottle.objects.filter(kind=kind, value=value).delete()
+    except Exception:
+        log.exception("could not clear the sign-in throttle")
 
 
 # ------------------------------------------------------------------ helpers
@@ -314,7 +402,11 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 def test_stackstorm():
     """GET the configured StackStorm URL (no redirects, short timeout). Returns (ok, message). Never raises."""
-    url = (getattr(settings, "STACKSTORM_URL", "") or "").strip()
+    try:  # the same URL builder the automation module uses for triggers
+        from automation.services import stackstorm_endpoint
+        url = stackstorm_endpoint()
+    except ImportError:  # pragma: no cover - automation not installed
+        url = (getattr(settings, "STACKSTORM_URL", "") or "").strip()
     if not url:
         return False, "StackStorm is not configured (set LINKEDEYE_STACKSTORM_URL)."
     p = urlsplit(url)
@@ -587,6 +679,87 @@ def site_usage():
     for name, n in Domain.objects.filter(tenant_key=t).values_list("site_key").annotate(n=Count("id")).order_by():
         usage.setdefault(name, {"urls": 0, "domains": 0})["domains"] = n
     return usage
+
+
+# Every model that stores a site *name* (not a foreign key): (app label, model, field, label shown to admins).
+# core.Membership points at core.Site by foreign key, so it follows a rename by itself and is not listed.
+SITE_NAME_FIELDS = [
+    ("urlchecker", "UrlCheck", "site", "URL checks"),
+    ("domainmonitor", "Domain", "site_key", "Domains"),
+    ("tcpcheck", "TcpCheck", "site", "TCP checks"),
+    ("network", "Device", "site", "Network devices"),
+    ("network", "DiscoveryRun", "site", "Discovery runs"),
+    ("cmdb", "ConfigurationItem", "site", "Configuration items"),
+    ("observe", "Exporter", "site", "Exporters"),
+    ("observe", "LogEntry", "site", "Log entries"),
+    ("telemetry", "Alert", "site", "Alerts"),
+    ("servicedesk", "Ticket", "site", "Tickets"),
+    ("automation", "Runbook", "site", "Runbooks"),
+    ("automation", "Rule", "site", "Workflow rules"),
+    ("automation", "Execution", "site", "Automation executions"),
+    ("bodeod", "Mode", "site", "BOD/EOD modes"),
+    ("reports", "ScheduledReport", "site", "Scheduled reports"),
+    ("reports", "ReportRun", "site", "Report runs"),
+    ("core", "Event", "site", "Events"),
+]
+
+
+def _site_name_querysets(name):
+    """(label, queryset of this tenant's records whose site field equals `name`, field) for installed models."""
+    t = tenant()
+    for app_label, model_name, field, label in SITE_NAME_FIELDS:
+        try:
+            model = apps.get_model(app_label, model_name)
+            model._meta.get_field(field)
+        except LookupError:
+            continue
+        except Exception:  # FieldDoesNotExist: the module changed shape; skip rather than break the admin page
+            continue
+        qs = model._default_manager.filter(**{field: name})
+        if any(f.name == "tenant_key" for f in model._meta.get_fields()):
+            qs = qs.filter(tenant_key=t)
+        yield label, qs, field
+
+
+def _templates_for_site(name):
+    """automation.Template rows whose default values name the site (stored inside a JSON field)."""
+    try:
+        Template = apps.get_model("automation", "Template")
+    except LookupError:
+        return []
+    return [tpl for tpl in Template.objects.filter(tenant_key=tenant())
+            if isinstance(tpl.fields, dict) and tpl.fields.get("site") == name]
+
+
+def site_references(name):
+    """[(label, count)] of records in every module that store the site name `name` (only non-zero counts)."""
+    out = []
+    for label, qs, _field in _site_name_querysets(name):
+        n = qs.count()
+        if n:
+            out.append((label, n))
+    n = len(_templates_for_site(name))
+    if n:
+        out.append(("Automation templates", n))
+    return out
+
+
+def rename_site_references(old, new):
+    """Point every record that stores the site name `old` at `new`, in one transaction. Returns [(label, count)]
+    of updated rows (non-zero only). Run it in the same transaction that renames the core.Site row."""
+    out = []
+    with transaction.atomic():
+        for label, qs, field in _site_name_querysets(old):
+            n = qs.update(**{field: new})
+            if n:
+                out.append((label, n))
+        tpls = _templates_for_site(old)
+        for tpl in tpls:
+            tpl.fields = {**tpl.fields, "site": new}
+            tpl.save(update_fields=["fields"])
+        if tpls:
+            out.append(("Automation templates", len(tpls)))
+    return out
 
 
 def unmapped_site_names():
