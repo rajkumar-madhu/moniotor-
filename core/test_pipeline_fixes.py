@@ -6,7 +6,9 @@ from datetime import timedelta
 from unittest import mock
 
 from django.conf import settings
-from django.db import transaction
+import unittest
+
+from django.db import connection, transaction
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -146,7 +148,17 @@ class JobBudgetTests(TestCase):
         self.assertEqual(self.ran, ["x.hourly", "x.hourly"])
 
 
+def force_lease_row(test):
+    """Lease picks the advisory lock on PostgreSQL; tests of the lease-row path pin it to the row path."""
+    p = mock.patch.object(jobs.Lease, "_vendor", return_value="sqlite")
+    p.start()
+    test.addCleanup(p.stop)
+
+
 class LeaseRowTests(TestCase):
+    def setUp(self):
+        force_lease_row(self)
+
     def test_second_instance_waits_until_the_lease_expires(self):
         a, b = jobs.Lease(owner="host-a:1"), jobs.Lease(owner="host-b:2")
         self.assertTrue(a.acquire())
@@ -215,3 +227,28 @@ class LeaseAdvisoryTests(TestCase):
             with self.assertLogs("linkedeye.jobs", "WARNING"):
                 self.assertFalse(lease.acquire())
         self.assertFalse(lease.held)
+
+
+@unittest.skipUnless(connection.vendor == "postgresql", "PostgreSQL advisory locks")
+class PostgresAdvisoryLockTests(TestCase):
+    """The real PostgreSQL path: each Lease holds pg_try_advisory_lock on its own dedicated connection, so this works
+    inside the test transaction."""
+
+    def test_only_one_holder_and_release_hands_over(self):
+        a, b = jobs.Lease(name="test:advisory", owner="a"), jobs.Lease(name="test:advisory", owner="b")
+        self.addCleanup(a.release)
+        self.addCleanup(b.release)
+        self.assertTrue(a.acquire())
+        self.assertFalse(b.acquire())
+        self.assertTrue(a.acquire())       # renewal: the session is still alive
+        a.release()
+        self.assertTrue(b.acquire())
+        self.assertFalse(a.acquire())
+
+    def test_a_dead_holder_frees_the_lock_at_once(self):
+        a, b = jobs.Lease(name="test:advisory-crash", owner="a"), jobs.Lease(name="test:advisory-crash", owner="b")
+        self.addCleanup(b.release)
+        self.assertTrue(a.acquire())
+        a._conn.close()                    # the holder's process died: its session (and lock) is gone
+        a._conn = None
+        self.assertTrue(b.acquire())
