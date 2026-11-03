@@ -1,0 +1,29 @@
+{% load le network_tags %}
+<section class="panel nw-fp" id="front-panel" aria-labelledby="fp-title"{% if port_pos is not None %} data-selected="{{ port_pos }}"{% endif %}>
+  <div class="panel-h"><div><h2 id="fp-title">Front panel</h2><small class="mono">{% for b in panel_blocks %}{{ b.label }}{% if not forloop.last %} · {% endif %}{% endfor %} · select a port for details</small></div>
+    <div class="right fp-legend"><span><i class="fp-sw up"></i>Up</span><span><i class="fp-sw busy"></i>Busy or errors</span><span><i class="fp-sw down"></i>Down</span><span><i class="fp-sw unused"></i>Unused / admin down</span></div></div>
+  <div class="fp-chassis">
+    <div class="fp-brand" aria-hidden="true"><b>{{ device.vendor|default:device.get_device_type_display }}</b><span><i class="fp-led t-{{ device.status|tone }}"></i>SYS</span></div>
+    {% for b in panel_blocks %}<div class="fp-block" role="group" aria-label="{{ b.label }} ports">
+      {% if panel_blocks|length > 1 %}<div class="fp-block-lbl" aria-hidden="true">{{ b.label }}</div>{% endif %}
+      <div class="fp-chunks">{% for chunk in b.chunks %}<div class="fp-grid">{% for n, p in chunk %}<button type="button" class="fp-port {{ p.port_tone }}" data-port="{{ n|add:'-1' }}" aria-pressed="false"
+        aria-label="Port {{ n }}, {{ p.name }}, {{ p.port_tone_label }}"
+        title="{{ p.name }}{% if p.alias %} · {{ p.alias }}{% endif %}"><i></i><span>{{ n }}</span></button>{% endfor %}</div>{% endfor %}</div>
+    </div>{% endfor %}
+  </div>
+  {% if panel_truncated %}<p class="nw-note">Showing the first {{ ports|length }} of {{ ports_total }} ports; the <a href="?tab=interfaces">Interfaces</a> tab lists all of them.</p>{% endif %}
+
+  <div class="fp-drawer" id="fp-drawer" role="region" aria-labelledby="fp-d-name" hidden>
+    <div class="fp-d-head">
+      <div class="fp-d-title"><h3 id="fp-d-name" tabindex="-1"></h3><p class="fp-d-desc"></p></div>
+      <span class="fp-d-badge"></span>
+      <div class="fp-d-nav">
+        <button type="button" class="btn icon" data-fp="prev" aria-label="Previous port">{% icon "chevron-left" 16 %}</button>
+        <button type="button" class="btn icon" data-fp="next" aria-label="Next port">{% icon "chevron-right" 16 %}</button>
+        <button type="button" class="btn icon" data-fp="close" aria-label="Close port details (Esc)">{% icon "x" 16 %}</button>
+      </div>
+    </div>
+    <dl class="kv fp-d-kv"></dl>
+    <a class="btn sm ghost-primary fp-d-filter" href="?tab=overview">{% icon "filter" 15 %}Filter charts to this port</a>
+  </div>
+</section>
