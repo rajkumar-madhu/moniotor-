@@ -69,7 +69,21 @@ class StaleTransitionTests(TestCase):
             self.assertIsNone(runner.save_url_result(copy, checks.HttpResult(ok=False, error="x"), timezone.now()))
 
 
+def isolate_scheduler(test):
+    """run_probes calls close_old_connections(), which closes a connection that is inside a transaction; under
+    TestCase that is the test's own transaction (SQLite's in-memory test database ignores the close, PostgreSQL does
+    not). Django's test client disables the same call for requests. These tests also assert on lease rows, so pin
+    the lease to the row path (PostgreSQL would take the advisory lock)."""
+    for p in (mock.patch.object(run_probes, "close_old_connections"),
+              mock.patch.object(jobs.Lease, "_vendor", return_value="sqlite")):
+        p.start()
+        test.addCleanup(p.stop)
+
+
 class RunProbesLeaseTests(TestCase):
+    def setUp(self):
+        isolate_scheduler(self)
+
     def test_second_scheduler_stands_by(self):
         SchedulerLease.objects.create(name=f"scheduler:{settings.LINKEDEYE_TENANT}", owner="other-host:1",
                                       expires_at=timezone.now() + timedelta(seconds=60))
@@ -118,6 +132,9 @@ class RunProbesLeaseTests(TestCase):
 @override_settings(NOTIFY_WEBHOOK_URLS=["http://hook.example/x"], NOTIFY_EMAILS=[], INCIDENT_AUTO_CREATE=False,
                    NOTIFY_ASYNC=True, NOTIFY_DIGEST_THRESHOLD=0)
 class OnceFlushesNotificationsTests(TestCase):
+    def setUp(self):
+        isolate_scheduler(self)
+
     def test_once_waits_for_queued_notifications(self):
         sent = threading.Event()
 
