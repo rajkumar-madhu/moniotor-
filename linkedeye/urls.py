@@ -14,6 +14,7 @@ urlpatterns = [
     path("", core.dashboard, name="dashboard"),
     path("search/", core.search, name="search"),
     path("healthz", core.healthz, name="healthz"),
+    path("api/backend-summary/", core.backend_summary_api, name="backend_summary_api"),
     path("accounts/login/", auth_views.LoginView.as_view(authentication_form=ThrottledAuthenticationForm), name="login"),
     path("accounts/logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("monitoring/url-checker/", include("urlchecker.urls")),

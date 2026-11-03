@@ -302,6 +302,8 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 | `LINKEDEYE_DB_CONN_MAX_AGE` | `60` | | Seconds a database connection is reused (`0` = close after each request). Connections are health-checked before reuse. |
 | `LINKEDEYE_TIME_ZONE` | `Asia/Kolkata` | | Display time zone (IANA name). Data is stored in UTC. |
 | `LINKEDEYE_TENANT` | `default` | | Tenant whose records this deployment shows (single-tenant deployment). |
+| `LINKEDEYE_BACKEND_SUMMARY_URL` | empty | | Optional read-only status bridge to the legacy Neo4j dashboard's `/dashboard/api/summary`. Must be `https://` (plain `http://localhost` only when `LINKEDEYE_DEBUG=true`), without credentials in the URL; redirects are not followed. Empty: the dashboard and heatmap show "not connected". Only the user's visible site names are sent. |
+| `LINKEDEYE_BACKEND_SUMMARY_TOKEN` | empty | | Bearer token for `LINKEDEYE_BACKEND_SUMMARY_URL`; set the same high-entropy value as the legacy backend's `DASHBOARD_API_TOKEN`. Both URL and token are required. Secret: keep it in the environment, never in the repository. |
 | `LINKEDEYE_LOG_LEVEL` | `INFO` | | Level of the `linkedeye.*` loggers (probes, jobs, integrations). |
 | `LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS` | empty | | Comma-separated private / loopback ranges probes may connect to, e.g. `10.10.0.0/16,10.20.0.0/16`. Everything private not listed is refused. |
 | `LINKEDEYE_PROBE_TIMEOUT` | `10` | | Seconds per probe step (connect, TLS, response). |

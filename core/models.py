@@ -1,6 +1,7 @@
 """Platform-wide models: sites and role memberships, the audit trail and the
 unified event stream that every module writes to."""
 from django.conf import settings
+from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 from django.utils import timezone
 
@@ -14,6 +15,10 @@ class Site(models.Model):
     name = models.CharField(max_length=100)
     code = models.SlugField(max_length=60)
     region = models.CharField(max_length=100, blank=True)
+    latitude = models.DecimalField(max_digits=8, decimal_places=5, null=True, blank=True,
+                                   validators=[MinValueValidator(-90), MaxValueValidator(90)])
+    longitude = models.DecimalField(max_digits=8, decimal_places=5, null=True, blank=True,
+                                    validators=[MinValueValidator(-180), MaxValueValidator(180)])
     timezone = models.CharField(max_length=60, default="Asia/Kolkata")
     criticality = models.CharField(max_length=10, choices=CRITICALITY, default="standard")
     description = models.TextField(blank=True)
