@@ -235,6 +235,8 @@ def stackstorm_display_url():
         return ""
     p = urlsplit(base)
     host = p.hostname or ""
+    if ":" in host:
+        host = f"[{host}]"
     if p.port:
         host += f":{p.port}"
     return f"{p.scheme}://{host}{p.path}"
