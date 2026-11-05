@@ -42,6 +42,14 @@ KPI cards (`.kpi.stacked > .kpi-top > .tile.s-* + .kpi-body`), panels (`.panel`,
 `.empty` for empty states, `.messages` via Django messages. Forms: `.form-grid > .field` with labels.
 Follow the existing pages (urlchecker/templates/urlchecker/index.html, domainmonitor/templates/…) for markup.
 
+Theme: the classic LinkedEye look (near-black page, `#1f1f1f` rail and cards, one amber accent), defined by the
+`:root` tokens at the top of `app.css`. Page CSS and Python use tokens, never hex values: `--panel`, `--ink`, `--muted`,
+`--primary`, status families `--ok|warn|crit|info|purple|teal` with `-bg`, `-ink` and `-line`, `--on-solid` for text on a
+solid status fill, `--active-fill`/`--active-ink` for selected pills. Chart colours from Python are strings such as
+`"var(--chart-1)"` (`--chart-1` to `--chart-10`, `--chart-ok|warn|crit`); `charts.js` resolves them before writing SVG
+attributes. No web font is loaded. The shell is an icon rail (`.side`) that expands on hover or keyboard focus and is
+pinned open by the menu button (`.shell.rail-open`). Nav labels sit in `.lbl`, clipped rather than removed while collapsed.
+
 ## Data rules
 
 * Pages show **real data from the database or a configured integration**. When an integration is not

@@ -1,0 +1,61 @@
+/* Sign-in page. The app is dark but the legacy sign-in page is light: white page, rounded diagonal yellow shape,
+   wordmark and illustration on the left. The class on <html> holds this page's token values, so the base rules in
+   app.css (body, links, focus outline) pick them up as well. Rules below use tokens only. */
+.login-page {
+  --bg: #ffffff;
+  --frame: #ffffff;
+  --panel: #ffffff;
+  --ink: #333333;
+  --ink-2: #666666;
+  --on-shape: #000000;            /* text on the yellow shape. The legacy white link is only 1.51:1 there */
+  --caption: #004085;
+  --primary: #0078c1;
+  --brand: #0078c1;
+  --input-bg: #ffffff;
+  --input-line: #8a8a8a;
+  --input-focus: #0078c1;
+  --btn-primary: #0078c1;
+  --btn-primary-hover: #0070b4;
+  --btn-primary-active: #0068a7;
+  --btn-primary-ink: #ffffff;
+  --crit-bg: #fde7e4;
+  --crit-ink: #a33219;
+  --crit-line: #f6c5bf;
+  --card-shadow: 0 4px 6px rgba(0, 0, 0, .1);
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color-scheme: light;
+}
+
+.login { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); place-items: stretch; padding: 0;
+  background: var(--bg) url(../img/login-bg-img1.png) right top / cover no-repeat; }
+
+.login .showcase { display: flex; flex-direction: column; gap: 28px; padding: 12px 24px 24px 6.5vw; }
+.login .wordmark { display: block; width: 190px; height: auto; }
+/* the illustration sits on its own white block, which cuts a rounded notch out of the yellow shape */
+.login .showcase figure { position: relative; width: min(590px, 100%); margin: 0; overflow: hidden; background: var(--panel); border-radius: 30px; }
+.login .showcase figure img { display: block; width: 100%; height: auto; }
+.login .showcase figcaption { position: absolute; left: 5px; bottom: 24px; color: var(--caption); font: italic 500 28px/1.2 var(--font); }
+
+.login .entry { display: grid; grid-template-rows: 1fr auto; justify-items: center; align-items: center; gap: 24px; padding: 24px 24px 28px; }
+.login .card { display: flex; flex-direction: column; justify-content: center; gap: 14px; width: 100%; max-width: 400px; padding: 30px;
+  background: var(--panel); border-radius: 8px; box-shadow: var(--card-shadow); }
+.login .card h1 { margin: 0; color: var(--ink); font: 600 26px/1.2 var(--font); letter-spacing: 0; }
+.login .card .lead { margin: -6px 0 6px; color: var(--ink-2); }
+.login .card .field label { color: var(--ink); font: 600 13px/1.3 var(--font); letter-spacing: 0; text-transform: none; }
+.login .card input[type=text], .login .card input[type=password] { height: 42px; background: var(--input-bg); border: 1px solid var(--input-line); border-radius: 4px; color: var(--ink); }
+.login .card input[type=text]:focus, .login .card input[type=password]:focus { border-color: var(--input-focus); outline: 2px solid var(--input-focus); outline-offset: 0; box-shadow: none; }
+.login .card .btn.primary { height: 42px; justify-content: center; background: var(--btn-primary); border-color: var(--btn-primary); border-radius: 3px; color: var(--btn-primary-ink); }
+.login .card .btn.primary:hover { background: var(--btn-primary-hover); border-color: var(--btn-primary-hover); }
+.login .card .btn.primary:active { background: var(--btn-primary-active); border-color: var(--btn-primary-active); }
+.login .card .messages li.error { background: var(--crit-bg); border-color: var(--crit-line); color: var(--crit-ink); }
+
+.login .copyright { color: var(--on-shape); font-size: 18px; text-align: center; }
+.login .copyright a { color: inherit; text-decoration: underline; }
+.login .copyright a:focus-visible { outline-color: var(--on-shape); }
+
+@media (max-width: 960px) {
+  .login { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
+  .login .showcase { padding: 12px 16px 0; }
+  .login .showcase figure { display: none; }
+  .login .entry { padding: 24px 16px; }
+}

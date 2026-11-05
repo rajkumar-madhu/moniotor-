@@ -3,15 +3,25 @@
  * Data comes from a {{ value|json_script:"id" }} block. null values are gaps (never drawn as zero).
  * Options: labels, series[{name,color,values,area,areaOpacity,width,dash,endDot}], unit, yMin, yMax, yTicks,
  *   tipLabels, xLabelEvery, stacked (bars), thickness/center (donut).
+ * Colours are a literal or 'var(--token)'.
  */
 (function () {
   'use strict';
   const NS = 'http://www.w3.org/2000/svg';
-  const AXIS = '#b3ab9c', GRID = '#ebe5d9', TEXT = '#6f6a61';
+  const AXIS = 'var(--chart-axis)', GRID = 'var(--line-soft)', TEXT = 'var(--muted)';
 
+  // 'var(--token)' becomes the token's value, read when the chart is drawn so a redraw follows the tokens in force
+  // then (print). Literals pass through. A token with no value falls back to the text colour, because stroke=""
+  // draws nothing and a missing series reads as "no data". getComputedStyle is absent under node (test_audit_charts).
+  function paint(c) {
+    const m = typeof c === 'string' && /^var\((--[\w-]+)\)$/.exec(c);
+    if (!m) return c;
+    const v = typeof getComputedStyle === 'function' ? getComputedStyle(document.documentElement).getPropertyValue(m[1]).trim() : '';
+    return v || 'currentColor';
+  }
   function el(tag, attrs, parent) {
     const e = document.createElementNS(NS, tag);
-    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    for (const k in attrs) e.setAttribute(k, paint(attrs[k]));
     if (parent) parent.appendChild(e);
     return e;
   }
@@ -86,7 +96,7 @@
             el('circle', { cx: X(i), cy: Y(v), r: 3, fill: s.color }, svg);
         });
         el('path', { d: path, fill: 'none', stroke: s.color, 'stroke-width': s.width || 1.8, 'stroke-linejoin': 'round', 'stroke-dasharray': s.dash || 'none' }, svg);
-        if (s.endDot) { let li = s.values.length - 1; while (li >= 0 && (s.values[li] === null || s.values[li] === undefined)) li--; if (li >= 0) el('circle', { cx: X(li), cy: Y(s.values[li]), r: 3.5, fill: s.color, stroke: '#fff', 'stroke-width': 1.5 }, svg); }
+        if (s.endDot) { let li = s.values.length - 1; while (li >= 0 && (s.values[li] === null || s.values[li] === undefined)) li--; if (li >= 0) el('circle', { cx: X(li), cy: Y(s.values[li]), r: 3.5, fill: s.color, stroke: 'var(--panel)', 'stroke-width': 1.5 }, svg); }
       });
     } else {
       const bw = Math.max(3, Math.min(46, step * 0.7));
@@ -132,7 +142,7 @@
     const S = host.clientWidth || 170, r = S / 2, w = d.thickness || S * 0.13, R = r - w / 2 - 1;
     const svg = el('svg', { viewBox: `0 0 ${S} ${S}`, height: S, role: 'img', 'aria-label': d.title || 'donut chart' });
     const total = d.segments.reduce((s, x) => s + x.value, 0);
-    el('circle', { cx: r, cy: r, r: R, fill: 'none', stroke: '#ebe5d9', 'stroke-width': w }, svg);
+    el('circle', { cx: r, cy: r, r: R, fill: 'none', stroke: 'var(--chart-track)', 'stroke-width': w }, svg);
     let a0 = -Math.PI / 2;
     if (total > 0) d.segments.forEach(seg => {
       if (!seg.value) return;
@@ -145,8 +155,8 @@
       a0 = a1;
     });
     if (d.center) {
-      el('text', { x: r, y: r + (d.center.label ? 2 : 8), 'text-anchor': 'middle', 'font-size': S * 0.17, 'font-weight': 600, 'font-family': 'Fraunces, Georgia, serif', fill: '#0e1116' }, svg).textContent = d.center.value;
-      if (d.center.label) el('text', { x: r, y: r + S * 0.13, 'text-anchor': 'middle', 'font-size': S * 0.075, 'font-weight': 600, fill: '#3d3a35' }, svg).textContent = d.center.label;
+      el('text', { x: r, y: r + (d.center.label ? 2 : 8), 'text-anchor': 'middle', 'font-size': S * 0.17, 'font-weight': 600, 'font-family': 'var(--serif)', fill: 'var(--ink)' }, svg).textContent = d.center.value;
+      if (d.center.label) el('text', { x: r, y: r + S * 0.13, 'text-anchor': 'middle', 'font-size': S * 0.075, 'font-weight': 600, fill: 'var(--ink-2)' }, svg).textContent = d.center.label;
     }
     host.replaceChildren(svg);
   }
@@ -158,7 +168,7 @@
     const lo = Math.min(...vals), hi = Math.max(...vals) || 1;
     const X = i => (i / (d.values.length - 1)) * (W - 2) + 1, Y = v => H - 2 - ((v - lo) / (hi - lo || 1)) * (H - 4);
     const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, height: H, 'aria-hidden': 'true' });
-    el('path', { d: d.values.map((v, i) => (i ? 'L' : 'M') + X(i) + ',' + Y(v)).join(''), fill: 'none', stroke: d.color || '#0f7a55', 'stroke-width': 1.6 }, svg);
+    el('path', { d: d.values.map((v, i) => (i ? 'L' : 'M') + X(i) + ',' + Y(v)).join(''), fill: 'none', stroke: d.color || 'var(--chart-ok)', 'stroke-width': 1.6 }, svg);
     host.replaceChildren(svg);
   }
 
@@ -177,6 +187,9 @@
       const ro = new ResizeObserver(entries => entries.forEach(e => render(e.target)));
       hosts.forEach(h => ro.observe(h));
     }
+    // Colours are baked into attributes, so redraw when printing starts and ends. This must be the media query: at
+    // beforeprint the media is still screen, so getComputedStyle would return the screen tokens again.
+    if ('matchMedia' in window) matchMedia('print').addEventListener('change', () => hosts.forEach(render));
   }
   window.LinkedEyeCharts = { render, init, fmt };
   document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded', init) : init();
