@@ -23,10 +23,10 @@ from django.views.decorators.http import require_GET, require_POST
 
 from core.access import can, require
 from core.audit import audit
-from core.models import AuditEvent, Membership, Site
+from core.models import AuditEvent, Client, Membership, Site
 
 from . import services
-from .forms import MembershipForm, SetPasswordForm, SiteForm, UserCreateForm, UserEditForm
+from .forms import ClientForm, MembershipForm, SetPasswordForm, SiteForm, UserCreateForm, UserEditForm
 from .models import IntegrationTest
 
 User = get_user_model()
@@ -119,6 +119,7 @@ def index(request):
         "n_users": users.count(), "n_active": users.filter(is_active=True).count(),
         "n_admins": users.filter(Q(is_superuser=True) | Q(le_memberships__role="admin")).filter(is_active=True).distinct().count(),
         "n_sites": Site.objects.filter(tenant_key=t).count(),
+        "n_clients": Client.objects.filter(tenant_key=t).count(),
         "n_unmapped": len(services.unmapped_site_names()),
         "n_audit": AuditEvent.objects.filter(occurred_at__gte=since).count(),
         "n_integrations": len(items), "n_configured": sum(1 for i in items if i["configured"]),
@@ -410,7 +411,110 @@ def user_password(request, pk):
 
 # ------------------------------------------------------------------ sites
 def _sites_qs():
-    return Site.objects.filter(tenant_key=settings.LINKEDEYE_TENANT).annotate(n_members=Count("memberships"))
+    return Site.objects.filter(tenant_key=settings.LINKEDEYE_TENANT).select_related("client").annotate(n_members=Count("memberships"))
+
+
+def _clients_qs():
+    return Client.objects.filter(tenant_key=settings.LINKEDEYE_TENANT).annotate(n_sites=Count("sites"))
+
+
+def _filtered_client_rows(request):
+    status = request.GET.get("status", "").strip()
+    rows = services.client_wise_rows(status if status in dict(Client.STATUSES) else None)
+    q = request.GET.get("q", "").strip().lower()
+    if q:
+        rows = [r for r in rows if not r["client"] or q in r["client"].name.lower() or q in r["client"].code.lower()]
+    return rows, status
+
+
+@admin_required
+def clients(request):
+    rows, status = _filtered_client_rows(request)
+    ctx = {"rows": rows, "statuses": Client.STATUSES, "status": status,
+           "k": {"total": _clients_qs().count(),
+                 "active": _clients_qs().filter(status="active").count(),
+                 "open_major": sum(r["open_major"] for r in rows if r["client"]),
+                 "sites": Site.objects.filter(tenant_key=settings.LINKEDEYE_TENANT, client__isnull=False).count()}}
+    return render(request, "administration/clients.html", ctx)
+
+
+@admin_required
+def client_create(request):
+    form = ClientForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        client = form.save(commit=False)
+        client.tenant_key = settings.LINKEDEYE_TENANT
+        client.save()
+        audit(request, "create", client, code=client.code, status=client.status)
+        messages.success(request, f"Created client “{client.name}”.")
+        return redirect("administration:clients")
+    return render(request, "administration/client_form.html", {"form": form, "client": None})
+
+
+@admin_required
+def client_edit(request, pk):
+    client = get_object_or_404(_clients_qs(), pk=pk)
+    fields = ClientForm.Meta.fields
+    before = {f: getattr(client, f) for f in fields}
+    form = ClientForm(request.POST or None, instance=client)
+    if request.method == "POST" and form.is_valid():
+        client = form.save()
+        changed = {f: getattr(client, f) for f in fields if getattr(client, f) != before[f]}
+        if changed:
+            audit(request, "update", client, **{f: str(v) for f, v in changed.items()})
+            messages.success(request, f"Saved client “{client.name}”.")
+        else:
+            messages.info(request, "No changes to save.")
+        return redirect("administration:clients")
+    ctx = {"form": form, "client": client,
+           "sites": Site.objects.filter(tenant_key=settings.LINKEDEYE_TENANT, client=client).order_by("name")}
+    return render(request, "administration/client_form.html", ctx)
+
+
+@admin_required
+@require_POST
+def client_delete(request, pk):
+    client = get_object_or_404(_clients_qs(), pk=pk)
+    if client.n_sites:
+        messages.error(request, f"Cannot delete “{client.name}”: {client.n_sites} site(s) still linked. Reassign them first.")
+        return redirect("administration:client_edit", pk=pk)
+    name = client.name
+    audit(request, "delete", client, name=name)
+    client.delete()
+    messages.success(request, f"Deleted client “{name}”.")
+    return redirect("administration:clients")
+
+
+@admin_required
+@require_POST
+def clients_bootstrap(request):
+    created = services.bootstrap_clients()
+    audit(request, "bootstrap", object_type="core.client", created=created)
+    if created:
+        messages.success(request, f"Created {len(created)} client(s) from service desk names: {', '.join(created)}.")
+    else:
+        messages.info(request, "Every service desk client name already has a client record.")
+    return redirect("administration:clients")
+
+
+@admin_required
+def clients_export(request):
+    rows, _ = _filtered_client_rows(request)
+    header = ["client", "code", "status", "sites", "open_incidents", "open_p1_p2", "url_checks", "urls_down",
+              "devices", "devices_down", "domains", "domains_issue", "contact", "email", "go_live"]
+    out = []
+    for r in rows:
+        c = r["client"]
+        if c is None:
+            out.append(["(Unassigned sites)", "", "", r["sites"], r["open_incidents"], r["open_major"],
+                        r["urls"], r["urls_down"], r["devices"], r["devices_down"], r["domains"], r["domains_issue"],
+                        "", "", ""])
+        else:
+            out.append([c.name, c.code, c.get_status_display(), r["sites"], r["open_incidents"], r["open_major"],
+                        r["urls"], r["urls_down"], r["devices"], r["devices_down"], r["domains"], r["domains_issue"],
+                        c.contact_name, c.contact_email, c.go_live.isoformat() if c.go_live else ""])
+    audit(request, "export", object_type="core.client", rows=len(out))
+    return _csv("client-wise-tracker.csv", header, out)
 
 
 @admin_required

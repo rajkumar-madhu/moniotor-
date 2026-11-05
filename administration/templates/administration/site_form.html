@@ -15,6 +15,7 @@
     <div class="panel-h"><h2>Site details</h2></div>
     {% for e in form.non_field_errors %}<p class="err">{{ e }}</p>{% endfor %}
     <div class="form-grid">
+      {% include "administration/_field.html" with f=form.client %}
       {% include "administration/_field.html" with f=form.name %}
       {% include "administration/_field.html" with f=form.code %}
       {% include "administration/_field.html" with f=form.region %}

@@ -8,7 +8,7 @@ from django.contrib.auth.forms import AuthenticationForm, UsernameField
 from django.core.exceptions import ValidationError
 from django.utils.text import slugify
 
-from core.models import Membership, Site
+from core.models import Client, Membership, Site
 
 User = get_user_model()
 
@@ -150,12 +150,65 @@ def timezone_choices(current=None):
     return [(z, z.replace("_", " ")) for z in zones]
 
 
+def client_choices():
+    return Client.objects.filter(tenant_key=settings.LINKEDEYE_TENANT).order_by("name")
+
+
+class ClientForm(forms.ModelForm):
+    modules = forms.MultipleChoiceField(required=False, choices=Client.MODULES,
+                                        widget=forms.CheckboxSelectMultiple, label="Enabled modules")
+
+    class Meta:
+        model = Client
+        fields = ["name", "code", "status", "contact_name", "contact_email", "go_live", "modules", "notes"]
+        help_texts = {"code": "Short identifier (letters, digits, hyphens). Leave blank to derive it from the name."}
+        widgets = {"notes": forms.Textarea(attrs={"rows": 3})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["code"].required = False
+        if self.instance.pk and isinstance(self.instance.modules, list):
+            self.fields["modules"].initial = self.instance.modules
+
+    def _scope(self):
+        qs = Client.objects.filter(tenant_key=settings.LINKEDEYE_TENANT)
+        return qs.exclude(pk=self.instance.pk) if self.instance.pk else qs
+
+    def clean_name(self):
+        name = " ".join((self.cleaned_data.get("name") or "").split())
+        if not name:
+            raise forms.ValidationError("Enter a name.")
+        if self.instance.pk and " ".join(self.instance.name.split()) == name:
+            return self.instance.name
+        if self._scope().filter(name__iexact=name).exists():
+            raise forms.ValidationError("A client with this name already exists.")
+        return name
+
+    def clean(self):
+        cleaned = super().clean()
+        code = (cleaned.get("code") or "").strip().lower()
+        if not code and cleaned.get("name"):
+            base = slugify(cleaned["name"])[:50] or "client"
+            code = base
+            n = 2
+            while self._scope().filter(code=code).exists():
+                suffix = f"-{n}"
+                code = f"{base[:50 - len(suffix)]}{suffix}"
+                n += 1
+        elif code and self._scope().filter(code=code).exists():
+            self.add_error("code", "A client with this code already exists.")
+            return cleaned
+        cleaned["code"] = code
+        cleaned["modules"] = cleaned.get("modules") or []
+        return cleaned
+
+
 class SiteForm(forms.ModelForm):
     timezone = forms.ChoiceField(label="Timezone")
 
     class Meta:
         model = Site
-        fields = ["name", "code", "region", "timezone", "criticality", "description"]
+        fields = ["client", "name", "code", "region", "timezone", "criticality", "description"]
         help_texts = {"code": "Short identifier (letters, digits, hyphens). Leave blank to derive it from the name.",
                       "name": "Records in other modules refer to the site by this name."}
         widgets = {"description": forms.Textarea(attrs={"rows": 3})}
@@ -163,6 +216,9 @@ class SiteForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["code"].required = False
+        self.fields["client"].queryset = client_choices()
+        self.fields["client"].required = False
+        self.fields["client"].empty_label = "No client"
         current = self.instance.timezone if self.instance and self.instance.pk else None
         self.fields["timezone"].choices = timezone_choices(current)
         if not self.instance.pk:

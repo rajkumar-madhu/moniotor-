@@ -779,3 +779,106 @@ def bootstrap_sites():
     call_command("bootstrap_sites", stdout=out)
     after = set(Site.objects.filter(tenant_key=tenant()).values_list("name", flat=True))
     return sorted(after - before), out.getvalue().strip()
+
+
+def _client_qs():
+    from core.models import Client
+    return Client.objects.filter(tenant_key=tenant())
+
+
+def bootstrap_clients():
+    """Create client records for every distinct service-desk client name not yet registered."""
+    from django.utils.text import slugify
+
+    from core.models import Client
+    from servicedesk.models import Ticket
+
+    t = tenant()
+    known = {n.lower() for n in _client_qs().values_list("name", flat=True)}
+    names = sorted({n.strip() for n in Ticket.objects.filter(tenant_key=t).exclude(client="").values_list("client", flat=True)
+                    if n and n.strip()})
+    created = []
+    for name in names:
+        if name.lower() in known:
+            continue
+        base = slugify(name)[:50] or "client"
+        code = base
+        n = 2
+        while _client_qs().filter(code=code).exists():
+            suffix = f"-{n}"
+            code = f"{base[:50 - len(suffix)]}{suffix}"
+            n += 1
+        Client.objects.create(tenant_key=t, name=name, code=code)
+        known.add(name.lower())
+        created.append(name)
+    return created
+
+
+def client_wise_rows(status=None):
+    """Roll-up counts per client from live module data (sites, tickets, checks, devices, domains)."""
+    from django.db.models import Q
+
+    from core.models import Client, Site
+    from domainmonitor.models import Domain
+    from network.models import Device
+    from servicedesk import workflow as wf
+    from servicedesk.models import Ticket
+    from urlchecker.models import UrlCheck
+
+    t = tenant()
+    clients = list(_client_qs().prefetch_related("sites").order_by("name"))
+    if status in dict(Client.STATUSES):
+        clients = [c for c in clients if c.status == status]
+
+    site_by_client = {}
+    for site in Site.objects.filter(tenant_key=t).select_related("client"):
+        if site.client_id:
+            site_by_client.setdefault(site.client_id, []).append(site.name)
+
+    open_incidents = Ticket.objects.filter(tenant_key=t, kind="incident").exclude(status__in=wf.DONE)
+    url_qs = UrlCheck.objects.filter(tenant_key=t, enabled=True)
+    dev_qs = Device.objects.filter(tenant_key=t)
+    dom_qs = Domain.objects.filter(tenant_key=t, is_active=True)
+
+    rows = []
+    for client in clients:
+        sites = site_by_client.get(client.pk, [])
+        site_q = Q(site__in=sites) if sites else Q(pk__in=[])
+        inc = open_incidents.filter(Q(client=client.name) | site_q)
+        rows.append({
+            "client": client,
+            "sites": len(sites),
+            "open_incidents": inc.count(),
+            "open_major": inc.filter(priority__in=("P1", "P2")).count(),
+            "urls": url_qs.filter(site_q).count() if sites else 0,
+            "urls_down": url_qs.filter(site_q, last_status__in=("down", "degraded")).count() if sites else 0,
+            "devices": dev_qs.filter(site_q).count() if sites else 0,
+            "devices_down": dev_qs.filter(site_q, status="down").count() if sites else 0,
+            "devices_by_type": dict(dev_qs.filter(site_q).values_list("device_type").annotate(n=Count("id")).order_by())
+                               if sites else {},
+            "domains": dom_qs.filter(site_key__in=sites).count() if sites else 0,
+            "domains_issue": dom_qs.filter(site_key__in=sites).filter(
+                Q(status="down") | Q(ssl_status__in=("Expiring", "Expired", "Invalid")) | Q(dns_status="Failed")
+            ).count() if sites else 0,
+        })
+
+    unassigned_sites = list(Site.objects.filter(tenant_key=t, client__isnull=True).values_list("name", flat=True))
+    if unassigned_sites and status is None:
+        site_q = Q(site__in=unassigned_sites)
+        inc = open_incidents.filter(site_q)
+        rows.append({
+            "client": None,
+            "sites": len(unassigned_sites),
+            "open_incidents": inc.count(),
+            "open_major": inc.filter(priority__in=("P1", "P2")).count(),
+            "urls": url_qs.filter(site_q).count(),
+            "urls_down": url_qs.filter(site_q, last_status__in=("down", "degraded")).count(),
+            "devices": dev_qs.filter(site_q).count(),
+            "devices_down": dev_qs.filter(site_q, status="down").count(),
+            "devices_by_type": dict(dev_qs.filter(site_q).values_list("device_type").annotate(n=Count("id")).order_by()),
+            "domains": dom_qs.filter(site_key__in=unassigned_sites).count(),
+            "domains_issue": dom_qs.filter(site_key__in=unassigned_sites).filter(
+                Q(status="down") | Q(ssl_status__in=("Expiring", "Expired", "Invalid")) | Q(dns_status="Failed")
+            ).count(),
+        })
+    return rows

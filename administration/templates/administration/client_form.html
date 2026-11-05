@@ -1,0 +1,47 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}{% if client %}Client {{ client.name }}{% else %}New client{% endif %}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'administration/page.css' %}">{% endblock %}
+{% block crumbs %}{% url 'administration:clients' as clients_url %}{% if client %}{% include "administration/_crumbs.html" with parent="Client wise" parent_url=clients_url here=client.name %}{% else %}{% include "administration/_crumbs.html" with parent="Client wise" parent_url=clients_url here="New client" %}{% endif %}{% endblock %}
+{% block content %}
+<div class="pg-admin">
+<div class="head">
+  <div class="glyph">{% icon "users" 44 %}</div>
+  <div><h1>{% if client %}{{ client.name }}{% else %}New client{% endif %}</h1><p>{% if client %}Code {{ client.code }} · created {{ client.created_at|date:"j M Y" }}{% else %}Register a customer account for client-wise tracking.{% endif %}</p></div>
+  <div class="actions"><a class="btn" href="{% url 'administration:clients' %}">{% icon "chevron-left" 17 %}All clients</a></div>
+</div>
+
+<section class="grid g-main">
+  <form class="panel" method="post" action="{% if client %}{% url 'administration:client_edit' client.pk %}{% else %}{% url 'administration:client_create' %}{% endif %}">{% csrf_token %}
+    <div class="panel-h"><h2>Client details</h2></div>
+    {% for e in form.non_field_errors %}<p class="err">{{ e }}</p>{% endfor %}
+    <div class="form-grid">
+      {% include "administration/_field.html" with f=form.name %}
+      {% include "administration/_field.html" with f=form.code %}
+      {% include "administration/_field.html" with f=form.status %}
+      {% include "administration/_field.html" with f=form.contact_name %}
+      {% include "administration/_field.html" with f=form.contact_email %}
+      {% include "administration/_field.html" with f=form.go_live %}
+      <div class="field full">{% include "administration/_field.html" with f=form.modules %}</div>
+      {% include "administration/_field.html" with f=form.notes full=1 %}
+      <div class="field full adm-foot"><a class="btn" href="{% url 'administration:clients' %}">Cancel</a><button class="btn primary" type="submit">{% if client %}Save client{% else %}{% icon "plus" 16 %}Create client{% endif %}</button></div>
+    </div>
+  </form>
+  {% if client %}
+  <div class="stack">
+    <div class="panel">
+      <div class="panel-h"><h2>Linked sites ({{ sites|length }})</h2></div>
+      {% if sites %}<ul class="adm-feed">{% for s in sites %}<li><a href="{% url 'administration:site_edit' s.pk %}">{{ s.name }}</a></li>{% endfor %}</ul>
+      {% else %}<p class="empty">No sites linked yet. Edit a site and choose this client under Administration → Sites.</p>{% endif %}
+    </div>
+    {% if not sites %}
+    <form class="panel adm-danger" method="post" action="{% url 'administration:client_delete' client.pk %}" data-confirm="Delete client “{{ client.name }}”?">{% csrf_token %}
+      <div class="panel-h"><h2>Delete</h2></div>
+      <p>Remove this client record. Service desk tickets keep their client text unchanged.</p>
+      <button class="btn red" type="submit">{% icon "trash" 16 %}Delete client</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
+</section>
+</div>
+{% endblock %}
