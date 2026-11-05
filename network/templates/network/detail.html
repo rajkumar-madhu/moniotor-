@@ -51,6 +51,8 @@
 </div>
 {% if traffic %}{{ traffic|json_script:"nw-traffic" }}{% endif %}{% if avail_chart %}{{ avail_chart|json_script:"nw-avail" }}{% endif %}
 {% if latency_chart %}{{ latency_chart|json_script:"nw-latency" }}{% endif %}{% if spark %}{{ spark|json_script:"nw-spark" }}{% endif %}
+{% if errors_chart %}{{ errors_chart|json_script:"nw-errors" }}{% endif %}
+{% if tab == "overview" and ports %}{{ port_data|json_script:"nw-ports" }}<script src="{% static 'network/front-panel.js' %}" defer></script>{% endif %}
 <script>
 document.addEventListener('click', function (e) {
   document.querySelectorAll('.pg-network details.row-menu[open]').forEach(function (d) { if (!d.contains(e.target)) d.removeAttribute('open'); });

@@ -219,6 +219,12 @@ def fake_query(promql):
     """Prometheus answers shaped like snmp_exporter IF-MIB output for instance 'sw1'."""
     base = {"instance": "sw1", "job": "snmp"}
     ifs = [("1", "Gi1/0/1", "Uplink"), ("2", "Gi1/0/2", "")]
+    if "changes(ifOperStatus" in promql:   # before the plain ifOperStatus match below
+        return [prom_row(4, ifIndex="1", **base)]
+    if "ifInErrors" in promql:
+        return [prom_row(0.25, ifIndex="1", **base), prom_row(0, ifIndex="2", **base)]
+    if "ifInDiscards" in promql:
+        return [prom_row(1.5, ifIndex="1", **base)]
     if "ifHCInOctets" in promql:
         return [prom_row(400.0, ifIndex=i, ifName=n, ifAlias=a, **base) for i, n, a in ifs]
     if "ifHCOutOctets" in promql:
@@ -254,7 +260,9 @@ class MetricsTests(TestCase):
         g1, g2 = d.interfaces.order_by("if_index")
         self.assertEqual((g1.name, g1.alias, g1.if_type, g1.oper_status, g1.admin_status), ("Gi1/0/1", "Uplink", "Ethernet", "up", "up"))
         self.assertEqual((g1.in_mbps, g1.out_mbps, g1.speed_mbps, g1.utilization), (400.0, 100.0, 1000.0, 40.0))
+        self.assertEqual((g1.errors_per_s, g1.discards_per_s, g1.flaps_24h), (0.25, 1.5, 4))
         self.assertEqual((g2.oper_status, g2.if_type), ("down", "LAG"))
+        self.assertEqual((g2.errors_per_s, g2.discards_per_s, g2.flaps_24h), (0.0, None, None))  # missing series stay unknown
 
     def test_interface_transition_event_and_removed_interfaces(self):
         d = dev(prometheus_instance="sw1")
@@ -268,7 +276,8 @@ class MetricsTests(TestCase):
 
     def test_missing_series_and_errors_are_tolerated(self):
         d = dev(prometheus_instance="sw1")
-        Interface.objects.create(device=d, if_index=1, name="Gi1", in_mbps=5, out_mbps=5, utilization=1)
+        Interface.objects.create(device=d, if_index=1, name="Gi1", in_mbps=5, out_mbps=5, utilization=1,
+                                 errors_per_s=3, discards_per_s=1, flaps_24h=2)
         with mock.patch("core.prometheus.query", side_effect=prometheus.PrometheusError("Prometheus unreachable: refused")):
             jobs.collect_metrics()
         d.refresh_from_db()
@@ -276,6 +285,7 @@ class MetricsTests(TestCase):
         self.assertIn("unreachable", d.metrics_error)
         i = d.interfaces.get()
         self.assertIsNone(i.in_mbps)  # stale numbers are not shown as current
+        self.assertEqual((i.errors_per_s, i.discards_per_s, i.flaps_24h), (None, None, None))
 
         def partial(q):
             if "ifHCInOctets" in q:
