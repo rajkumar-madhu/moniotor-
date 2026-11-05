@@ -1,5 +1,6 @@
 import zoneinfo
 
+import django
 from django import forms
 from django.conf import settings
 from django.contrib.auth import get_user_model, password_validation
@@ -260,6 +261,23 @@ class SiteForm(forms.ModelForm):
 
 
 # ------------------------------------------------------------------ integrations (Administration › Integrations)
+class OptionalHttpsURLField(forms.URLField):
+    """Bare hostnames default to https; Django 5+ also gets assume_scheme."""
+
+    def __init__(self, *, assume_scheme="https", **kwargs):
+        self._assume_scheme = assume_scheme
+        if django.VERSION >= (5, 0):
+            kwargs.setdefault("assume_scheme", assume_scheme)
+        super().__init__(**kwargs)
+
+    def to_python(self, value):
+        if django.VERSION < (5, 0) and value not in self.empty_values:
+            text = str(value).strip()
+            if text and "://" not in text:
+                value = f"{self._assume_scheme}://{text}"
+        return super().to_python(value)
+
+
 class _SecretOptionalMixin:
     """Password-style fields: blank means keep the stored secret."""
 
@@ -274,7 +292,7 @@ class _SecretOptionalMixin:
 
 
 class PrometheusIntegrationForm(_SecretOptionalMixin, forms.Form):
-    url = forms.URLField(label="Server URL", required=False, assume_scheme="https")
+    url = OptionalHttpsURLField(label="Server URL", required=False)
     timeout = forms.FloatField(label="Timeout (seconds)", required=False, min_value=1, max_value=120)
 
 
@@ -292,7 +310,7 @@ class LogIngestIntegrationForm(_SecretOptionalMixin, forms.Form):
 
 class StackStormIntegrationForm(_SecretOptionalMixin, forms.Form):
     secret_fields = ("api_key",)
-    url = forms.URLField(label="Webhook URL", required=False, assume_scheme="https")
+    url = OptionalHttpsURLField(label="Webhook URL", required=False)
     api_key = forms.CharField(label="API key", required=False, strip=True, widget=forms.PasswordInput(render_value=False),
                               help_text="Leave blank to keep the current key.")
 
@@ -318,7 +336,7 @@ class EmailIntegrationForm(_SecretOptionalMixin, forms.Form):
 
 class NagiosIntegrationForm(_SecretOptionalMixin, forms.Form):
     secret_fields = ("password",)
-    url = forms.URLField(label="Server URL", required=False, assume_scheme="https")
+    url = OptionalHttpsURLField(label="Server URL", required=False)
     user = forms.CharField(label="User", required=False)
     password = forms.CharField(label="Password", required=False, strip=False, widget=forms.PasswordInput(render_value=False),
                                help_text="Leave blank to keep the current password.")
