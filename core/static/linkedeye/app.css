@@ -577,6 +577,111 @@ th.num { font: 500 14px/1.3 var(--font); letter-spacing: 0; text-transform: none
   .nav > a:hover .lbl, .nav summary:hover .lbl { transform: none; }
 }
 
+/* LinkedEye light theme. */
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f7f7f4;
+  --frame: #f7f7f4;
+  --panel: #ffffff;
+  --panel-2: #f2f0eb;
+  --panel-3: #ebe6dc;
+  --row-odd: #faf9f6;
+  --row-line: #ebe6dc;
+  --line: #ddd6c8;
+  --line-soft: #e8e6e0;
+  --line-strong: #e99123;
+  --ink: #1c1c1c;
+  --ink-2: #3d3b37;
+  --muted: #5c5a56;
+  --placeholder: #8a8780;
+  --brand: #e99123;
+  --primary: #e99123;
+  --primary-hover: #e58e22;
+  --primary-ink: #ffffff;
+  --primary-soft: rgba(233, 145, 35, .1);
+  --primary-line: rgba(233, 145, 35, .35);
+  --accent-blue: #2563eb;
+  --btn-primary: #e99123;
+  --btn-primary-hover: #e58e22;
+  --btn-primary-active: #e0481f;
+  --btn-primary-ink: #ffffff;
+  --active-fill: #e99123;
+  --active-ink: #ffffff;
+  --side: #ffffff;
+  --side-ink: #1c1c1c;
+  --side-muted: #5c5a56;
+  --input-bg: #ffffff;
+  --input-line: #ddd6c8;
+  --input-focus: #e99123;
+  --ok: #059669;
+  --ok-bg: rgba(5, 150, 105, .12);
+  --ok-ink: #047857;
+  --ok-line: rgba(5, 150, 105, .35);
+  --ok-soft: rgba(5, 150, 105, .2);
+  --warn: #d97706;
+  --warn-bg: rgba(217, 119, 6, .12);
+  --warn-ink: #92400e;
+  --warn-line: rgba(217, 119, 6, .35);
+  --warn-tint: rgba(217, 119, 6, .08);
+  --crit: #dc2626;
+  --crit-bg: rgba(220, 38, 38, .1);
+  --crit-ink: #b91c1c;
+  --crit-line: rgba(220, 38, 38, .35);
+  --info: #2563eb;
+  --info-bg: rgba(37, 99, 235, .1);
+  --info-ink: #1d4ed8;
+  --info-line: rgba(37, 99, 235, .3);
+  --purple: #7c3aed;
+  --purple-bg: rgba(124, 58, 237, .1);
+  --purple-ink: #6d28d9;
+  --purple-line: rgba(124, 58, 237, .3);
+  --teal: #0d9488;
+  --teal-bg: rgba(13, 148, 136, .1);
+  --teal-ink: #0f766e;
+  --teal-line: rgba(13, 148, 136, .3);
+  --p3-bg: rgba(254, 202, 87, .22);
+  --p3-ink: #7a5c00;
+  --down: #dc2626;
+  --stone: #8a8780;
+  --stone-2: #5c5a56;
+  --mute-bg: rgba(14, 17, 22, .06);
+  --mute-ink: #5c5a56;
+  --mute-line: rgba(14, 17, 22, .12);
+  --on-solid: #ffffff;
+  --on-tone: #ffffff;
+  --on-avatar: #1c1c1c;
+  --selection: rgba(233, 145, 35, .22);
+  --code-bg: #f2f0eb;
+  --code-ink: #1c1c1c;
+  --heat-ok: #059669;
+  --heat-ok-ink: #ffffff;
+  --heat-warn: #f59e0b;
+  --heat-warn-ink: #1c1c1c;
+  --heat-crit: #dc2626;
+  --heat-crit-ink: #ffffff;
+  --heat-unk: #a8a29e;
+  --heat-unk-ink: #1c1c1c;
+  --chart-crit: #dc2626;
+  --chart-ok: #059669;
+  --chart-warn: #e99123;
+  --chart-unknown: #a8a29e;
+  --chart-axis: #5c5a56;
+  --chart-track: #e8e6e0;
+  --map-land: #ddd6c8;
+  --shadow: 0 1px 2px rgba(14, 17, 22, .06), 0 12px 32px -18px rgba(14, 17, 22, .16);
+  --shadow-pop: 0 24px 80px -24px rgba(14, 17, 22, .55);
+  --shadow-drawer: 0 12px 40px rgba(14, 17, 22, .12);
+}
+html[data-theme="light"] .top { border-bottom: 1px solid var(--line-soft); backdrop-filter: blur(12px); }
+html[data-theme="light"] .side { border-right: 1px solid var(--line-soft); }
+html[data-theme="light"] .icon-btn .count { border-color: var(--frame); color: var(--primary-ink); }
+html[data-theme="light"] .panel,
+html[data-theme="light"] .kpi { border: 1px solid var(--line); }
+html[data-theme="light"] .panel:hover,
+html[data-theme="light"] .kpi:hover { border-color: rgba(233, 145, 35, .4); }
+
+html[data-theme="dark"] { color-scheme: dark; }
+
 /* Paper is white: charts.js re-reads these tokens when the print media query starts matching. */
 @media print {
   :root { color-scheme: light;

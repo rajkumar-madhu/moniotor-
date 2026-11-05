@@ -59,16 +59,31 @@ def _post(url, payload, timeout=5):
 
 def _send(payload, subject, body):
     """Send one notification to every configured channel. Returns how many channels accepted it. Never raises."""
+    from administration import integration_config as ic
+
     sent = 0
-    for url in settings.NOTIFY_WEBHOOK_URLS:
+    for url in ic.notify_webhook_urls():
         try:
             _post(url, payload)
             sent += 1
         except Exception as e:  # never let a notification failure break the caller
             log.warning("webhook %s failed: %s", url.split("?")[0], e)
-    if settings.NOTIFY_EMAILS:
+    recipients = ic.notify_emails()
+    if recipients:
         try:
-            send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, settings.NOTIFY_EMAILS, fail_silently=False)
+            conn = None
+            if ic.has_override("email"):
+                from django.core.mail import get_connection
+
+                conn = get_connection(
+                    host=ic.email_host() or settings.EMAIL_HOST,
+                    port=ic.email_port(),
+                    username=ic.email_host_user() or None,
+                    password=ic.email_host_password() or None,
+                    use_tls=ic.email_use_tls(),
+                )
+            send_mail(subject, body, ic.default_from_email() or settings.DEFAULT_FROM_EMAIL, recipients,
+                      fail_silently=False, connection=conn)
             sent += 1
         except Exception as e:
             log.warning("email notification failed: %s", e)
@@ -77,7 +92,9 @@ def _send(payload, subject, body):
 
 def deliver(event):
     """Send one event now, on this thread (also used by Administration's "Send test notification")."""
-    if event.severity not in settings.NOTIFY_SEVERITIES:
+    from administration import integration_config as ic
+
+    if event.severity not in ic.notify_severities():
         return 0
     payload = {"title": event.title, "body": event.message, "severity": event.severity, "source": event.source,
                "site": event.site, "occurred_at": event.occurred_at.isoformat(), "kind": event.kind,
@@ -273,7 +290,9 @@ def reset():
 
 @receiver(event_emitted, dispatch_uid="core.notify.on_event")
 def _on_event(sender, event, **kwargs):
-    if not (settings.NOTIFY_WEBHOOK_URLS or settings.NOTIFY_EMAILS) or event.severity not in settings.NOTIFY_SEVERITIES:
+    from administration import integration_config as ic
+
+    if not (ic.notify_webhook_urls() or ic.notify_emails()) or event.severity not in ic.notify_severities():
         return
     # after commit: a rolled-back event (e.g. a probe result transaction that failed) never notifies anyone
     transaction.on_commit(lambda: dispatch(event))

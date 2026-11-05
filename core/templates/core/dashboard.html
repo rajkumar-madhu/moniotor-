@@ -110,17 +110,22 @@
   }
   var $map = jQuery(el);
   var points = JSON.parse(document.getElementById('site-map-points').textContent);
-  var colors = { crit: '#f06458', warn: '#efa943', ok: '#38c98a', none: '#7a8594' };
+  // jVectorMap writes colours into SVG attributes, so resolve the tokens to literals here.
+  var styles = getComputedStyle(document.documentElement);
+  function token(name) { return styles.getPropertyValue(name).trim(); }
+  var panel = token('--panel');
+  var colors = { crit: token('--crit'), warn: token('--warn'), ok: token('--ok'), none: token('--stone') };
   var markerValues = {};
   points.forEach(function (point, index) { markerValues[index] = colors[point.tone] || colors.none; });
   $map.vectorMap({
     map: 'world_mill_en',
-    backgroundColor: '#171b22',
+    backgroundColor: panel,
     zoomOnScroll: false,
     zoomButtons: false,
-    regionStyle: { initial: { fill: '#f3f4f6', 'fill-opacity': 1, stroke: '#171b22', 'stroke-width': 0.5 } },
+    // white land, as on the live site
+    regionStyle: { initial: { fill: token('--ink'), 'fill-opacity': 1, stroke: panel, 'stroke-width': 0.5 } },
     markers: points.map(function (point) { return { name: point.name, latLng: point.latLng }; }),
-    markerStyle: { initial: { r: 6, fill: '#38c98a', stroke: '#171b22', 'stroke-width': 2 } },
+    markerStyle: { initial: { r: 6, fill: colors.ok, stroke: panel, 'stroke-width': 2 } },
     series: { markers: [{ attribute: 'fill', values: markerValues }] }
   });
   var map = $map.vectorMap('get', 'mapObject');
