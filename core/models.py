@@ -6,12 +6,50 @@ from django.db import models
 from django.utils import timezone
 
 
+class Client(models.Model):
+    """Customer / tenant account for client-wise roll-ups (sites, service desk, monitoring)."""
+    STATUSES = [("active", "Active"), ("pilot", "Pilot"), ("on_hold", "On hold"), ("churned", "Churned")]
+    MODULES = [
+        ("servicedesk", "Service Desk"),
+        ("urlchecker", "URL Checker"),
+        ("domains", "Domains"),
+        ("network", "Network devices"),
+        ("telemetry", "Monitoring"),
+        ("cmdb", "CMDB & assets"),
+        ("tcpcheck", "TCP / uptime"),
+        ("bodeod", "BOD / EOD"),
+        ("automation", "Automation"),
+        ("observe", "Logs & exporters"),
+        ("reports", "Reports"),
+    ]
+
+    tenant_key = models.CharField(max_length=100, db_index=True, default=settings.LINKEDEYE_TENANT)
+    name = models.CharField(max_length=100)
+    code = models.SlugField(max_length=60)
+    status = models.CharField(max_length=10, choices=STATUSES, default="active", db_index=True)
+    contact_name = models.CharField(max_length=120, blank=True)
+    contact_email = models.EmailField(blank=True)
+    go_live = models.DateField(null=True, blank=True)
+    modules = models.JSONField(default=list, blank=True, help_text="Enabled LinkedEye modules for this client.")
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [models.UniqueConstraint(fields=["tenant_key", "name"], name="client_tenant_name_unique"),
+                       models.UniqueConstraint(fields=["tenant_key", "code"], name="client_tenant_code_unique")]
+
+    def __str__(self):
+        return self.name
+
+
 class Site(models.Model):
     """A customer site / location (e.g. Mumbai (NSE), DR Site). Other modules
     reference sites by name for compatibility with the original LinkedEye data."""
     CRITICALITY = [("critical", "Critical"), ("high", "High"), ("standard", "Standard"), ("low", "Low")]
 
     tenant_key = models.CharField(max_length=100, db_index=True, default=settings.LINKEDEYE_TENANT)
+    client = models.ForeignKey(Client, on_delete=models.SET_NULL, null=True, blank=True, related_name="sites")
     name = models.CharField(max_length=100)
     code = models.SlugField(max_length=60)
     region = models.CharField(max_length=100, blank=True)

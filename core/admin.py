@@ -1,11 +1,18 @@
 from django.contrib import admin
 
-from .models import AuditEvent, Event, Membership, Site
+from .models import AuditEvent, Client, Event, Membership, Site
+
+
+@admin.register(Client)
+class ClientAdmin(admin.ModelAdmin):
+    list_display = ("name", "code", "status", "contact_email", "go_live", "tenant_key")
+    list_filter = ("status",)
+    search_fields = ("name", "code", "contact_name", "contact_email")
 
 
 @admin.register(Site)
 class SiteAdmin(admin.ModelAdmin):
-    list_display = ("name", "code", "region", "latitude", "longitude", "criticality", "tenant_key")
+    list_display = ("name", "client", "code", "region", "latitude", "longitude", "criticality", "tenant_key")
     search_fields = ("name", "code", "region")
     prepopulated_fields = {"code": ("name",)}
 
