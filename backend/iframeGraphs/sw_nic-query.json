@@ -1,0 +1,8 @@
+{
+  "linux--V-nic-In-status-MB": "(rate(node_network_receive_bytes_total{instance = '__FILTER__:9100'}[30s] )*8/1024/1024)",
+  "linux--V-nic-Out-status-MB": "(rate(node_network_transmit_bytes_total{instance = '__FILTER__:9100'}[30s] )*8/1024/1024)",
+  "linux--V-nic-status-1-connected": "node_network_up{instance ='__FILTER__:9100'}",
+  "windows--V-nic-In-status-MB": "(rate(windows_net_bytes_received_total{instance='__FILTER__:9182'}[30s])*8/1024/1024)",
+  "windows--V-nic-Out-status-MB": "(rate(windows_net_bytes_sent_total{instance='__FILTER__:9182'}[30s])*8/1024/1024)",
+  "windows--V-nic-status-1-connected": "windows_net_nic_operation_status{instance='__FILTER__:9182', status='up'}"
+}

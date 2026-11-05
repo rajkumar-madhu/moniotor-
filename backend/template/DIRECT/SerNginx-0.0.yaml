@@ -1,0 +1,78 @@
+#TEMPLATE_USED:DIRECT/SERVICES/Linux/Nginx/Nginx-0.0.j2
+### Host as Service
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_tech: Nginx
+  _NEO4j_icon: Nginx.png
+  _NEO4j_type: Service
+  _NEO4j_WF: {"name": "linkedeye_linux.service_restart", "service": "nginx", "OS": "RHEL7"}
+  _NEO4j_dashboard: nginx-overview.json
+
+## Service as Micro-Service
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}:PortCheckLocal"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}:PortCheckLocal"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: NO
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_tech: Nginx
+  _NEO4j_icon: Port.png
+  _NEO4j_type: ServiceMS
+  _NEO4j_WF: {}
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}:PortCheckLan"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}:PortCheckLan"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: NO
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}:PortCheckLocal"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_tech: Nginx
+  _NEO4j_icon: Port.png
+  _NEO4j_type: ServiceMS
+  _NEO4j_WF: {}
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}:{{ CUSTOM_NGINX_PUBLICURL }}"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}:{{ CUSTOM_NGINX_PUBLICURL }}"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: NO
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}:PortCheckLan"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_tech: Nginx
+  _NEO4j_icon: Port.png
+  _NEO4j_type: ServiceMS
+  _NEO4j_WF: {}
+
+- use: generic-1day-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}:Info"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}:Info"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: NO
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_tech: Nginx
+  _NEO4j_icon: Port.png
+  _NEO4j_type: ServiceMS
+  _NEO4j_WF: {}

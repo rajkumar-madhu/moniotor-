@@ -1,0 +1,3 @@
+{
+  "Server-idrac-ilo--Ping-status-0-notAbleToPing-1-ableToPing": "probe_success{instance='__FILTER__'}"
+}

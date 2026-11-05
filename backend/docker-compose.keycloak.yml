@@ -1,0 +1,23 @@
+# LinkedEye Keycloak — local Docker (dev)
+#
+# Start:
+#   docker compose -f docker-compose.keycloak.yml up -d
+#
+# Admin console: http://127.0.0.1:8083  (admin / admin123456)
+# After start, run:  .\scripts\keycloak-setup.ps1
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.6.1
+    container_name: linkedeye-keycloak
+    restart: unless-stopped
+    ports:
+      - "8083:8080"
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin123456
+      KC_HEALTH_ENABLED: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+    command: start-dev

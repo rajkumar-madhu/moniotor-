@@ -1,0 +1,4 @@
+{
+  "fortigate--Uptime-in-days": "round(sysUpTime{instance ='__FILTER__'} /8640000)",
+  "fortigate--Uptime-in-hours": "round (sysUpTime{instance = '__FILTER__'} /360000)"
+}
