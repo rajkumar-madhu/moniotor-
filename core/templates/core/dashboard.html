@@ -1,39 +1,43 @@
 {% extends "core/base.html" %}{% load static le %}
 {% block title %}Operations{% endblock %}
-{% block page_css %}<link rel="stylesheet" href="{% static 'linkedeye/pages/overview.css' %}">{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'linkedeye/vendor/jvectormap/jquery-jvectormap.css' %}"><link rel="stylesheet" href="{% static 'linkedeye/pages/overview.css' %}"><link rel="stylesheet" href="{% static 'linkedeye/pages/site-heatmap.css' %}"><link rel="stylesheet" href="{% static 'linkedeye/pages/backend-health.css' %}">{% endblock %}
 {% block content %}
-<section class="ov-head">
-  <div class="ov-title">
-    <h1>Operations</h1>
-    <p>{% if le_site %}{{ le_site }}{% else %}All sites{% endif %}{% if md %}, <time datetime="{{ md.now|date:'c' }}">{{ md.now|date:"l j F, H:i" }} IST</time>{% endif %}</p>
-  </div>
+<section class="legacy-overview-card" aria-labelledby="legacy-overview-title">
+  <div class="legacy-panel-head"><h1 id="legacy-overview-title">Site locations</h1><span class="legacy-map-controls"><button type="button" data-map-zoom="in" aria-label="Zoom in">+</button><button type="button" data-map-zoom="out" aria-label="Zoom out">−</button></span></div>
+  <div id="linkedeye-world-map" class="legacy-world-map" role="img" aria-label="World map overview of monitored sites"></div>
+  {% if not map_points %}<p class="legacy-map-empty">No site coordinates are configured. Add latitude and longitude in site administration to plot locations.</p>{% endif %}
+</section>
+
+{% include "core/_legacy_heatmap.html" %}
+{% include "core/_backend_health.html" %}
+
+<section class="ov-hero legacy-local-summary">
+  <div class="ov-title"><span class="ov-eyebrow">LINKED EYE · LIVE OPERATIONS</span><h2>Dashboard overview</h2>
+    <p>{% if le_site %}{{ le_site }}{% else %}All sites{% endif %}{% if md %} <span class="ov-sep">·</span> <time datetime="{{ md.now|date:'c' }}">{{ md.now|date:"l j F, H:i" }} IST</time>{% endif %}</p></div>
   <dl class="ov-figs">
-    <div class="ov-fig{% if problems %} is-crit{% endif %}">
-      <dt>Needs attention</dt>
-      <dd><a href="#attention">{{ problems|length }}</a></dd>
-      <dd class="ov-fig-note">down or degraded now</dd>
-    </div>
-    {% if desk.incidents is not None %}
-    <div class="ov-fig{% if desk.p12 %} is-crit{% endif %}">
-      <dt>Open incidents</dt>
-      <dd><a href="{{ desk.incidents_href }}">{{ desk.incidents }}</a></dd>
-      <dd class="ov-fig-note">{{ desk.p12 }} at P1 or P2</dd>
-    </div>
-    {% endif %}
-    {% if desk.alerts is not None %}
-    <div class="ov-fig{% if desk.alerts %} is-warn{% endif %}">
-      <dt>Alerts firing</dt>
-      <dd><a href="{{ desk.alerts_href }}">{{ desk.alerts }}</a></dd>
-      <dd class="ov-fig-note">from Alertmanager</dd>
-    </div>
-    {% endif %}
-    <div class="ov-fig">
-      <dt>URL uptime</dt>
-      <dd>{% if uptime7 is None %}–{% else %}{{ uptime7|pct }}{% endif %}</dd>
-      <dd class="ov-fig-note">last 7 days</dd>
-    </div>
+    <div class="ov-fig{% if problems %} is-crit{% endif %}"><dt>Needs attention</dt><dd><a href="#attention">{{ problems|length }}</a></dd><dd class="ov-fig-note">down or degraded now</dd></div>
+    {% if desk.incidents is not None %}<div class="ov-fig{% if desk.p12 %} is-crit{% endif %}"><dt>Open incidents</dt><dd><a href="{{ desk.incidents_href }}">{{ desk.incidents }}</a></dd><dd class="ov-fig-note">{{ desk.p12 }} at P1 or P2</dd></div>{% endif %}
+    {% if desk.alerts is not None %}<div class="ov-fig{% if desk.alerts %} is-warn{% endif %}"><dt>Alerts firing</dt><dd><a href="{{ desk.alerts_href }}">{{ desk.alerts }}</a></dd><dd class="ov-fig-note">from Alertmanager</dd></div>{% endif %}
+    <div class="ov-fig"><dt>URL uptime</dt><dd>{% if uptime7 is None %}–{% else %}{{ uptime7|pct }}{% endif %}</dd><dd class="ov-fig-note">last 7 days</dd></div>
   </dl>
 </section>
+
+{% if matrix.totals %}
+<section class="ov-health" aria-labelledby="ov-health-h">
+  <div class="ov-section-head"><div><span class="ov-eyebrow">MONITORING</span><h2 id="ov-health-h">Service health</h2></div><span class="ov-live"><i aria-hidden="true"></i>Current status</span></div>
+  <div class="ov-health-grid">
+    {% for t in matrix.totals %}
+    <a class="ov-health-card" href="{{ t.href }}">
+      <div class="ov-ring{% if not t.total %} is-empty{% endif %}" role="img" aria-label="{{ t.label }}: {{ t.ok }} healthy, {{ t.bad }} down, {{ t.other }} degraded or unknown, {{ t.total }} total" style="--ok-stop: {{ t.ok_pct }}%; --bad-stop: {{ t.bad_end_pct }}%"><span>{{ t.total }}</span></div>
+      <div class="ov-health-copy"><span class="ov-health-label">{{ t.label }}</span><strong>{% if t.total %}{{ t.ok|floatformat:0 }} healthy{% else %}No checks yet{% endif %}</strong>
+        <div class="ov-health-stats"><span><i class="dot-ok"></i>{{ t.ok }} OK</span><span><i class="dot-bad"></i>{{ t.bad }} down</span><span><i class="dot-other"></i>{{ t.other }} other</span></div>
+      </div>
+      <span class="ov-card-arrow" aria-hidden="true">↗</span>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
 
 {% if md %}
 <section class="panel ov-day{% if not md.trading %} is-closed{% endif %}" aria-labelledby="ov-day-h">
@@ -72,27 +76,6 @@
 </section>
 {% endif %}
 
-{% if matrix.rows %}
-<section class="panel ov-sites" aria-labelledby="ov-sites-h">
-  <div class="panel-h"><h2 id="ov-sites-h">Sites</h2><small>Healthy out of monitored, worst site first</small></div>
-  <div class="table-wrap">
-    <table class="ov-matrix">
-      <thead><tr><th scope="col">Site</th>{% for k in matrix.kinds %}<th scope="col"><a href="{{ k.href }}">{{ k.label }}</a></th>{% endfor %}<th scope="col">Alerts firing</th></tr></thead>
-      <tbody>
-        {% for r in matrix.rows %}
-        <tr>
-          <th scope="row"><span class="ov-dot t-{{ r.tone }}" aria-hidden="true"></span>{{ r.site }}</th>
-          {% for c in r.cells %}
-          <td class="ov-cell ov-c-{{ c.tone }}">{% if c.c %}<a href="{{ c.href }}"><b>{{ c.c.ok }}</b><span>/{{ c.c.total }}</span>{% if c.c.bad %}<em>{{ c.c.bad }} down</em>{% elif c.c.other %}<em>{{ c.c.other }} degraded or unknown</em>{% endif %}</a>{% else %}<span class="ov-none">–</span>{% endif %}</td>
-          {% endfor %}
-          <td class="ov-cell{% if r.alerts.crit %} ov-c-crit{% elif r.alerts.n %} ov-c-warn{% else %} ov-c-ok{% endif %}">{% if r.alerts.n %}<b>{{ r.alerts.n }}</b>{% if r.alerts.crit %}<em>{{ r.alerts.crit }} critical</em>{% endif %}{% else %}<span class="ov-none">0</span>{% endif %}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</section>
-{% endif %}
 
 <section class="grid g-main">
   <div class="panel" id="attention">
@@ -108,4 +91,42 @@
     {% empty %}<tr><td class="empty">No warnings or failures recorded yet.</td></tr>{% endfor %}</tbody></table></div>
   </div>
 </section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'linkedeye/vendor/jquery/jquery-3.5.1.min.js' %}"></script>
+<script src="{% static 'linkedeye/vendor/jvectormap/jquery-jvectormap.min.js' %}"></script>
+<script src="{% static 'linkedeye/vendor/jvectormap/jquery-jvectormap-world-mill-en.js' %}"></script>
+{{ map_points|json_script:"site-map-points" }}
+<script src="{% static 'linkedeye/pages/backend-health.js' %}"></script>
+<script>
+(function () {
+  var el = document.getElementById('linkedeye-world-map');
+  if (!window.jQuery || !jQuery.fn.vectorMap) {
+    el.removeAttribute('role');
+    el.textContent = 'The site map could not be loaded.';
+    el.className += ' legacy-map-empty';
+    return;
+  }
+  var $map = jQuery(el);
+  var points = JSON.parse(document.getElementById('site-map-points').textContent);
+  var colors = { crit: '#f06458', warn: '#efa943', ok: '#38c98a', none: '#7a8594' };
+  var markerValues = {};
+  points.forEach(function (point, index) { markerValues[index] = colors[point.tone] || colors.none; });
+  $map.vectorMap({
+    map: 'world_mill_en',
+    backgroundColor: '#171b22',
+    zoomOnScroll: false,
+    zoomButtons: false,
+    regionStyle: { initial: { fill: '#f3f4f6', 'fill-opacity': 1, stroke: '#171b22', 'stroke-width': 0.5 } },
+    markers: points.map(function (point) { return { name: point.name, latLng: point.latLng }; }),
+    markerStyle: { initial: { r: 6, fill: '#38c98a', stroke: '#171b22', 'stroke-width': 2 } },
+    series: { markers: [{ attribute: 'fill', values: markerValues }] }
+  });
+  var map = $map.vectorMap('get', 'mapObject');
+  document.querySelectorAll('[data-map-zoom]').forEach(function (button) {
+    button.addEventListener('click', function () { if (button.dataset.mapZoom === 'in') map.zoomIn(); else map.zoomOut(); });
+  });
+}());
+</script>
 {% endblock %}

@@ -122,7 +122,10 @@ def heatmap_view(request):
         "logs": services._safe_reverse("observe:logs"), "metrics": services._safe_reverse("telemetry:explorer"),
         "add_domain": reverse("cmdb:item_create") + "?type=" + CIType.BUSINESS_DOMAIN + "&next=" + reverse("cmdb:heatmap"),
     }
+    from core import overview   # lazy: documented shared API (docs/MODULES.md)
+    request.le_site_names = names = overview.site_names(request.user)   # reused by the context processor
     return render(request, "cmdb/heatmap.html", {
         "d": d, "sel": sel, "details": details, "dpage": dpage, "kpis": kpis, "keep": keep,
         "f": {"domain": domain, "service": service, "host": host}, "links": links,
-        "prom_configured": prometheus.configured(), **perms(request)})
+        "prom_configured": prometheus.configured(),
+        "matrix": overview.site_matrix(request.user, request.GET.get("site", ""), names=names), **perms(request)})

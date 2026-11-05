@@ -35,8 +35,10 @@ def shell(request):
     from .access import role_for
     role = role_for(request.user)
     admin_url = overview._url("administration:index") or overview._url("admin:index")
+    sites = getattr(request, "le_site_names", None)
     return {"nav": nav, "le_version": settings.LINKEDEYE_VERSION,
             "le_problem_count": overview.problem_count(request.user),
-            "le_sites": overview.site_names(request.user), "le_site": request.GET.get("site", ""),
+            "le_sites": sites if sites is not None else overview.site_names(request.user),
+            "le_site": request.GET.get("site", ""),
             "le_role": "Super Admin" if request.user.is_superuser else (role or "viewer").capitalize(),
             "le_admin_url": admin_url, "le_profile_url": overview._url("administration:profile")}

@@ -131,6 +131,9 @@ X_FRAME_OPTIONS = "DENY"
 
 # ---- LinkedEye ----
 LINKEDEYE_TENANT = env("TENANT", "default")
+# Optional authenticated bridge to the legacy Neo4j dashboard backend. Both the URL and token are required.
+LINKEDEYE_BACKEND_SUMMARY_URL = env("BACKEND_SUMMARY_URL", "").strip()
+LINKEDEYE_BACKEND_SUMMARY_TOKEN = env("BACKEND_SUMMARY_TOKEN", "").strip()
 LINKEDEYE_VERSION = "9.0"
 PROBE_ALLOWED_PRIVATE_CIDRS = env_list("PROBE_ALLOWED_PRIVATE_CIDRS")
 PROBE_TIMEOUT = float(env("PROBE_TIMEOUT", "10"))
