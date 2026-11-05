@@ -224,7 +224,7 @@ def traffic_range(device, seconds=86400, if_index=None):
     def build(sel):
         return [({"name": name, "color": color, "area": True, "areaOpacity": opacity, "width": 1.4},
                  f"sum((rate(ifHC{metric}Octets{{{sel}}}[5m]) or rate(if{metric}Octets{{{sel}}}[5m]))) * 8 / 1e6")
-                for name, metric, color, opacity in (("Inbound", "In", "#2b4cff", 0.12), ("Outbound", "Out", "#ff5b2e", 0.13))]
+                for name, metric, color, opacity in (("Inbound", "In", "var(--chart-6)", 0.12), ("Outbound", "Out", "var(--brand)", 0.13))]
     return _range_chart(device, seconds, if_index, "Mbps",
                         f'No interface counters in Prometheus for instance "{device.prometheus_instance}" in this period.', build)
 
@@ -234,8 +234,8 @@ def errors_range(device, seconds=86400, if_index=None):
     def build(sel):
         return [({"name": name, "color": color, "width": 1.6},
                  f'sum(rate({{__name__=~"{counters}",{sel}}}[5m]))')
-                for name, counters, color in (("Errors", "ifInErrors|ifOutErrors", "#d92d20"),
-                                              ("Discards", "ifInDiscards|ifOutDiscards", "#e08a00"))]
+                for name, counters, color in (("Errors", "ifInErrors|ifOutErrors", "var(--chart-crit)"),
+                                              ("Discards", "ifInDiscards|ifOutDiscards", "var(--chart-warn)"))]
     return _range_chart(device, seconds, if_index, "/s",
                         f'No error or discard counters in Prometheus for instance "{device.prometheus_instance}" in this period.',
                         build)
