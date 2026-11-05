@@ -20,4 +20,21 @@ class LoginRequiredMiddleware:
                 from django.http import JsonResponse
                 return JsonResponse({"error": "authentication required"}, status=401)
             return redirect(f"{reverse(settings.LOGIN_URL)}?next={request.get_full_path()}")
+        response = self.get_response(request)
+        return response
+
+
+class ClientScopeMiddleware:
+    """Persist ?client= in session and expose request.le_client for templates and queries."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        from core.client_scope import sync_client_session
+
+        if request.user.is_authenticated:
+            sync_client_session(request)
+        else:
+            request.le_client = ""
         return self.get_response(request)
