@@ -1,0 +1,7 @@
+{
+  "huawei--Cpu-scale-in-Percentage": "(hwEntityCpuUsage{ entPhysicalIndex = '67108873', instance = '__FILTER__'})",
+  "dell--Cpu-scale-in-Percentage": "(hrProcessorLoad{ instance = '__FILTER__'})",
+  "cisco--Cpu-scale-in-Percentage": "(cpmCPUTotal5minRev{instance = '__FILTER__'})",
+  "cisco--router-Cpu-scale-in-Percentage": "(entPhysicalDescr{ entPhysicalIndex = '7035', instance = '__FILTER__'})",
+  "arista--Cpu-scale-in-Percentage": "hrProcessorLoad{instance='__FILTER__'}"
+}

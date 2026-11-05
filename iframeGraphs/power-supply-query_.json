@@ -1,0 +1,6 @@
+{
+  "Idrac-power-supply-status": "(dell_hw_ps_status{job = '__FILTER__'})",
+  "Idrac-power-wattage-input": "(dell_hw_ps_rated_input_wattage{job= '__FILTER__'})",
+  "Idrac-power-wattage-output": "(dell_hw_ps_rated_output_wattage{job= '__FILTER__'})",
+  "Ilo-power-supply-status": "(hpilo_power_supplies{job= '__FILTER__'})"
+}

@@ -1,0 +1,4 @@
+{
+  "linux--CPU-usage-Percentage": "(100-(avg by (instance) (rate(node_cpu_seconds_total{mode='idle', instance='__FILTER__:9100'}[5m])) * 100))",
+  "windows--CPU-usage-Percentage": "100 -  (avg by (instance) (rate(windows_cpu_time_total{mode='idle', instance='__FILTER__:9182'}[5m])) * 100)"
+}

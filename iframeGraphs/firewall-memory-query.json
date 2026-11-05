@@ -1,0 +1,3 @@
+{
+  "fortigate--Memory-usage-in-percentage": "fgSysMemUsage{instance='__FILTER__'}"
+}

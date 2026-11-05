@@ -1,0 +1,5 @@
+{
+  "fortigate--Session-count-in-number": "fgSysSesCount{instance='__FILTER__'}",
+  "fortigate--User-count-in-number": "fgFwUserNumber {instance='__FILTER__'}",
+  "fortigate--Ping-status-0-notAbleToPing-1-ableToPing": "probe_success{instance='__FILTER__'} "
+}
