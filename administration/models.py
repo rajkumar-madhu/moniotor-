@@ -19,6 +19,7 @@ class IntegrationTest(models.Model):
         ("notify", "Notifications"),
         ("stackstorm", "StackStorm"),
         ("agent", "Ops Agent"),
+        ("backend_summary", "Legacy Neo4j dashboard"),
     ]
 
     tenant_key = models.CharField(max_length=100, db_index=True, default=settings.LINKEDEYE_TENANT)

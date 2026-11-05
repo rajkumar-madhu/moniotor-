@@ -9,6 +9,7 @@ _SECRET_FIELDS = {
     "stackstorm": {"api_key"},
     "nagios": {"password"},
     "email": {"email_host_password"},
+    "backend_summary": {"token"},
 }
 
 
@@ -174,3 +175,11 @@ def nagios_password():
 
 def nagios_timeout():
     return float(_pick("nagios", "timeout", "NAGIOS_TIMEOUT", settings.NAGIOS_TIMEOUT, cast=float))
+
+
+def backend_summary_url():
+    return _pick("backend_summary", "url", "LINKEDEYE_BACKEND_SUMMARY_URL", "") or ""
+
+
+def backend_summary_token():
+    return _pick("backend_summary", "token", "LINKEDEYE_BACKEND_SUMMARY_TOKEN", "") or ""

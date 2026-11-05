@@ -33,12 +33,27 @@ def shell(request):
         entry["open"] = entry["active"] or any(c["active"] for c in entry["children"])
     from . import overview
     from .access import role_for
+    from .client_scope import active_client, narrow_site_names
+    from .client_sites import clients_for_user
     role = role_for(request.user)
     admin_url = overview._url("administration:index") or overview._url("admin:index")
+    client = active_client(request)
     sites = getattr(request, "le_site_names", None)
+    le_clients = clients_for_user(request.user)
+    le_client_name = ""
+    if client:
+        for c in le_clients:
+            if str(c.pk) == str(client):
+                le_client_name = c.name
+                break
+    if sites is None:
+        sites = narrow_site_names(overview.site_names(request.user), request.user, client)
     return {"nav": nav, "le_version": settings.LINKEDEYE_VERSION,
             "le_problem_count": overview.problem_count(request.user),
-            "le_sites": sites if sites is not None else overview.site_names(request.user),
+            "le_sites": sites,
             "le_site": request.GET.get("site", ""),
+            "le_client": client,
+            "le_client_name": le_client_name,
+            "le_clients": le_clients,
             "le_role": "Super Admin" if request.user.is_superuser else (role or "viewer").capitalize(),
             "le_admin_url": admin_url, "le_profile_url": overview._url("administration:profile")}
