@@ -89,6 +89,11 @@ class StackStormQueryStringTests(TestCase):
     def test_plain_url_unchanged(self):
         self.assertEqual(services.stackstorm_endpoint("restart"), "https://st2.example/api/v1/webhooks/restart")
 
+    @override_settings(STACKSTORM_URL="https://[2001:db8::1]:8443/api/v1/webhooks/?st2-api-key=KEY")
+    def test_ipv6_display_url_keeps_brackets_and_drops_query(self):
+        self.assertEqual(services.stackstorm_display_url(),
+                         "https://[2001:db8::1]:8443/api/v1/webhooks/")
+
     @override_settings(STACKSTORM_URL="https://st2.example/api/v1/webhooks/?st2-api-key=KEY", STACKSTORM_API_KEY="")
     def test_connection_tests_use_the_same_builder(self):
         from administration import services as admin_services

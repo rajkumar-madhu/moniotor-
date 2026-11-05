@@ -1,12 +1,20 @@
 {% extends "core/base.html" %}{% load le static %}
 {% block title %}Heatmap{% endblock %}
-{% block page_css %}<link rel="stylesheet" href="{% static 'cmdb/page.css' %}">{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'cmdb/page.css' %}"><link rel="stylesheet" href="{% static 'linkedeye/pages/site-heatmap.css' %}"><link rel="stylesheet" href="{% static 'linkedeye/pages/backend-health.css' %}">{% endblock %}
 {% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<span>Monitoring</span>{% icon "chevron-right" 14 %}<a href="{% url 'cmdb:heatmap' %}">Heatmap</a></nav>{% endblock %}
 {% block content %}
 <div class="pg-cmdb pg-heat" data-refresh="120">
-<div class="head"><div><h1>Heatmap</h1><p>Service and infrastructure health at a glance</p></div>
+<div class="hm-hero"><div><span class="hm-eyebrow">LINKED EYE · LIVE OPERATIONS</span><h1>Service heatmap</h1><p>Service and infrastructure health at a glance</p></div>
   <div class="actions hm-live"><span class="hm-live-pill"><i class="dot"></i>LIVE</span><span class="t-mute">{% now "M j, Y H:i:s" %}</span>
     <a class="btn sm ghost-primary" href="{{ request.get_full_path }}">{% icon "refresh" 15 %}Refresh</a></div></div>
+
+{% include "core/_legacy_heatmap.html" %}
+{% include "core/_backend_health.html" %}
+
+<section class="hm-overview" aria-label="Domain health summary">
+  {% for k in kpis %}<div class="kpi"><div class="kpi-top"><div class="tile {{ k.tile }}">{% if k.filled %}{% ficon k.icon 22 %}{% else %}{% icon k.icon 20 %}{% endif %}</div>
+    <div class="kpi-body"><div class="label">{{ k.label }}</div><div class="value">{{ k.value }}</div></div></div></div>{% endfor %}
+</section>
 
 <form class="toolbar hm-toolbar" method="get" id="hm-filters">
   <div class="hm-filters">
@@ -52,12 +60,8 @@
 
   <div class="stack hm-right">
     <div class="panel" id="hm-domains">
-      <div class="panel-h hm-dom-h"><div><h2>Domains</h2><small>Business domains and their service health</small></div>
+      <div class="panel-h hm-dom-h"><div><h2>Business domains</h2><small>Service health and performance by domain</small></div>
         {% if can_operate %}<div class="right"><a class="btn primary" href="{{ links.add_domain }}">{% icon "plus" 16 %} Add Domain</a></div>{% endif %}</div>
-      <div class="kpis hm-kpis">{% for k in kpis %}
-        <div class="kpi"><div class="kpi-top"><div class="tile {{ k.tile }}">{% if k.filled %}{% ficon k.icon 22 %}{% else %}{% icon k.icon 20 %}{% endif %}</div>
-          <div class="kpi-body"><div class="label">{{ k.label }}</div><div class="value">{{ k.value }}</div></div></div></div>{% endfor %}
-      </div>
       <div class="table-wrap hm-table"><table>
         <thead><tr><th>Domain</th><th>Description</th><th class="num">Services</th><th>Health Status</th><th class="num">Availability</th><th class="num">Error Rate</th><th class="num">p95 Latency</th><th class="hm-act">Actions</th></tr></thead>
         <tbody>{% for dm in dpage %}<tr{% if sel and dm.name == sel.name %} class="sel"{% endif %}>
@@ -150,7 +154,8 @@
 {% endif %}
 </div>
 {% endblock %}
-{% block scripts %}<script>
+
+{% block scripts %}<script src="{% static 'linkedeye/pages/backend-health.js' %}"></script><script>
 (function () {
   document.querySelectorAll('.hm-heat .hm-toggle').forEach(function (b) {
     b.addEventListener('click', function () {

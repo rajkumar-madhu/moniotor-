@@ -10,11 +10,35 @@
   <div class="kpi"><div class="kpi-top"><div class="tile bg-info sq">{% icon "clock" 22 %}</div>
     <div class="kpi-body"><div class="label">Uptime</div>{% if device.uptime_seconds is not None %}<div class="value">{{ device.uptime_short }}</div><div class="sub" title="{{ device.uptime_display }}">{{ device.uptime_display }}</div>{% else %}<div class="value t-mute">–</div><div class="sub" title="{{ metrics_msg }}">No metrics source</div>{% endif %}</div></div></div>
   <div class="kpi"><div class="kpi-top"><div class="tile bg-info sq">{% icon "network" 22 %}</div>
-    <div class="kpi-body"><div class="label">Interfaces Up</div>{% if if_total %}<div class="value">{{ if_up }} / {{ if_total }}</div><div class="sub">{% widthratio if_up if_total 100 %}% operational</div>{% else %}<div class="value t-mute">–</div><div class="sub">No interface data</div>{% endif %}</div></div></div>
-  <div class="kpi"><div class="kpi-top"><div class="tile bg-info sq">{% icon "arrow-down" 22 %}</div>
-    <div class="kpi-body"><div class="label">Inbound (now)</div><div class="value{% if total_in is None %} t-mute{% endif %}">{{ total_in|mbps }}</div><div class="sub">{% if total_in is None %}No metrics source{% else %}Sum of interfaces{% endif %}</div></div></div></div>
-  <div class="kpi"><div class="kpi-top"><div class="tile bg-warn sq">{% icon "arrow-up" 22 %}</div>
-    <div class="kpi-body"><div class="label">Outbound (now)</div><div class="value{% if total_out is None %} t-mute{% endif %}">{{ total_out|mbps }}</div><div class="sub">{% if total_out is None %}No metrics source{% else %}Sum of interfaces{% endif %}</div></div></div></div>
+    <div class="kpi-body"><div class="label">Ports up / down</div>{% if ports_total %}<div class="value">{{ ports_up }} / <span class="{% if ports_down %}t-crit{% endif %}">{{ ports_down }}</span></div><div class="sub">{{ ports_unused }} unused or admin down</div>{% else %}<div class="value t-mute">–</div><div class="sub">No interface data</div>{% endif %}</div></div></div>
+  <div class="kpi"><div class="kpi-top"><div class="tile bg-info sq">{% icon "activity" 22 %}</div>
+    <div class="kpi-body"><div class="label">Traffic (now)</div><div class="value{% if total_in is None %} t-mute{% endif %}" title="Inbound, sum of interfaces">{{ total_in|mbps }}</div><div class="sub">{% if total_in is None %}No metrics source{% else %}{% icon "arrow-up" 11 %} {{ total_out|mbps }} out{% endif %}</div></div></div></div>
+  <div class="kpi"><div class="kpi-top"><div class="tile bg-warn sq">{% icon "alert" 22 %}</div>
+    <div class="kpi-body"><div class="label">Errors (now)</div><div class="value{% if total_errors is None %} t-mute{% elif total_errors > 0 %} t-warn{% endif %}">{{ total_errors|per_s }}</div><div class="sub">{% if total_errors is None %}Not collected yet{% elif ports_with_errors %}{{ ports_with_errors }} port{{ ports_with_errors|pluralize }} · discards {{ total_discards|per_s }}{% else %}Discards {{ total_discards|per_s }}{% endif %}</div></div></div></div>
+</section>
+
+{% if ports %}{% include "network/_front_panel.html" %}{% endif %}
+
+{% if port %}<div class="nw-alert info nw-scope" role="status">{% icon "filter" 16 %}<span>Charts filtered to <b>{{ port.name }}</b>{% if port.alias %} ({{ port.alias }}){% endif %}</span><a class="right" href="?tab=overview#nw-charts">Show whole device {% icon "x" 13 %}</a></div>{% endif %}
+<section class="grid nw-charts" id="nw-charts">
+  <div class="panel" id="traffic"><div class="panel-h nowrap"><h2>Traffic · {% if port %}{{ port.name }}{% else %}all ports{% endif %}</h2><span class="right t-mute small">Last 24 hours</span></div>
+    {% if traffic %}
+    <div class="chart" data-chart="line" data-src="nw-traffic" style="height:132px"></div>
+    <div class="legend nw-legend">{% if port %}<span><i class="sw-in"></i>Inbound <b>{{ port.in_mbps|mbps }}</b></span><span><i class="sw-out"></i>Outbound <b>{{ port.out_mbps|mbps }}</b></span>{% else %}<span><i class="sw-in"></i>Inbound <b>{{ total_in|mbps }}</b></span><span><i class="sw-out"></i>Outbound <b>{{ total_out|mbps }}</b></span>{% endif %}</div>
+    {% else %}<div class="nw-empty sm">{% icon "activity" 24 %}<p>{{ traffic_msg }}</p></div>{% endif %}
+  </div>
+  <div class="panel" id="errors"><div class="panel-h nowrap"><h2>Errors + discards · {% if port %}{{ port.name }}{% else %}all ports{% endif %}</h2><span class="right t-mute small">Last 24 hours</span></div>
+    {% if errors_chart %}
+    <div class="chart" data-chart="line" data-src="nw-errors" style="height:132px"></div>
+    <div class="legend nw-legend">{% if port %}<span><i class="sw-err"></i>Errors <b>{{ port.errors_per_s|per_s }}</b></span><span><i class="sw-disc"></i>Discards <b>{{ port.discards_per_s|per_s }}</b></span>{% else %}<span><i class="sw-err"></i>Errors <b>{{ total_errors|per_s }}</b></span><span><i class="sw-disc"></i>Discards <b>{{ total_discards|per_s }}</b></span>{% endif %}</div>
+    {% else %}<div class="nw-empty sm">{% icon "alert" 24 %}<p>{{ errors_msg }}</p></div>{% endif %}
+  </div>
+  <div class="panel"><div class="panel-h nowrap"><h2>Availability</h2><span class="right t-mute small">Checks per hour, last 24 hours</span></div>
+    {% if avail_chart %}
+    <div class="chart" data-chart="bars" data-src="nw-avail" style="height:112px"></div>
+    <div class="legend nw-legend"><span><i class="sw-up"></i>Up</span><span><i class="sw-down"></i>Down</span><span><i class="sw-none"></i>Not checked</span><span>24h <b class="{{ avail24|avail_tone }}">{{ avail24|percent:2 }}</b></span></div>
+    {% else %}<div class="nw-empty sm">{% icon "heartbeat" 24 %}<p>No checks recorded yet. Checks run every minute while <code>manage.py run_probes</code> is running{% if can_operate %}, or use Check now{% endif %}.</p></div>{% endif %}
+  </div>
 </section>
 
 <section class="grid nw-row2">
@@ -41,21 +65,6 @@
     {% include "network/_iface_table.html" with rows=top_interfaces compact=True %}
     {% if metrics_msg %}<p class="nw-note">{{ metrics_msg }}</p>{% endif %}
     {% else %}<div class="nw-empty">{% icon "plug" 28 %}<p>{{ metrics_msg|default:"No interfaces reported for this device yet." }}</p>{% if not device.prometheus_instance and can_operate %}<a class="btn sm" href="{% url 'network:edit' device.pk %}#id_prometheus_instance">Set Prometheus instance</a>{% endif %}</div>{% endif %}
-  </div>
-
-  <div class="stack">
-    <div class="panel" id="traffic"><div class="panel-h nowrap"><h2>Traffic Overview</h2><span class="right t-mute small">Last 24 hours</span></div>
-      {% if traffic %}
-      <div class="chart" data-chart="line" data-src="nw-traffic" style="height:132px"></div>
-      <div class="legend nw-legend"><span><i class="sw-in"></i>Inbound <b>{{ total_in|mbps }}</b></span><span><i class="sw-out"></i>Outbound <b>{{ total_out|mbps }}</b></span></div>
-      {% else %}<div class="nw-empty sm">{% icon "activity" 24 %}<p>{{ traffic_msg }}</p></div>{% endif %}
-    </div>
-    <div class="panel"><div class="panel-h nowrap"><h2>Availability</h2><span class="right t-mute small">Checks per hour, last 24 hours</span></div>
-      {% if avail_chart %}
-      <div class="chart" data-chart="bars" data-src="nw-avail" style="height:112px"></div>
-      <div class="legend nw-legend"><span><i class="sw-up"></i>Up</span><span><i class="sw-down"></i>Down</span><span><i class="sw-none"></i>Not checked</span><span>24h <b class="{{ avail24|avail_tone }}">{{ avail24|percent:2 }}</b></span></div>
-      {% else %}<div class="nw-empty sm">{% icon "heartbeat" 24 %}<p>No checks recorded yet. Checks run every minute while <code>manage.py run_probes</code> is running{% if can_operate %}, or use Check now{% endif %}.</p></div>{% endif %}
-    </div>
   </div>
 </section>
 

@@ -176,7 +176,16 @@ class Interface(models.Model):
     in_mbps = models.FloatField(null=True, blank=True)
     out_mbps = models.FloatField(null=True, blank=True)
     utilization = models.FloatField(null=True, blank=True, help_text="Busiest direction as % of interface speed")
+    errors_per_s = models.FloatField(null=True, blank=True, help_text="ifInErrors + ifOutErrors, per second over 5 min")
+    discards_per_s = models.FloatField(null=True, blank=True, help_text="ifInDiscards + ifOutDiscards, per second over 5 min")
+    flaps_24h = models.PositiveIntegerField(null=True, blank=True, help_text="ifOperStatus changes in the last 24 hours")
     updated_at = models.DateTimeField(default=timezone.now)
+
+    # if_type display names (network.metrics) that are not a port on the chassis
+    LOGICAL_TYPES = {"Loopback", "Virtual", "Tunnel", "VLAN", "LAG", "Bridge", "MPLS", "PPP", "Other"}
+    BUSY_UTIL = 80   # % — the front panel marks a port busy from here
+    TONE_LABELS = {"up": "up", "busy": "busy or errors", "down": "down", "unused": "unused or admin down",
+                   "unknown": "status unknown"}
 
     class Meta:
         ordering = ["device", "if_index"]
@@ -191,6 +200,26 @@ class Interface(models.Model):
         if u is None:
             return "mute"
         return "crit" if u >= 85 else "warn" if u >= 60 else "ok"
+
+    @property
+    def is_physical(self):
+        return self.if_type not in self.LOGICAL_TYPES
+
+    @property
+    def port_tone(self):
+        """Front-panel colour: unused (admin down / not present), down (admin up, no link), busy (>= BUSY_UTIL %
+        or errors in the last 5 min), up, or unknown."""
+        if self.admin_status == "down" or self.oper_status == "notPresent":
+            return "unused"
+        if self.oper_status in ("down", "lowerLayerDown"):
+            return "down"
+        if self.oper_status == "up":
+            return "busy" if (self.utilization or 0) >= self.BUSY_UTIL or (self.errors_per_s or 0) > 0 else "up"
+        return "unknown"
+
+    @property
+    def port_tone_label(self):
+        return self.TONE_LABELS[self.port_tone]
 
 
 class DevicePoll(models.Model):
