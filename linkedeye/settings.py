@@ -60,6 +60,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "core.middleware.LoginRequiredMiddleware",
+    "core.middleware.ClientScopeMiddleware",
 ]
 
 ROOT_URLCONF = "linkedeye.urls"

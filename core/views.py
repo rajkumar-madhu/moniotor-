@@ -37,8 +37,9 @@ def dashboard(request):
 def backend_summary_api(request):
     """Load legacy backend health independently from the page render."""
     from .backend_summary import summary
+    from .client_scope import active_client
 
-    return JsonResponse(summary(request.user, request.GET.get("site", "")))
+    return JsonResponse(summary(request.user, request.GET.get("site", ""), client_param=active_client(request)))
 
 
 SEARCH_LIMIT = 25

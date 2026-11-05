@@ -102,9 +102,14 @@ def _cache_key(site_list):
     return "backend-summary:" + hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
+def _backend_credentials():
+    from administration import integration_config as ic
+
+    return ic.backend_summary_url(), ic.backend_summary_token()
+
+
 def _fetch(site_list):
-    endpoint = settings.LINKEDEYE_BACKEND_SUMMARY_URL
-    token = settings.LINKEDEYE_BACKEND_SUMMARY_TOKEN
+    endpoint, token = _backend_credentials()
     parts = _safe_endpoint(endpoint)
     if not parts or not token or not site_list:
         return None
@@ -166,15 +171,16 @@ def _fetch(site_list):
     }
 
 
-def summary(user, selected_site=""):
+def summary(user, selected_site="", client_param=""):
     """Return tenant/site-scoped backend counts; no site outside the user's visible sites is sent upstream."""
-    endpoint = settings.LINKEDEYE_BACKEND_SUMMARY_URL
-    token = settings.LINKEDEYE_BACKEND_SUMMARY_TOKEN
+    from .client_scope import narrow_site_names
+
+    endpoint, token = _backend_credentials()
     configured = bool(_safe_endpoint(endpoint) and token)
     if not configured:
         return _empty()
 
-    visible = site_names(user)
+    visible = narrow_site_names(site_names(user), user, client_param)
     if selected_site:
         if selected_site not in visible:
             return _empty(configured=True)
