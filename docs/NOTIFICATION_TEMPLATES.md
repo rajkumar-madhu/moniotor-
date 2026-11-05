@@ -54,3 +54,16 @@ Example seed: `manage.py seed_automation` creates “Example – Trading day sta
 ## Test delivery
 
 **Administration › Integrations** → **Send test notification** on webhooks or e-mail. That uses a one-off warning event and never writes to the event stream.
+
+## Welcome e-mail (personalized)
+
+When a global admin creates a user in **Administration › Users › New user**, LinkedEye sends a welcome message if the account has an e-mail address and `LINKEDEYE_WELCOME_EMAIL` is enabled (default: on).
+
+| Template | Purpose |
+|---|---|
+| `core/templates/notify/welcome_email.html` | Branded HTML with greeting, role, site scope, portal button |
+| `core/templates/notify/welcome_email.txt` | Plain-text fallback |
+
+If the admin chose **Generate a strong password**, the temporary password is included once in that e-mail (and still shown once in the admin UI). If the admin set the password manually, the mail omits credentials and only links to the portal.
+
+Rendering: `core/welcome_mail.py`. Optional override for the sign-in link: `LINKEDEYE_PORTAL_URL` (otherwise the login URL from the creating request is used).

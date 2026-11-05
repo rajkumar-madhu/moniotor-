@@ -24,6 +24,7 @@ from django.views.decorators.http import require_GET, require_POST
 from core.access import can, require
 from core.audit import audit
 from core.models import AuditEvent, Client, Membership, Site
+from core.welcome_mail import send_welcome_email
 
 from . import services
 from .forms import ClientForm, MembershipForm, SetPasswordForm, SiteForm, UserCreateForm, UserEditForm
@@ -221,6 +222,20 @@ def user_create(request):
                 Membership.objects.create(user=user, site=site, role=form.cleaned_data["role"])
                 audit(request, "create", user, email=user.email, site=site.name if site else "All sites",
                       role=form.cleaned_data["role"], password="generated" if generated else "set")
+            role_label = services.ROLE_LABELS.get(form.cleaned_data["role"], form.cleaned_data["role"])
+            site_scope = site.name if site else "All sites"
+            if send_welcome_email(
+                user,
+                password=password if generated else "",
+                invited_by=request.user.get_username(),
+                role=role_label,
+                site_scope=site_scope,
+                request=request,
+            ):
+                if user.email:
+                    messages.info(request, f"A welcome e-mail was sent to {user.email}.")
+            elif user.email:
+                messages.warning(request, "User was created, but the welcome e-mail could not be sent. Check e-mail settings under Integrations.")
             if generated:
                 _flash_password(request, user, password)
                 messages.success(request, f"Created user “{user.username}”. Copy the generated password now; it is shown only once.")

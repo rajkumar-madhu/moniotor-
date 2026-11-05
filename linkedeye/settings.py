@@ -167,6 +167,8 @@ EMAIL_USE_TLS = env("EMAIL_USE_TLS", "false").lower() in ("1", "true", "yes")
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", "linkedeye@localhost")
 # seconds; an unreachable SMTP server must not hang the notifier (Django's default is "no timeout")
 EMAIL_TIMEOUT = float(env("EMAIL_TIMEOUT", "10"))
+LINKEDEYE_WELCOME_EMAIL = env("WELCOME_EMAIL", "true").lower() in ("1", "true", "yes")
+LINKEDEYE_PORTAL_URL = env("PORTAL_URL", "").strip()
 
 # ---- Sign-in throttling (administration.LoginThrottle; shared by every web worker) ----
 LOGIN_MAX_FAILURES = int(env("LOGIN_MAX_FAILURES", "5"))                 # per username, within the window
