@@ -1,0 +1,58 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}Domain · {{ site.name }}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'administration/page.css' %}">{% endblock %}
+{% block crumbs %}{% url 'administration:site_onboarding_list' as ob_url %}{% include "administration/_crumbs.html" with parent="Site onboarding" parent_url=ob_url here=site.name %}{% endblock %}
+{% block content %}
+<div class="pg-admin">
+<div class="head">
+  <div class="glyph">{% icon "link" 44 %}</div>
+  <div><h1>Domain · {{ site.name }}</h1><p>FinSpot hostnames and port connections for <code>{{ slug }}</code></p></div>
+  <div class="actions">
+    <a class="btn" href="{% url 'administration:site_onboarding' site.pk %}">{% icon "edit" 17 %}Edit onboarding</a>
+    <a class="btn" href="{% url 'administration:site_onboarding_list' %}">{% icon "chevron-left" 17 %}All onboarding</a>
+  </div>
+</div>
+{% include "administration/_tabs.html" with tab="onboarding" %}
+
+<section class="grid g-2">
+  <div class="panel">
+    <div class="panel-h"><h2>Entity &amp; portal</h2></div>
+    <dl class="kv">
+      <dt>Lesites slug</dt><dd><code>{{ slug }}</code></dd>
+      <dt>Entity host</dt><dd><code>{{ naming.entity_host|default:"—" }}</code></dd>
+      <dt>Entity port</dt><dd>{{ naming.entity_port|default:"443" }}</dd>
+      <dt>Portal URL</dt><dd><a href="{{ naming.portal }}" target="_blank" rel="noopener">{{ naming.portal }}</a></dd>
+      <dt>Lesites</dt><dd><a href="{{ naming.lesites }}" target="_blank" rel="noopener">{{ naming.lesites }}</a></dd>
+    </dl>
+    {% if not profile %}<p class="hint warn">No onboarding record yet. <a href="{% url 'administration:site_onboarding' site.pk %}?defaults=1">Apply FinSpot defaults</a> to populate entity and URLs.</p>{% endif %}
+  </div>
+  <div class="panel">
+    <div class="panel-h"><h2>Analytics stack</h2></div>
+    {% if profile %}
+    <dl class="kv">
+      <dt>Analytics prefix</dt><dd>{{ profile.analytics_prefix_url|default:"—" }}</dd>
+      <dt>Prometheus</dt><dd>{{ profile.prometheus_url|default:"—" }}</dd>
+      <dt>Elastic</dt><dd>{{ profile.elastic_host|default:"—" }}:{{ profile.elastic_port|default:"9200" }}</dd>
+    </dl>
+    {% else %}<p class="t-mute">Configure on the onboarding form.</p>{% endif %}
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-h"><h2>Port connections</h2><span class="t-mute">Host pattern <code>{service}-fs-le-&lt;env&gt;.finspot.in</code></span></div>
+  <div class="table-wrap adm-table"><table>
+    <thead><tr><th>Tool / service</th><th>Host</th><th>URL</th><th>Port</th><th>Auth</th></tr></thead>
+    <tbody>{% for r in port_rows %}
+      <tr>
+        <td>{{ r.label }}</td>
+        <td><code>{{ r.host|default:"—" }}</code></td>
+        <td>{% if r.url %}<a href="{{ r.url }}" target="_blank" rel="noopener">{{ r.url|truncatechars:56 }}</a>{% else %}—{% endif %}</td>
+        <td class="num">{{ r.port }}</td>
+        <td class="t-mute">{{ r.auth }}</td>
+      </tr>
+    {% empty %}<tr><td colspan="5" class="empty">No rows.</td></tr>{% endfor %}</tbody>
+  </table></div>
+  <p class="hint t-mute adm-note">Placeholder aligned with client-wise tracker scaffold; credentials stay in vault / integrations.</p>
+</section>
+</div>
+{% endblock %}
