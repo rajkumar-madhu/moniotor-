@@ -66,6 +66,32 @@ class PolicyTests(SimpleTestCase):
     def test_public_allowed(self):
         checks.check_address("93.184.216.34")
 
+    @override_settings(PROBE_ALLOWED_PRIVATE_CIDRS=[])
+    def test_documentation_ranges_are_blocked_as_documentation(self):
+        # RFC 5737 / RFC 3849. Not RFC 1918, and not a permitted probe target by default.
+        for ip in ("192.0.2.1", "198.51.100.1", "203.0.113.9", "2001:db8::1",
+                   "::ffff:198.51.100.1", "64:ff9b::c633:6401"):
+            with self.assertRaises(checks.ProbeBlocked, msg=ip) as cm:
+                checks.check_address(ip)
+            msg = str(cm.exception)
+            self.assertIn("documentation address", msg)
+            self.assertIn("not a permitted probe target", msg)
+            self.assertNotIn("private address", msg)
+
+    @override_settings(PROBE_ALLOWED_PRIVATE_CIDRS=["192.0.2.0/24"])
+    def test_documentation_opt_in_does_not_open_other_documentation_ranges(self):
+        checks.check_address("192.0.2.1")
+        with self.assertRaises(checks.ProbeBlocked) as cm:
+            checks.check_address("198.51.100.1")
+        self.assertIn("documentation address", str(cm.exception))
+        self.assertNotIn("private address", str(cm.exception))
+
+    @override_settings(PROBE_ALLOWED_PRIVATE_CIDRS=[])
+    def test_private_refusal_still_names_private_addresses(self):
+        with self.assertRaises(checks.ProbeBlocked) as cm:
+            checks.check_address("10.1.2.3")
+        self.assertIn("private address not in PROBE_ALLOWED_PRIVATE_CIDRS", str(cm.exception))
+
     def test_tls_status_thresholds(self):
         now = datetime(2026, 1, 1, tzinfo=timezone.utc)
         self.assertEqual(checks.tls_status(now + timedelta(days=90), now)[0], "Valid")
