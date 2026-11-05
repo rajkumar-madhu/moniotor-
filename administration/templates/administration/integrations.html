@@ -6,7 +6,7 @@
 <div class="pg-admin">
 <div class="head">
   <div class="glyph">{% icon "plug" 44 %}</div>
-  <div><h1>Integrations</h1><p>External systems LinkedEye talks to. Settings come from environment variables; secret values are never shown.</p></div>
+  <div><h1>Integrations</h1><p>Configure external systems here or via environment variables. Console settings override env for this tenant and apply without a restart.</p></div>
   <div class="actions"><span class="chip {% if n_configured == n_total %}ok{% elif n_configured %}warn{% else %}mute{% endif %} adm-count">{{ n_configured }} of {{ n_total }} configured</span></div>
 </div>
 {% include "administration/_tabs.html" with tab="integrations" %}
@@ -22,8 +22,27 @@
     <dl class="kv adm-kv">
       {% for label, value in it.details %}<dt>{{ label }}</dt><dd>{% if value.year %}{{ value|date:"j M Y H:i" }} ({{ value|ago }}){% elif value is None %}Never{% else %}{{ value }}{% endif %}</dd>{% endfor %}
     </dl>
-    <div class="adm-env"><span class="t-mute">Environment:</span> {% for e in it.env %}<code>{{ e }}</code>{% endfor %}</div>
-    {% if not it.configured %}<p class="adm-nc">{% icon "info" 15 %}Not connected — set <code>{{ it.env.0 }}</code> and restart LinkedEye.</p>{% endif %}
+    <div class="adm-env"><span class="t-mute">Environment fallback:</span> {% for e in it.env %}<code>{{ e }}</code>{% endfor %}</div>
+
+    {% if it.edit_form %}
+    <details class="adm-int-edit" {% if not it.configured %}open{% endif %}>
+      <summary class="btn sm">{% icon "edit" 13 %} Edit settings</summary>
+      <form class="adm-int-form" method="post" action="{% url 'administration:integration_save' it.key %}">{% csrf_token %}
+        {% for field in it.edit_form %}
+        <div class="field">
+          {{ field.label_tag }}
+          {{ field }}
+          {% if field.help_text %}<p class="hint">{{ field.help_text }}</p>{% endif %}
+          {% for err in field.errors %}<p class="err">{{ err }}</p>{% endfor %}
+        </div>
+        {% endfor %}
+        <div class="adm-foot">
+          <button class="btn primary sm" type="submit">Save</button>
+        </div>
+      </form>
+    </details>
+    {% endif %}
+
     {% if it.testable %}
     <div class="adm-int-f">
       <div class="adm-last">{% if it.last_test %}Last test {{ it.last_test.tested_at|ago }} by {{ it.last_test.tested_by_name }}:

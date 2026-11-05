@@ -1,5 +1,6 @@
 import zoneinfo
 
+import django
 from django import forms
 from django.conf import settings
 from django.contrib.auth import get_user_model, password_validation
@@ -257,6 +258,107 @@ class SiteForm(forms.ModelForm):
                 self.add_error("code", "A site with this code already exists.")
             cleaned["code"] = code
         return cleaned
+
+
+# ------------------------------------------------------------------ integrations (Administration › Integrations)
+class OptionalHttpsURLField(forms.URLField):
+    """Bare hostnames default to https; Django 5+ also gets assume_scheme."""
+
+    def __init__(self, *, assume_scheme="https", **kwargs):
+        self._assume_scheme = assume_scheme
+        if django.VERSION >= (5, 0):
+            kwargs.setdefault("assume_scheme", assume_scheme)
+        super().__init__(**kwargs)
+
+    def to_python(self, value):
+        if django.VERSION < (5, 0) and value not in self.empty_values:
+            text = str(value).strip()
+            if text and "://" not in text:
+                value = f"{self._assume_scheme}://{text}"
+        return super().to_python(value)
+
+
+class _SecretOptionalMixin:
+    """Password-style fields: blank means keep the stored secret."""
+
+    secret_fields = ()
+
+    def clean(self):
+        cleaned = super().clean()
+        for name in self.secret_fields:
+            if not cleaned.get(name):
+                cleaned.pop(name, None)
+        return cleaned
+
+
+class PrometheusIntegrationForm(_SecretOptionalMixin, forms.Form):
+    url = OptionalHttpsURLField(label="Server URL", required=False)
+    timeout = forms.FloatField(label="Timeout (seconds)", required=False, min_value=1, max_value=120)
+
+
+class AlertmanagerIntegrationForm(_SecretOptionalMixin, forms.Form):
+    secret_fields = ("token",)
+    token = forms.CharField(label="Bearer token", required=False, strip=True, widget=forms.PasswordInput(render_value=False),
+                            help_text="Leave blank to keep the current token.")
+
+
+class LogIngestIntegrationForm(_SecretOptionalMixin, forms.Form):
+    secret_fields = ("token",)
+    token = forms.CharField(label="Bearer token", required=False, strip=True, widget=forms.PasswordInput(render_value=False),
+                            help_text="Leave blank to keep the current token.")
+
+
+class StackStormIntegrationForm(_SecretOptionalMixin, forms.Form):
+    secret_fields = ("api_key",)
+    url = OptionalHttpsURLField(label="Webhook URL", required=False)
+    api_key = forms.CharField(label="API key", required=False, strip=True, widget=forms.PasswordInput(render_value=False),
+                              help_text="Leave blank to keep the current key.")
+
+
+class WebhooksIntegrationForm(forms.Form):
+    urls = forms.CharField(label="Webhook URLs (one per line)", required=False, widget=forms.Textarea(attrs={"rows": 3}))
+    severities = forms.CharField(label="Severities (comma-separated)", required=False,
+                                 help_text="e.g. critical, warning")
+
+
+class EmailIntegrationForm(_SecretOptionalMixin, forms.Form):
+    secret_fields = ("email_host_password",)
+    recipients = forms.CharField(label="Recipients (one e-mail per line)", required=False, widget=forms.Textarea(attrs={"rows": 2}))
+    email_host = forms.CharField(label="SMTP host", required=False)
+    email_port = forms.IntegerField(label="SMTP port", required=False, min_value=1, max_value=65535)
+    email_host_user = forms.CharField(label="SMTP user", required=False)
+    email_host_password = forms.CharField(label="SMTP password", required=False, strip=False,
+                                          widget=forms.PasswordInput(render_value=False),
+                                          help_text="Leave blank to keep the current password.")
+    email_use_tls = forms.BooleanField(label="Use TLS", required=False)
+    default_from_email = forms.EmailField(label="From address", required=False)
+
+
+class NagiosIntegrationForm(_SecretOptionalMixin, forms.Form):
+    secret_fields = ("password",)
+    url = OptionalHttpsURLField(label="Server URL", required=False)
+    user = forms.CharField(label="User", required=False)
+    password = forms.CharField(label="Password", required=False, strip=False, widget=forms.PasswordInput(render_value=False),
+                               help_text="Leave blank to keep the current password.")
+    timeout = forms.FloatField(label="Timeout (seconds)", required=False, min_value=1, max_value=120)
+
+
+INTEGRATION_FORMS = {
+    "prometheus": PrometheusIntegrationForm,
+    "alertmanager": AlertmanagerIntegrationForm,
+    "logs": LogIngestIntegrationForm,
+    "stackstorm": StackStormIntegrationForm,
+    "webhooks": WebhooksIntegrationForm,
+    "email": EmailIntegrationForm,
+    "nagios": NagiosIntegrationForm,
+}
+
+
+def integration_form(slug, data=None, initial=None):
+    cls = INTEGRATION_FORMS.get(slug)
+    if not cls:
+        return None
+    return cls(data=data, initial=initial or {})
 
 
 # ------------------------------------------------------------------ sign-in throttling
