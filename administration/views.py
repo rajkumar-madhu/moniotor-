@@ -706,36 +706,11 @@ def _json(value):
 # ------------------------------------------------------------------ integrations
 @admin_required
 def integrations(request):
-    from administration.forms import integration_form
-
     items = services.integrations()
-    for it in items:
-        if it.get("editable"):
-            slug = it["key"]
-            it["edit_form"] = integration_form(slug, initial=services.integration_form_initial(slug))
     history = IntegrationTest.objects.filter(tenant_key=settings.LINKEDEYE_TENANT)[:15]
     ctx = {"items": items, "history": history,
            "n_configured": sum(1 for i in items if i["configured"]), "n_total": len(items)}
     return render(request, "administration/integrations.html", ctx)
-
-
-@admin_required
-@require_POST
-def integration_save(request, slug):
-    from administration.forms import INTEGRATION_FORMS, integration_form
-    from administration import integration_config as ic
-
-    if slug not in INTEGRATION_FORMS:
-        messages.error(request, "Unknown integration.")
-        return redirect("administration:integrations")
-    form = integration_form(slug, data=request.POST)
-    if not form.is_valid():
-        messages.error(request, f"Could not save {slug}: fix the highlighted fields.")
-        return redirect(reverse("administration:integrations") + f"#{slug}")
-    ic.save(slug, form.cleaned_data, request.user)
-    audit(request, "update", object_type="administration.integrationsetting", integration=slug, result="ok")
-    messages.success(request, f"{slug.replace('_', ' ').title()} settings saved. Changes apply immediately.")
-    return redirect(reverse("administration:integrations") + f"#{slug}")
 
 
 @admin_required

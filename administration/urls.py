@@ -28,7 +28,6 @@ urlpatterns = [
     path("administration/audit/", views.audit_log, name="audit"),
     path("administration/audit/export.csv", views.audit_export, name="audit_export"),
     path("administration/integrations/", views.integrations, name="integrations"),
-    path("administration/integrations/<slug:slug>/save/", views.integration_save, name="integration_save"),
     path("administration/integrations/<slug:key>/test/", views.integration_test, name="integration_test"),
     path("administration/health/", views.health, name="health"),
 ]

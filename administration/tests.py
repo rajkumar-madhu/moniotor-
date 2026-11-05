@@ -188,8 +188,7 @@ class IntegrationTestServiceTests(Base):
             ok, msg = services.test_notify()
         d.assert_not_called()
         self.assertFalse(ok)
-        self.assertIn("warning", msg.lower())
-        self.assertIn("severities", msg.lower())
+        self.assertIn("NOTIFY_SEVERITIES", msg)
 
     @override_settings(NOTIFY_WEBHOOK_URLS=[], NOTIFY_EMAILS=[])
     def test_notify_without_channels(self):
@@ -447,26 +446,6 @@ class PageTests(Base):
         self.assertContains(r, "Not connected")
         self.assertContains(r, "LINKEDEYE_PROMETHEUS_URL")
         self.assertContains(r, "LINKEDEYE_NAGIOS_URL")
-        self.assertContains(r, "Edit settings")
-        self.assertContains(r, reverse("administration:integration_save", args=["prometheus"]))
-
-    def test_integration_save_prometheus(self):
-        from administration import integration_config as ic
-
-        ic.invalidate_cache()
-        with override_settings(PROMETHEUS_URL="https://env.example/"):
-            self.assertEqual(ic.prometheus_url(), "https://env.example/")
-        c = client_for(self.admin, csrf=True)
-        r = csrf_post(c, reverse("administration:integration_save", args=["prometheus"]),
-                      {"url": "https://console.example/", "timeout": "30"})
-        self.assertEqual(r.status_code, 302)
-        self.assertIn("#prometheus", r["Location"])
-        ic.invalidate_cache()
-        self.assertEqual(ic.prometheus_url(), "https://console.example/")
-        self.assertTrue(ic.has_override("prometheus"))
-        ev = AuditEvent.objects.filter(action="update", object_type="administration.integrationsetting").first()
-        self.assertIsNotNone(ev)
-        self.assertEqual(ev.details.get("integration"), "prometheus")
 
     def test_integrations_page_hides_secret_values(self):
         with override_settings(ALERTMANAGER_WEBHOOK_TOKEN="am-token-secret-value-1234567890",

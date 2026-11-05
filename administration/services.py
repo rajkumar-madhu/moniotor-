@@ -241,23 +241,19 @@ def last_tests():
 # ------------------------------------------------------------------ integrations
 def integrations():
     """Status of every external integration. Never includes secret values."""
-    from administration import integration_config as ic
-
     tests = last_tests()
     items = []
 
-    prom = ic.prometheus_url()
+    prom = settings.PROMETHEUS_URL
     items.append({
         "key": "prometheus", "name": "Prometheus", "icon": "activity", "configured": bool(prom),
         "purpose": "Metrics, targets and alerts for the Monitoring pages.",
         "env": ["LINKEDEYE_PROMETHEUS_URL", "LINKEDEYE_PROMETHEUS_TIMEOUT"],
-        "details": [("Server", safe_url(prom) or "–"), ("Timeout", f"{ic.prometheus_timeout():g} s"),
-                    ("Source", "Console" if ic.has_override("prometheus") else "Environment")],
+        "details": [("Server", safe_url(prom) or "–"), ("Timeout", f"{settings.PROMETHEUS_TIMEOUT:g} s")],
         "testable": True, "test_label": "Run 'up' query", "last_test": tests.get("prometheus"),
-        "editable": True,
     })
 
-    am = ic.alertmanager_webhook_token()
+    am = getattr(settings, "ALERTMANAGER_WEBHOOK_TOKEN", "")
     am_url = _reverse("telemetry:alertmanager_webhook") or "/api/v1/alertmanager/"
     last_alert = _latest_event(source="telemetry", kind="alert")
     items.append({
@@ -268,10 +264,9 @@ def integrations():
                     ("Last alert received", last_alert)],
         "testable": False, "last_test": None,
         "warning": bool(am) and len(am) < 24,
-        "editable": True,
     })
 
-    li = ic.log_ingest_token()
+    li = getattr(settings, "LOG_INGEST_TOKEN", "")
     li_url = _reverse("observe:log_ingest") or "/api/v1/logs/"
     last_log = _latest_event(source="observe", kind="log")
     items.append({
@@ -282,23 +277,20 @@ def integrations():
                     ("Last error-level log event", last_log)],
         "testable": False, "last_test": None,
         "warning": bool(li) and len(li) < 24,
-        "editable": True,
     })
 
-    st2 = ic.stackstorm_url()
+    st2 = getattr(settings, "STACKSTORM_URL", "")
     items.append({
         "key": "stackstorm", "name": "StackStorm", "icon": "bot", "configured": bool(st2),
         "purpose": "Automation runbooks and event workflows trigger StackStorm webhooks.",
         "env": ["LINKEDEYE_STACKSTORM_URL", "LINKEDEYE_STACKSTORM_API_KEY"],
         "details": [("Webhook URL", safe_url(st2) or "–"),
-                    ("API key", "Set" if ic.stackstorm_api_key() else "Not set"),
-                    ("Source", "Console" if ic.has_override("stackstorm") else "Environment")],
+                    ("API key", "Set" if getattr(settings, "STACKSTORM_API_KEY", "") else "Not set")],
         "testable": True, "test_label": "Ping", "last_test": tests.get("stackstorm"),
-        "editable": True,
     })
 
-    hooks = ic.notify_webhook_urls()
-    sev = ", ".join(ic.notify_severities()) or "none"
+    hooks = list(getattr(settings, "NOTIFY_WEBHOOK_URLS", []) or [])
+    sev = ", ".join(getattr(settings, "NOTIFY_SEVERITIES", []) or []) or "none"
     items.append({
         "key": "webhooks", "name": "Notification webhooks", "icon": "share", "configured": bool(hooks),
         "purpose": "JSON POST for every critical/warning event (Slack, Teams, Apprise, StackStorm…).",
@@ -308,10 +300,9 @@ def integrations():
                     ("Severities", sev)],
         "testable": True, "test_key": "notify", "test_label": "Send test notification",
         "last_test": tests.get("notify"),
-        "editable": True,
     })
 
-    emails = ic.notify_emails()
+    emails = list(getattr(settings, "NOTIFY_EMAILS", []) or [])
     backend = getattr(settings, "EMAIL_BACKEND", "")
     items.append({
         "key": "email", "name": "E-mail notifications", "icon": "mail", "configured": bool(emails),
@@ -320,71 +311,30 @@ def integrations():
                 "LINKEDEYE_EMAIL_HOST_PASSWORD", "LINKEDEYE_EMAIL_USE_TLS", "LINKEDEYE_DEFAULT_FROM_EMAIL"],
         "details": [("Recipients", f"{len(emails)} address(es)" if emails else "None"),
                     ("Backend", backend.rsplit(".", 2)[-2] if backend.count(".") >= 2 else backend or "–"),
-                    ("SMTP server", f"{ic.email_host()}:{ic.email_port()}"),
-                    ("TLS", "On" if ic.email_use_tls() else "Off"),
-                    ("SMTP password", "Set" if ic.email_host_password() else "Not set"),
-                    ("From", ic.default_from_email() or "–"),
-                    ("Source", "Console" if ic.has_override("email") else "Environment")],
+                    ("SMTP server", f"{getattr(settings, 'EMAIL_HOST', '')}:{getattr(settings, 'EMAIL_PORT', '')}"),
+                    ("TLS", "On" if getattr(settings, "EMAIL_USE_TLS", False) else "Off"),
+                    ("SMTP password", "Set" if getattr(settings, "EMAIL_HOST_PASSWORD", "") else "Not set"),
+                    ("From", getattr(settings, "DEFAULT_FROM_EMAIL", "") or "–")],
         "testable": True, "test_key": "notify", "test_label": "Send test notification",
         "last_test": tests.get("notify"),
-        "editable": True,
     })
 
-    nag = ic.nagios_url()
+    nag = str(_setting("NAGIOS_URL") or "").strip()
     items.append({
         "key": "nagios", "name": "Nagios", "icon": "server", "configured": bool(nag),
         "purpose": "Host and service status for Monitoring › Nagios Status (statusjson.cgi).",
         "env": ["LINKEDEYE_NAGIOS_URL", "LINKEDEYE_NAGIOS_USER", "LINKEDEYE_NAGIOS_PASSWORD"],
         "details": [("Server", safe_url(nag) or "–"),
-                    ("User", "Set" if ic.nagios_user() else "Not set"),
-                    ("Password", "Set" if ic.nagios_password() else "Not set"),
-                    ("Source", "Console" if ic.has_override("nagios") else "Environment")],
+                    ("User", "Set" if _setting("NAGIOS_USER") else "Not set"),
+                    ("Password", "Set" if _setting("NAGIOS_PASSWORD") else "Not set")],
         "testable": False, "last_test": None,
-        "editable": True,
     })
     channels = notify_channels()
     for it in items:
         it.setdefault("test_key", it["key"])
         it.setdefault("warning", False)
-        it.setdefault("editable", False)
         it["test_enabled"] = it["testable"] and (channels > 0 if it["test_key"] == "notify" else it["configured"])
     return items
-
-
-def integration_form_initial(slug):
-    from administration import integration_config as ic
-
-    data = ic.values_for_form(slug)
-    if slug == "webhooks":
-        urls = ic.notify_webhook_urls() if ic.has_override("webhooks") else []
-        return {"urls": "\n".join(urls), "severities": ", ".join(ic.notify_severities())}
-    if slug == "email":
-        base = {
-            "email_use_tls": ic.email_use_tls(),
-            "default_from_email": ic.default_from_email(),
-        }
-        if ic.has_override("email"):
-            return {
-                **data,
-                **base,
-                "recipients": "\n".join(ic.notify_emails()),
-                "email_host": ic.email_host(),
-                "email_port": ic.email_port(),
-                "email_host_user": ic.email_host_user(),
-            }
-        return {**data, **base, "email_port": ic.email_port()}
-    if slug == "prometheus":
-        data.setdefault("timeout", ic.prometheus_timeout())
-        if ic.has_override("prometheus") and not data.get("url"):
-            data["url"] = ic.prometheus_url() or ""
-    if slug == "stackstorm" and ic.has_override("stackstorm") and not data.get("url"):
-        data["url"] = ic.stackstorm_url() or ""
-    if slug == "nagios":
-        data.setdefault("timeout", ic.nagios_timeout())
-        if ic.has_override("nagios"):
-            data.setdefault("url", ic.nagios_url() or "")
-            data.setdefault("user", ic.nagios_user())
-    return data
 
 
 def _record(request, integration, ok, message, started):
@@ -416,9 +366,7 @@ def test_prometheus():
 
 
 def notify_channels():
-    from administration import integration_config as ic
-
-    return len(ic.notify_webhook_urls()) + (1 if ic.notify_emails() else 0)
+    return len(getattr(settings, "NOTIFY_WEBHOOK_URLS", []) or []) + (1 if getattr(settings, "NOTIFY_EMAILS", []) else 0)
 
 
 def test_notify(actor="system"):
@@ -429,10 +377,8 @@ def test_notify(actor="system"):
     channels = notify_channels()
     if not channels:
         return False, "No notification channel is configured (set LINKEDEYE_NOTIFY_WEBHOOK_URLS or LINKEDEYE_NOTIFY_EMAILS)."
-    from administration import integration_config as ic
-
-    if "warning" not in ic.notify_severities():
-        return False, "Warning events are not delivered: add 'warning' to notification severities."
+    if "warning" not in (getattr(settings, "NOTIFY_SEVERITIES", []) or []):
+        return False, "Warning events are not delivered: add 'warning' to LINKEDEYE_NOTIFY_SEVERITIES."
     ev = Event(tenant_key=tenant(), source="administration", kind="test", severity="warning",
                title="LinkedEye test notification",
                message=f"This is a test notification sent by {actor} from Administration › Integrations. No action is needed.",
@@ -466,11 +412,9 @@ def test_stackstorm():
     p = urlsplit(url)
     if p.scheme not in ("http", "https") or not p.hostname:
         return False, "LINKEDEYE_STACKSTORM_URL must be an http(s) URL."
-    from administration import integration_config as ic
-
     headers = {"Accept": "application/json", "User-Agent": "LinkedEye-Admin/1.0"}
-    if ic.stackstorm_api_key():
-        headers["St2-Api-Key"] = ic.stackstorm_api_key()
+    if getattr(settings, "STACKSTORM_API_KEY", ""):
+        headers["St2-Api-Key"] = settings.STACKSTORM_API_KEY
     opener = urllib.request.build_opener(_NoRedirect)
     req = urllib.request.Request(url, headers=headers, method="GET")
     try:
