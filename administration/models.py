@@ -18,6 +18,7 @@ class IntegrationTest(models.Model):
         ("prometheus", "Prometheus"),
         ("notify", "Notifications"),
         ("stackstorm", "StackStorm"),
+        ("agent", "Ops Agent"),
     ]
 
     tenant_key = models.CharField(max_length=100, db_index=True, default=settings.LINKEDEYE_TENANT)

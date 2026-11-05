@@ -22,7 +22,7 @@ moniotor-/
 │
 ├── linkedeye/                  project package
 │   ├── settings.py             env-driven settings (LINKEDEYE_*), INSTALLED_APPS, security headers
-│   ├── urls.py                 dashboard, login, /monitoring/url-checker/, /domains/, then every module app at ""
+│   ├── urls.py                 dashboard, login, /monitoring/url-checker/, /domains/, /agent/, then every module app at ""
 │   │                           (modules declare full paths), /legacy/ sample pages, /soon/, /admin/
 │   └── wsgi.py
 │
@@ -63,8 +63,9 @@ moniotor-/
 ├── bodeod/                     BOD / EOD market-day validation   /bod-eod/…
 ├── automation/                 Runbooks, StackStorm, workflows, templates   /automation/…  /templates/
 ├── administration/             Users & roles, sites, audit log, integrations, system health   /administration/…
-└── reports/                    Report library (CSV, preview, scheduled e-mail), cross-module Analytics
-                                                                  /reports/…  /analytics/
+├── reports/                    Report library (CSV, preview, scheduled e-mail), cross-module Analytics
+│                                                                 /reports/…  /analytics/
+└── agent/                      Ops Agent (threads, RAG, tools)   /agent/
 ```
 
 ## Inside a module app

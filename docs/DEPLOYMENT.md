@@ -347,6 +347,12 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 | `LINKEDEYE_LOG_RETENTION_DAYS` | `14` | | Days of ingested log entries kept (Logs & Events). |
 | `LINKEDEYE_TELEMETRY_ALERT_RETENTION_DAYS` | `90` | | Days resolved Alertmanager alerts are kept. |
 | `LINKEDEYE_AUTOMATION_RETENTION_DAYS` | `90` | | Days of automation / StackStorm execution history kept. |
+| `LINKEDEYE_AGENT_API_KEY` | empty (retrieval-only) | yes | Bearer token for the OpenAI-compatible chat API used by Ops Agent. Empty: the page still answers from live records via tools. Never sent to the browser. |
+| `LINKEDEYE_AGENT_BASE_URL` | `https://api.openai.com/v1` | | Chat Completions base URL. Resolved through the probe SSRF policy (private/metadata ranges refused unless listed in `LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS`). Redirects are not followed. |
+| `LINKEDEYE_AGENT_MODEL` | `gpt-4o-mini` | | Chat model id sent to the provider. |
+| `LINKEDEYE_AGENT_EMBEDDING_MODEL` | `text-embedding-3-small` | | Embedding model for the knowledge index. Uses `LINKEDEYE_AGENT_API_KEY`. Lexical retrieval still runs when embeddings are unavailable. |
+| `LINKEDEYE_AGENT_TIMEOUT` | `30` | | Seconds per model HTTP call (clamped to 1–120). |
+| `LINKEDEYE_AGENT_RETENTION_DAYS` | `90` | | Days of idle Ops Agent threads kept (pruned hourly). |
 
 ### Process and container variables
 

@@ -28,6 +28,7 @@ Every LinkedEye module is a Django app that owns its directory. Shared code live
 | Legacy backend summary | `{% include "core/_backend_health.html" %}` + `linkedeye/pages/backend-health.css` / `backend-health.js`; the page fetches `/api/backend-summary/` (`core.backend_summary.summary`) asynchronously, so never call it in a page view. |
 | Notifications | Automatic for critical/warning events (core/notify.py); nothing to do. |
 | Tenant | `settings.LINKEDEYE_TENANT`; models carry `tenant_key` where data could belong to more than one customer. |
+| Ops Agent | `agent` at `/agent/`. Threads are per-user. Tools call `core.overview` and other apps lazily and are always `scope_by_site`. The model key is `LINKEDEYE_AGENT_API_KEY` (server-side only). |
 
 `base.html` context: `le_can` is not provided yet – use `core.access.can(request.user, "operate")` in the view
 and pass a boolean (e.g. `can_operate`) to the template.
