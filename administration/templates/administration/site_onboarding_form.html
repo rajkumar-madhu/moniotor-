@@ -1,0 +1,75 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}Onboarding · {{ site.name }}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'administration/page.css' %}">{% endblock %}
+{% block crumbs %}{% url 'administration:site_onboarding_list' as ob_url %}{% include "administration/_crumbs.html" with parent="Site onboarding" parent_url=ob_url here=site.name %}{% endblock %}
+{% block content %}
+<div class="pg-admin">
+<div class="head">
+  <div class="glyph">{% icon "settings" 44 %}</div>
+  <div><h1>{{ site.name }}</h1><p>Lesites onboarding · slug <code>{{ profile.sitename }}</code></p></div>
+  <div class="actions">
+    <a class="btn" href="{% url 'administration:site_onboarding_list' %}">{% icon "chevron-left" 17 %}All onboarding</a>
+    <a class="btn" href="{% url 'administration:site_domain' site.pk %}">{% icon "link" 17 %}Domain &amp; ports</a>
+    <a class="btn" href="{% url 'administration:site_onboarding' site.pk %}?defaults=1">{% icon "refresh" 17 %}Apply FinSpot defaults</a>
+  </div>
+</div>
+{% include "administration/_tabs.html" with tab="onboarding" %}
+
+<section class="grid g-main">
+  <form class="panel" method="post" action="{% url 'administration:site_onboarding' site.pk %}">{% csrf_token %}
+    <div class="panel-h"><h2>Site configuration</h2></div>
+    {% for e in form.non_field_errors %}<p class="err">{{ e }}</p>{% endfor %}
+    <div class="form-grid adm-lesites">
+      <div class="field full adm-sep"><h3>Identity &amp; access</h3></div>
+      {% include "administration/_field.html" with f=form.legacy_sitename %}
+      {% include "administration/_field.html" with f=form.users full=1 %}
+      {% include "administration/_field.html" with f=form.enabled %}
+      {% include "administration/_field.html" with f=form.environment %}
+
+      <div class="field full adm-sep"><h3>Portal &amp; websocket</h3></div>
+      {% include "administration/_field.html" with f=form.websocket_url full=1 %}
+      {% include "administration/_field.html" with f=form.le_url full=1 %}
+      {% include "administration/_field.html" with f=form.is_url_secured %}
+
+      <div class="field full adm-sep"><h3>Entity &amp; analytics</h3></div>
+      {% include "administration/_field.html" with f=form.entity_host %}
+      {% include "administration/_field.html" with f=form.entity_port %}
+      {% include "administration/_field.html" with f=form.analytics_prefix_url full=1 %}
+      {% include "administration/_field.html" with f=form.prometheus_url full=1 %}
+      {% include "administration/_field.html" with f=form.elastic_host %}
+      {% include "administration/_field.html" with f=form.elastic_port %}
+      {% include "administration/_field.html" with f=form.grafana_api full=1 %}
+
+      <div class="field full adm-sep"><h3>Geo</h3></div>
+      {% include "administration/_field.html" with f=form.country_code %}
+      {% include "administration/_field.html" with f=form.location %}
+      <div class="field"><span class="lbl">Latitude</span><p class="t-mute">{{ latitude|default:"—" }} <span class="hint">(from site record)</span></p></div>
+      <div class="field"><span class="lbl">Longitude</span><p class="t-mute">{{ longitude|default:"—" }}</p></div>
+
+      <div class="field full adm-sep"><h3>Redis &amp; incidents</h3></div>
+      {% include "administration/_field.html" with f=form.redis_host %}
+      {% include "administration/_field.html" with f=form.redis_port %}
+      {% include "administration/_field.html" with f=form.incident_url full=1 %}
+      {% include "administration/_field.html" with f=form.incident_api full=1 %}
+
+      <div class="field full adm-foot"><a class="btn" href="{% url 'administration:site_onboarding_list' %}">Cancel</a><button class="btn primary" type="submit">Save onboarding</button></div>
+    </div>
+  </form>
+  <div class="stack">
+    <div class="panel adm-help">
+      <div class="panel-h"><h2>Production links</h2></div>
+      <dl class="kv">
+        <dt>Portal</dt><dd><a href="{{ naming.portal }}" target="_blank" rel="noopener">{{ naming.portal }}</a></dd>
+        <dt>Lesites</dt><dd><a href="{{ naming.lesites }}" target="_blank" rel="noopener">{{ naming.lesites }}</a></dd>
+        <dt>GLE admin</dt><dd><a href="{{ naming.lesites_admin }}" target="_blank" rel="noopener">{{ naming.lesites_admin }}</a></dd>
+      </dl>
+      <p class="hint t-mute">Matches legacy <code>/lesites/?site=</code> on the site portal; GLE is the global admin host.</p>
+    </div>
+    <div class="panel adm-help">
+      <div class="panel-h"><h2>fs-dr-le reference</h2></div>
+      <p class="t-mute adm-note">Entity <code>domain-fs-le-dr.finspot.in</code>, Grafana prefix <code>grafana-fs-le-dr</code>, websocket <code>wss://fs-le-dr.finspot.in/websocket/ws/</code>. Redis is optional locally.</p>
+    </div>
+  </div>
+</section>
+</div>
+{% endblock %}

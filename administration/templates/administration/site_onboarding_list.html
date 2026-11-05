@@ -1,0 +1,39 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}Site onboarding{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'administration/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "administration/_crumbs.html" with here="Site onboarding" %}{% endblock %}
+{% block content %}
+<div class="pg-admin">
+<div class="head">
+  <div class="glyph">{% icon "settings" 44 %}</div>
+  <div><h1>Site onboarding</h1><p>Lesites-style connectivity and URLs per site (legacy portal parity).</p></div>
+  <div class="actions"><a class="btn" href="{% url 'administration:sites' %}">{% icon "globe" 17 %}All sites</a></div>
+</div>
+{% include "administration/_tabs.html" with tab="onboarding" %}
+
+<section class="panel">
+  <div class="panel-h"><h2>Sites ({{ page.paginator.count }})</h2></div>
+  <form class="toolbar" method="get">
+    <label class="search">{% icon "search" 16 %}<input type="search" name="q" value="{{ request.GET.q }}" placeholder="Search name or code…" aria-label="Search"></label>
+    <button class="btn" type="submit">{% icon "filter" 15 %}Filter</button>
+  </form>
+  <div class="table-wrap dense adm-table"><table>
+    <thead><tr><th>Site</th><th>Lesites slug</th><th>Environment</th><th>Status</th><th>Legacy lesites</th><th>Actions</th></tr></thead>
+    <tbody>{% for s in page %}
+      <tr>
+        <td><a href="{% url 'administration:site_edit' s.pk %}">{{ s.name }}</a><div class="t-mute"><code>{{ s.code }}</code></div></td>
+        <td><code>{{ s.lesites_slug }}</code></td>
+        <td>{% if s.lesite_profile %}{{ s.lesite_profile.environment|default:"–" }}{% else %}<span class="t-mute">Not configured</span>{% endif %}</td>
+        <td>{% if s.lesite_profile %}<span class="chip {% if s.lesite_profile.enabled %}ok{% else %}mute{% endif %}">{% if s.lesite_profile.enabled %}Enabled{% else %}Disabled{% endif %}</span>{% else %}<span class="chip mute">Draft</span>{% endif %}</td>
+        <td><a href="{{ s.lesites_link }}" target="_blank" rel="noopener">{{ s.lesites_link|truncatechars:48 }}</a></td>
+        <td><div class="row-actions">
+          <a class="btn sm" href="{% url 'administration:site_onboarding' s.pk %}">{% icon "edit" 15 %}Onboarding</a>
+          <a class="btn sm" href="{% url 'administration:site_domain' s.pk %}">{% icon "link" 15 %}Domain</a>
+        </div></td>
+      </tr>
+    {% empty %}<tr><td colspan="6" class="empty">No sites match.</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% include "core/_pager.html" with pager_noun="sites" %}
+</section>
+</div>
+{% endblock %}
