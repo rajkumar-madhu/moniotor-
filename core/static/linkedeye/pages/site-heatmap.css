@@ -1,23 +1,30 @@
 /* Site-by-check heat-map card (core/_legacy_heatmap.html), shared by the operations dashboard and the
-   cmdb heatmap page. Self-contained: pages including the partial load only this file, not overview.css. */
-.legacy-heatmap-card { overflow: hidden; padding: 18px; border: 1px solid #282d35; border-radius: 13px; color: #f1f3f6; background: #171b22; box-shadow: var(--shadow); }
+   cmdb heatmap page. Self-contained: pages including the partial load only this file, not overview.css.
+   As on the live site: solid cells that fill their column, 1px near-black rules, a failing site's name in red. */
+.legacy-heatmap-card { overflow: hidden; padding: 18px; border: 1px solid transparent; border-radius: var(--radius); color: var(--ink); background: var(--panel); box-shadow: var(--shadow); }
+.legacy-heatmap-card:hover { border-color: var(--line-strong); }
 .legacy-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
-.legacy-panel-head h1, .legacy-panel-head h2 { margin: 0; color: #f1f3f6; font: 600 19px/1.25 var(--serif); }
-.legacy-panel-tools { display: inline-flex; align-items: center; gap: 8px; color: #aeb8c5; font-size: 11px; }
-.legacy-panel-tools a { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid #38414d; border-radius: 5px; background: #202630; color: #f1f3f6; cursor: pointer; font: 500 16px/1 var(--font); text-decoration: none; }
-.legacy-env-badge { display: inline-flex; margin-top: 6px; padding: 3px 8px; border-radius: 4px; background: #e44c47; color: #fff; font: 600 10px/1.3 var(--mono); letter-spacing: .08em; }
+.legacy-panel-head h1, .legacy-panel-head h2 { margin: 0; color: var(--ink); font: 700 18px/1.25 var(--serif); letter-spacing: 0; }
+.legacy-panel-tools { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; }
+.legacy-panel-tools a { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--input-line); border-radius: 3px; background: transparent; color: var(--ink); cursor: pointer; font: 500 16px/1 var(--font); text-decoration: none; }
+.legacy-panel-tools a:hover { background: var(--panel-3); }
+.legacy-env-badge { display: inline-flex; padding: 4px 11px; border-radius: 3px; background: var(--active-fill); color: var(--active-ink); font: 500 16px/1.3 var(--font); }
 .legacy-table-scroll { overflow-x: auto; }
-.legacy-heatmap-table { width: 100%; min-width: 650px; border-collapse: separate; border-spacing: 0 5px; color: #e8ebef; font-size: 12px; }
-.legacy-heatmap-table th { padding: 9px 11px; color: #9da7b3; font: 500 10px/1.3 var(--font); text-align: left; letter-spacing: .08em; white-space: nowrap; }
-.legacy-heatmap-table thead th { padding-top: 4px; padding-bottom: 5px; }
-.legacy-heatmap-table tbody th, .legacy-heatmap-table tbody td { padding: 11px; border-top: 1px solid #2a313b; border-bottom: 1px solid #2a313b; background: #202630; }
-.legacy-heatmap-table tbody th { border-left: 1px solid #2a313b; font-weight: 500; color: #f1f3f6; }
-.legacy-heatmap-table tbody td:last-child { border-right: 1px solid #2a313b; }
-.legacy-heatmap-table tbody tr.is-selected th { color: #ff9078; }
-.legacy-site-dot { display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: #38c98a; vertical-align: 1px; }
-.legacy-site-dot.t-warn { background: #efa943; }.legacy-site-dot.t-crit { background: #f06458; }
-.legacy-status { display: inline-flex; justify-content: center; min-width: 50px; padding: 4px 6px; border-radius: 4px; color: #f1f3f6; font: 500 11px/1.2 var(--mono); text-decoration: none; background: #35404c; }
-.legacy-status.status-ok { background: #126a4b; }.legacy-status.status-warn { background: #8a5b14; }.legacy-status.status-crit { background: #a83e39; }.legacy-status.status-none { color: #adb6c1; background: #303843; }
+.legacy-heatmap-table { width: 100%; min-width: 650px; border-collapse: collapse; color: var(--ink); font-size: 12px; }
+.legacy-heatmap-table thead th { padding: 15px; background: var(--row-odd); border-bottom: 0; text-align: center; white-space: nowrap; }
+/* tbody tr td matches the specificity of the shared zebra rule, which would otherwise paint alternate rows */
+.legacy-heatmap-table tbody tr th, .legacy-heatmap-table tbody tr td { padding: 0 15px; border: 0; border-top: 1px solid var(--bg); background: var(--row-odd); color: var(--ink); text-align: center; white-space: nowrap; }
+.legacy-heatmap-table tbody tr td { border-left: 1px solid var(--bg); }
+.legacy-heatmap-table tbody tr:hover th, .legacy-heatmap-table tbody tr:hover td { background: var(--panel-3); }
+.legacy-heatmap-table tbody tr.is-selected th { color: var(--brand); }
+.legacy-site-dot { display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: var(--ok); vertical-align: 1px; }
+.legacy-site-dot.t-warn { background: var(--warn); }.legacy-site-dot.t-crit { background: var(--crit); }
+.legacy-site-dot.t-crit + span { color: var(--crit); }
+.legacy-heatmap-table tbody tr:hover .legacy-site-dot.t-crit + span { color: var(--crit-ink); }
+.legacy-heatmap-table tbody tr td:has(> .legacy-status) { padding: 0; }
+.legacy-status { display: flex; align-items: center; justify-content: center; min-height: 41px; padding: 4px 8px; border-radius: 0; color: var(--ink); background: var(--panel-3); font: 500 13px/1.2 var(--font); text-decoration: none; }
+.legacy-status.status-ok { background: var(--heat-ok); color: var(--heat-ok-ink); }.legacy-status.status-warn { background: var(--heat-warn); color: var(--heat-warn-ink); }.legacy-status.status-crit { background: var(--heat-crit); color: var(--heat-crit-ink); }.legacy-status.status-none { background: var(--heat-unk); color: var(--heat-unk-ink); }
 .legacy-status:hover { filter: brightness(1.18); text-decoration: none; }
-.legacy-last-update { color: #aeb8c5; font: 11px var(--mono); white-space: nowrap; }
+.legacy-status:focus-visible { outline: 2px solid currentColor; outline-offset: -4px; }
+.legacy-last-update { color: var(--ink); font: 13px var(--font); white-space: nowrap; }
 @media (max-width: 640px) { .legacy-heatmap-card { padding: 13px; } }

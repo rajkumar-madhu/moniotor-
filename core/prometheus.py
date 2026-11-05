@@ -18,17 +18,21 @@ class PrometheusError(Exception):
 
 
 def configured():
-    return bool(settings.PROMETHEUS_URL)
+    from administration import integration_config as ic
+
+    return bool(ic.prometheus_url())
 
 
 def _get(path, params=None):
+    from administration import integration_config as ic
+
     if not configured():
         raise PrometheusError("Prometheus is not connected (set LINKEDEYE_PROMETHEUS_URL).")
-    url = settings.PROMETHEUS_URL.rstrip("/") + path
+    url = ic.prometheus_url().rstrip("/") + path
     if params:
         url += "?" + urllib.parse.urlencode(params, doseq=True)
     try:
-        with urllib.request.urlopen(url, timeout=settings.PROMETHEUS_TIMEOUT) as r:  # noqa: S310 - operator-configured URL
+        with urllib.request.urlopen(url, timeout=ic.prometheus_timeout()) as r:  # noqa: S310 - operator-configured URL
             body = json.load(r)
     except urllib.error.HTTPError as e:
         try:
