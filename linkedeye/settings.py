@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     "automation",
     "administration",
     "reports",
+    "agent",
 ]
 
 MIDDLEWARE = [
@@ -206,3 +207,10 @@ NAGIOS_TIMEOUT = float(env("NAGIOS_TIMEOUT", "10"))
 LOG_RETENTION_DAYS = int(env("LOG_RETENTION_DAYS", "14"))
 TELEMETRY_ALERT_RETENTION_DAYS = int(env("TELEMETRY_ALERT_RETENTION_DAYS", "90"))
 AUTOMATION_RETENTION_DAYS = int(env("AUTOMATION_RETENTION_DAYS", "90"))
+# Ops Agent: OpenAI-compatible chat. Empty key = retrieval-only. The key never leaves the server.
+AGENT_API_KEY = env("AGENT_API_KEY", "")
+AGENT_BASE_URL = env("AGENT_BASE_URL", "https://api.openai.com/v1")
+AGENT_MODEL = env("AGENT_MODEL", "gpt-4o-mini")
+AGENT_EMBEDDING_MODEL = env("AGENT_EMBEDDING_MODEL", "text-embedding-3-small")
+AGENT_TIMEOUT = float(env("AGENT_TIMEOUT", "30"))
+AGENT_RETENTION_DAYS = int(env("AGENT_RETENTION_DAYS", "90"))

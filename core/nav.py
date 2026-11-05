@@ -3,6 +3,7 @@ an item whose URL name does not resolve yet opens the "not built yet" page."""
 
 NAV = [
     {"label": "Dashboard", "icon": "home", "url": "dashboard"},
+    {"label": "Ops Agent", "icon": "bot", "url": "agent:chat", "chev": True},
     {"label": "Assets", "icon": "box", "children": [
         {"label": "IT Assets", "url": "cmdb:assets"}, {"label": "Software", "url": "cmdb:software"},
         {"label": "Licenses", "url": "cmdb:licenses"}, {"label": "Lifecycle", "url": "cmdb:lifecycle"},

@@ -21,6 +21,7 @@ class Client(models.Model):
         ("automation", "Automation"),
         ("observe", "Logs & exporters"),
         ("reports", "Reports"),
+        ("agent", "Ops Agent"),
     ]
 
     tenant_key = models.CharField(max_length=100, db_index=True, default=settings.LINKEDEYE_TENANT)

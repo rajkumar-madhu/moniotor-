@@ -109,10 +109,11 @@ class ModelServiceTests(Base):
                                STACKSTORM_API_KEY="st2-key-secret",
                                NOTIFY_WEBHOOK_URLS=["https://hooks.slack.com/services/T0/B0/hook-secret"],
                                NOTIFY_EMAILS=["ops@example.com"], EMAIL_HOST_PASSWORD="smtp-secret",
-                               NAGIOS_URL="https://nagios.example/nagios", NAGIOS_PASSWORD="nagios-secret"):
+                               NAGIOS_URL="https://nagios.example/nagios", NAGIOS_PASSWORD="nagios-secret",
+                               AGENT_API_KEY="sk-agent-secret-value-1234567890"):
             items = {i["key"]: i for i in services.integrations()}
             blob = repr(items)
-        for secret in ("pw-secret", "am-token-secret", "st2-key-secret", "hook-secret", "smtp-secret", "nagios-secret", "ops@example.com"):
+        for secret in ("pw-secret", "am-token-secret", "st2-key-secret", "hook-secret", "smtp-secret", "nagios-secret", "ops@example.com", "sk-agent-secret"):
             self.assertNotIn(secret, blob)
         self.assertTrue(all(i["configured"] for i in items.values()))
         self.assertTrue(items["logs"]["warning"])          # short token flagged

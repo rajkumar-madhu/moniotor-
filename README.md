@@ -21,6 +21,7 @@ page says "Not connected" and names the setting; nothing is invented. Each modul
 | BOD / EOD | `/bod-eod/` | Market-day checklists over URL/TCP/domain checks, manual sign-offs, IST scheduler, holidays |
 | Automation | `/automation/…`, `/templates/` | Runbooks, StackStorm triggers, event-driven rules, templates |
 | Reports & Analytics | `/reports/`, `/analytics/` | CSV reports, scheduled e-mail delivery, cross-module analytics |
+| Ops Agent | `/agent/` | Site-scoped assistant: durable threads, retrieval over live checks/alerts/tickets/runbooks, optional OpenAI-compatible model |
 | Administration | `/administration/` | Users and site roles, sites, audit log, integrations with test buttons, system health |
 | Domains JSON API (integration-patch contract) | `/configuration/domains/api/` | Staff only |
 
@@ -121,5 +122,6 @@ bodeod/          BOD / EOD market-day validation
 automation/      runbooks, StackStorm, event workflows, templates
 administration/  users & roles, sites, audit log, integrations, system health
 reports/         report library (CSV, preview, scheduled e-mail) and cross-module analytics
+agent/           Ops Agent: site-scoped threads, retrieval tools, optional model
 docs/            structure, module contract, integration, deployment
 ```

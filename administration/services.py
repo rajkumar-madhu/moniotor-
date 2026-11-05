@@ -319,6 +319,18 @@ def integrations():
         "last_test": tests.get("notify"),
     })
 
+    agent_key = getattr(settings, "AGENT_API_KEY", "") or ""
+    items.append({
+        "key": "agent", "name": "Ops Agent", "icon": "bot", "configured": bool(agent_key.strip()),
+        "purpose": "In-console assistant over live checks, alerts, tickets and runbooks (OpenAI-compatible).",
+        "env": ["LINKEDEYE_AGENT_API_KEY", "LINKEDEYE_AGENT_BASE_URL", "LINKEDEYE_AGENT_MODEL",
+                "LINKEDEYE_AGENT_EMBEDDING_MODEL", "LINKEDEYE_AGENT_TIMEOUT"],
+        "details": [("API key", "Set" if agent_key.strip() else "Not set"),
+                    ("Model", getattr(settings, "AGENT_MODEL", "") or "–"),
+                    ("Endpoint", safe_url(getattr(settings, "AGENT_BASE_URL", "")) or "–")],
+        "testable": True, "test_label": "Ping the model", "last_test": tests.get("agent"),
+    })
+
     nag = str(_setting("NAGIOS_URL") or "").strip()
     items.append({
         "key": "nagios", "name": "Nagios", "icon": "server", "configured": bool(nag),
@@ -435,7 +447,16 @@ def test_stackstorm():
         return False, f"Unexpected error: {e.__class__.__name__}"
 
 
-TESTS = {"prometheus": test_prometheus, "notify": None, "stackstorm": test_stackstorm}
+def test_agent():
+    """Tiny chat completion against the configured model. Never raises; never returns the API key."""
+    try:
+        from agent.llm import ping
+    except ImportError:  # pragma: no cover - agent not installed
+        return False, "The Ops Agent module is not installed."
+    return ping()
+
+
+TESTS = {"prometheus": test_prometheus, "notify": None, "stackstorm": test_stackstorm, "agent": test_agent}
 
 
 def run_test(request, key):
@@ -701,6 +722,8 @@ SITE_NAME_FIELDS = [
     ("reports", "ScheduledReport", "site", "Scheduled reports"),
     ("reports", "ReportRun", "site", "Report runs"),
     ("core", "Event", "site", "Events"),
+    ("agent", "Thread", "site", "Ops Agent threads"),
+    ("agent", "KnowledgeChunk", "site", "Ops Agent knowledge"),
 ]
 
 

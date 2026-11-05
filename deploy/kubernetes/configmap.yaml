@@ -56,6 +56,12 @@ data:
   # LINKEDEYE_STACKSTORM_URL: "https://st2.fs-linkedeye.svc/api/v1/webhooks/"
   # LINKEDEYE_NAGIOS_URL: "https://nagios.example.com/nagios/cgi-bin"
   LINKEDEYE_INCIDENT_AUTO_CREATE: "true"
+  # Ops Agent (optional). The API key lives in linkedeye-secrets.
+  # LINKEDEYE_AGENT_BASE_URL: "https://api.openai.com/v1"
+  # LINKEDEYE_AGENT_MODEL: "gpt-4o-mini"
+  # LINKEDEYE_AGENT_EMBEDDING_MODEL: "text-embedding-3-small"
+  # LINKEDEYE_AGENT_TIMEOUT: "30"
+  # LINKEDEYE_AGENT_RETENTION_DAYS: "90"
 
   # gunicorn: only the ingress controller can reach the web pods (networkpolicy.yaml), so its
   # X-Forwarded-Proto header is trusted from any peer address.

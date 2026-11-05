@@ -1,0 +1,62 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}Ops Agent{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'agent/page.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<span>Ops Agent</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-agent" data-llm="{{ llm_configured|yesno:'1,0' }}">
+<div class="head">
+  <div class="glyph">{% icon "bot" 40 %}</div>
+  <div><h1>Ops Agent</h1><p>Ask about live infrastructure on your sites. Threads stay on this server, scoped to your memberships.</p></div>
+  <div class="actions">
+    <form method="post" action="{% url 'agent:new' %}">{% csrf_token %}
+      {% if le_site %}<input type="hidden" name="site" value="{{ le_site }}">{% endif %}
+      <button class="btn primary" type="submit">{% icon "plus" 16 %}New conversation</button>
+    </form>
+  </div>
+</div>
+
+{% if not llm_configured %}
+<div class="ag-note warn">{% icon "plug" 16 %}
+  <span><b>Language model is not connected.</b> Set <code>LINKEDEYE_AGENT_API_KEY</code> (and optionally <code>LINKEDEYE_AGENT_BASE_URL</code> / <code>LINKEDEYE_AGENT_MODEL</code>) on the server. Retrieval over live checks, alerts, tickets and runbooks still works.</span>
+</div>
+{% endif %}
+
+<section class="ag-shell">
+  <aside class="panel ag-threads">
+    <div class="panel-h"><h2>Conversations</h2></div>
+    <ul>{% for t in threads %}
+      <li class="{% if thread and t.pk == thread.pk %}on{% endif %}">
+        <a href="{{ t.get_absolute_url }}">{{ t.display_title }}</a>
+        <small>{{ t.updated_at|date:"d M H:i" }}{% if t.site %} · {{ t.site }}{% endif %}</small>
+      </li>
+    {% empty %}<li class="empty">No conversations yet.</li>{% endfor %}</ul>
+  </aside>
+
+  <div class="panel ag-chat">
+    <div class="panel-h">
+      <h2>{% if thread %}{{ thread.display_title }}{% else %}New conversation{% endif %}</h2>
+      {% if thread %}
+      <form method="post" action="{% url 'agent:delete' thread.pk %}" class="right" data-confirm="Delete this conversation?">{% csrf_token %}
+        <button class="btn sm" type="submit">{% icon "trash" 14 %}Delete</button>
+      </form>
+      {% endif %}
+    </div>
+    <div class="ag-stream" data-stream>{% include "agent/_messages.html" %}</div>
+    <div class="ag-suggest">{% for s in suggestions %}
+      <button type="button" class="chip" data-suggest="{{ s }}">{{ s }}</button>
+    {% endfor %}</div>
+    <form class="ag-compose" method="post" action="{% if thread %}{% url 'agent:message' thread.pk %}{% else %}{% url 'agent:new' %}{% endif %}" data-agent-form>
+      {% csrf_token %}
+      {% if le_site %}<input type="hidden" name="site" value="{{ le_site }}">{% endif %}
+      <label class="ag-input"><span class="visually-hidden">Message</span>
+        <textarea name="content" rows="2" required maxlength="4000" placeholder="Ask about a host, alert, ticket or site…" aria-label="Message"></textarea>
+      </label>
+      <button class="btn primary" type="submit">{% icon "arrow-right" 16 %}Send</button>
+    </form>
+    {% if llm_configured %}<p class="t-mute ag-foot">Answers from {{ agent_model }} using tools over your LinkedEye records. The API key never leaves the server.</p>
+    {% else %}<p class="t-mute ag-foot">Retrieval-only mode until <code>LINKEDEYE_AGENT_API_KEY</code> is set.</p>{% endif %}
+  </div>
+</section>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{% static 'agent/agent.js' %}"></script>{% endblock %}
