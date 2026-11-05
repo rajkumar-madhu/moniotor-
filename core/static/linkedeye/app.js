@@ -35,11 +35,19 @@
   // filters that submit on change
   document.querySelectorAll('[data-autosubmit]').forEach(s => s.addEventListener('change', () => s.form.submit()));
 
-  // hamburger: collapse the sidebar on desktop, slide it in on phones
+  // hamburger: pin the icon rail open on desktop, slide it in on phones
   document.addEventListener('click', e => {
-    if (!e.target.closest('[data-toggle-menu]')) return;
-    if (window.innerWidth > 860) document.getElementById('shell').classList.toggle('collapsed');
-    else document.getElementById('side').classList.toggle('open');
+    const btn = e.target.closest('[data-toggle-menu]');
+    if (!btn) return;
+    const open = window.innerWidth > 860
+      ? document.getElementById('shell').classList.toggle('rail-open')
+      : document.getElementById('side').classList.toggle('open');
+    btn.setAttribute('aria-expanded', String(open));
+  });
+
+  // the user menu closes on a click anywhere else
+  document.addEventListener('click', e => {
+    document.querySelectorAll('details.user-menu[open]').forEach(d => { if (!d.contains(e.target)) d.removeAttribute('open'); });
   });
 
   // per-page selector in pagers keeps the other query parameters
