@@ -1,0 +1,8 @@
+
+find . -type d -path "*/migrations"  -exec rm -rf {} +
+find . -type d -path "*/migrations"  -print
+
+
+
+drop database linkedeye;
+create database linkedeye;

@@ -1,0 +1,9 @@
+pika==1.1.0
+neo4jrestclient==2.1.1
+neo4j==1.7.6
+scalpl==0.4.1
+redis==3.5.3
+requests==2.31.0
+numpy
+pandas
+scalpl

@@ -1,0 +1,5 @@
+{
+  "cisco-Switch--Fan-status-1-normal-2-warning-3-failed": "ciscoEnvMonFanState{instance = '__FILTER__'}",
+  "cisco--router-Fan-status-1-normal-2-warning-3-failed": "entPhysicalName{instance = '__FILTER__', entPhysicalIndex='24'}",
+  "huawei-Switch--Fan-status-1-normal-2-warning-3-failed": "hwEntityFanState{instance = '__FILTER__'}"
+}

@@ -1,0 +1,5 @@
+{
+  "idrac--Cmos-battery-status-0-fine": "(dell_hw_cmos_batteries_status{job='IDRAC-__FILTER__'})",
+  "idrac--Storage-battery-status-0-fine": "(dell_hw_storage_battery_status{job='IDRAC-__FILTER__'})",
+  "ilo--Battery-status-0-fine": "(hpilo_battery{job= 'ILO-__FILTER__'})"
+}

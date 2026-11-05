@@ -1,0 +1,423 @@
+{
+  "dashboard": "Investor Statistics",
+  "uid": 1,
+  "table": {
+    "intraday": "tts-auth-intraday",
+    "history": "tts-auth-history"
+  },
+  "totaltable": {
+    "tts-auth-intraday": "",
+    "tts-auth-history": "",
+    "tts-ntfy-intraday": "",
+    "tts-ntfy-history": ""
+  },
+  "graphs": [
+    {
+      "name": "Investor Logins",
+      "id": 0,
+      "table": {
+        "intraday": "tts-auth-intraday",
+        "history": "tts-auth-history"
+      },
+      "border": 0,
+      "metadata": {
+
+        "adhoc_filters": [
+          {
+            "clause": "WHERE",
+            "comparator": null,
+            "datasourceWarning": false,
+            "expressionType": "SQL",
+            "filterOptionName": "filter_68oqbd88eqx_v0npj07qdpn",
+            "isExtra": false,
+            "isNew": false,
+            "operator": null,
+            "sqlExpression": "URL = '/api/setmpin' or URL = '/api/mpinlogin'",
+            "subject": null
+          }
+        ],
+        "datasource": "",
+        "extra_form_data": {},
+        "granularity_sqla": "@timestamp",
+        "header_font_size": 0.4,
+        "metric": {
+          "aggregate": "COUNT_DISTINCT",
+          "column": {
+            "advanced_data_type": null,
+            "certification_details": null,
+            "certified_by": null,
+            "column_name": "uid",
+            "description": null,
+            "expression": null,
+            "filterable": true,
+            "groupby": true,
+            "id": 1720,
+            "is_certified": false,
+            "is_dttm": false,
+            "python_date_format": null,
+            "type": "STRING",
+            "type_generic": 1,
+            "verbose_name": null,
+            "warning_markdown": null
+          },
+          "datasourceWarning": false,
+          "expressionType": "SIMPLE",
+          "hasCustomLabel": false,
+          "isNew": false,
+          "label": "COUNT_DISTINCT(uid)",
+          "optionName": "metric_wwppp6m8zyc_31l3sap5908",
+          "sqlExpression": null
+        },
+        "subheader_font_size": 0.15,
+        "time_format": "smart_date",
+        "time_range": "No filter",
+        "url_params": {
+          "dataset_id": "36",
+          "dataset_type": "table"
+        },
+        "viz_type": "big_number_total",
+        "y_axis_format": "SMART_NUMBER"
+      },
+      "x": 0,
+      "y": 0,
+      "refresh": 450,
+      "width": 4,
+      "height": 4
+    },
+    {
+      "name": "Broker wise API HITS",
+      "id": 1,
+      "table": {
+        "intraday": "tts-auth-intraday",
+        "history": "tts-auth-history"
+      },
+      "metadata": {
+        "viz_type": "table",
+        "datasource": "",
+        "url_params": {
+          "dataset_id": "",
+          "dataset_type": "table",
+          "viz_type": "table"
+        },
+        "extra_form_data": {},
+        "time_range_endpoints": [
+          "inclusive",
+          "exclusive"
+        ],
+        "granularity_sqla": "@timestamp",
+        "time_grain_sqla": "P1D",
+        "time_range": "",
+        "query_mode": "aggregate",
+        "groupby": [
+          "URL",
+          "brokerId"
+        ],
+        "metrics": [
+          "count"
+        ],
+        "all_columns": [],
+        "percent_metrics": [],
+        "order_by_cols": [],
+        "row_limit": 10000,
+        "server_page_length": 10,
+        "server_pagination": false,
+        "order_desc": true,
+        "adhoc_filters": [],
+        "table_timestamp_format": "smart_date",
+        "color_pn": true,
+        "conditional_formatting": [],
+        "show_cell_bars": true
+      },
+      "x": 4,
+      "y": 0,
+      "refresh": 500,
+      "width": 8,
+      "height": 4
+    },
+    {
+      "name": "Types of Logins",
+      "id": 2,
+      "table": {
+        "intraday": "tts-auth-intraday",
+        "history": "tts-auth-history"
+      },
+      "border": 0,
+      "metadata": {
+        "viz_type": "pie",
+        "datasource": "",
+        "extra_form_data": {},
+        "date_format": "smart_date",
+        "url_params": {
+          "username": "linkedeyedashboard"
+        },
+        "time_range_endpoints": [
+          "inclusive",
+          "exclusive"
+        ],
+        "granularity_sqla": "@timestamp",
+        "time_range": "",
+        "groupby": [
+          "source"
+        ],
+        "metric": {
+          "expressionType": "SIMPLE",
+          "column": {
+            "id": 4425,
+            "advanced_data_type": null,
+            "certification_details": null,
+            "certified_by": null,
+            "column_name": "uid",
+            "verbose_name": null,
+            "description": null,
+            "expression": null,
+            "filterable": true,
+            "groupby": true,
+            "is_certified": false,
+            "is_dttm": false,
+            "python_date_format": null,
+            "type": "STRING",
+            "type_generic": 1,
+            "warning_markdown": null
+          },
+          "aggregate": "COUNT_DISTINCT",
+          "datasourceWarning": false,
+          "sqlExpression": null,
+          "isNew": false,
+          "hasCustomLabel": false,
+          "label": "COUNT_DISTINCT(uid)",
+          "optionName": "metric_g01pezib6pa_lmgw7abmeot"
+        },
+        "adhoc_filters": [
+          {
+            "expressionType": "SQL",
+            "datasourceWarning": false,
+            "sqlExpression": "URL='/api/mpinlogin' or URL='/api/setmpin' or URL='/api/mpinlogin' ",
+            "clause": "WHERE",
+            "subject": null,
+            "operator": null,
+            "comparator": null,
+            "isExtra": false,
+            "isNew": false,
+            "filterOptionName": "filter_je997uxezn7_pihvne2o3fp"
+          }
+        ],
+        "row_limit": 10000,
+        "sort_by_metric": false,
+        "color_scheme": "googleCategory20c",
+        "show_legend": true,
+        "legendType": "scroll",
+        "legendOrientation": "top",
+        "label_type": "key",
+        "number_format": "SMART_NUMBER",
+        "show_labels": true,
+        "show_labels_threshold": 5,
+        "labels_outside": true,
+        "label_line": true,
+        "outerRadius": 70,
+        "innerRadius": 30
+      },
+      "x": 0,
+      "y": 4,
+      "refresh": 550,
+      "width": 4,
+      "height": 4
+    },
+    {
+      "name": "Broker wise Types of Logins",
+      "id": 3,
+      "table": {
+        "intraday": "tts-auth-intraday",
+        "history": "tts-auth-history"
+      },
+      "metadata": {
+        "viz_type": "table",
+        "datasource": "",
+        "extra_form_data": {},
+        "url_params": {
+          "standalone": "true",
+          "username": "linkedeyedashboard"
+        },
+        "time_range_endpoints": [
+          "inclusive",
+          "exclusive"
+        ],
+        "granularity_sqla": "@timestamp",
+        "time_grain_sqla": "P1D",
+        "time_range": "",
+        "query_mode": "aggregate",
+        "groupby": [
+          "source",
+          "brokerId"
+        ],
+        "metrics": [
+          {
+            "expressionType": "SIMPLE",
+            "column": {
+              "id": 4425,
+              "advanced_data_type": null,
+              "certification_details": null,
+              "certified_by": null,
+              "column_name": "uid",
+              "verbose_name": null,
+              "description": null,
+              "expression": null,
+              "filterable": true,
+              "groupby": true,
+              "is_certified": false,
+              "is_dttm": false,
+              "python_date_format": null,
+              "type": "STRING",
+              "type_generic": 1,
+              "warning_markdown": null
+            },
+            "datasourceWarning": false,
+            "aggregate": "COUNT_DISTINCT",
+            "sqlExpression": null,
+            "isNew": false,
+            "hasCustomLabel": false,
+            "label": "COUNT_DISTINCT(uid)",
+            "optionName": "metric_3bcbcui2ue9_o0v1j0ar39"
+          }
+        ],
+        "all_columns": [],
+        "percent_metrics": [],
+        "order_by_cols": [],
+        "row_limit": 10000,
+        "server_page_length": 10,
+        "server_pagination": false,
+        "order_desc": true,
+        "conditional_formatting": [],
+        "adhoc_filters": [
+          {
+            "expressionType": "SQL",
+            "sqlExpression": "URL='/api/mpinlogin' or URL='/api/setmpin' or URL='/api/mpinlogin' ",
+            "datasourceWarning": false,
+            "clause": "WHERE",
+            "subject": null,
+            "operator": null,
+            "comparator": null,
+            "isExtra": false,
+            "isNew": false,
+            "filterOptionName": "filter_52xz0ab0c6i_f3bws8nheb"
+          }
+        ],
+        "table_timestamp_format": "smart_date",
+        "include_search": true,
+        "color_pn": true,
+        "show_cell_bars": true
+      },
+      "x": 4,
+      "y": 4,
+      "refresh": 600,
+      "width": 8,
+      "height": 4
+    },
+    {
+      "name": "Overall Notifications",
+      "id": 4,
+      "table": {
+        "intraday": "tts-ntfy-intraday",
+        "history": "tts-ntfy-history"
+      },
+      "metadata": {
+        "viz_type": "pie",
+        "datasource": "",
+        "date_format": "smart_date",
+        "extra_form_data": {},
+        "url_params": {
+          "dataset_id": "",
+          "dataset_type": "table",
+          "viz_type": "pie",
+          "username": "linkedeyedashboard"
+        },
+        "time_range_endpoints": [
+          "inclusive",
+          "exclusive"
+        ],
+        "granularity_sqla": "@timestamp",
+        "time_range": "",
+        "groupby": [
+          "response.status",
+          "logtype"
+        ],
+        "metric": "count",
+        "adhoc_filters": [],
+        "row_limit": 10000,
+        "color_scheme": "d3Category10",
+        "show_legend": true,
+        "legendType": "scroll",
+        "legendOrientation": "top",
+        "label_type": "key",
+        "number_format": "SMART_NUMBER",
+        "show_labels": true,
+        "show_labels_threshold": 5,
+        "labels_outside": true,
+        "label_line": true,
+        "outerRadius": 70,
+        "innerRadius": 30
+      },
+      "x": 0,
+      "y": 8,
+      "refresh": 300,
+      "width": 4,
+      "height": 4
+    },
+    {
+      "name": "User/Broker wise Login/Order Notification Count",
+      "id": 5,
+      "table": {
+        "intraday": "tts-ntfy-intraday",
+        "history": "tts-ntfy-history"
+      },
+      "metadata": {
+        "viz_type": "table",
+        "datasource": "",
+        "url_params": {
+          "username": "linkedeyedashboard",
+          "standalone": "true"
+        },
+        "time_range_endpoints": [
+          "inclusive",
+          "exclusive"
+        ],
+        "granularity_sqla": "@timestamp",
+        "time_grain_sqla": "P1D",
+        "time_range": "",
+        "query_mode": "aggregate",
+        "groupby": [
+          "userid",
+          "brokerid",
+          "logtype",
+          "target",
+          "response.status"
+        ],
+        "metrics": [
+          "count"
+        ],
+        "all_columns": [],
+        "percent_metrics": [],
+        "order_by_cols": [],
+        "server_pagination": false,
+        "row_limit": 10000,
+        "server_page_length": 10,
+        "include_time": false,
+        "order_desc": true,
+        "adhoc_filters": [],
+        "conditional_formatting": [],
+        "extra_form_data": {},
+        "table_timestamp_format": "smart_date",
+        "page_length": 0,
+        "include_search": true,
+        "table_filter": false,
+        "align_pn": false,
+        "color_pn": true,
+        "show_cell_bars": true
+      },
+      "x": 4,
+      "y": 8,
+      "refresh": 120,
+      "width": 8,
+      "height": 4
+    }
+  ]
+}

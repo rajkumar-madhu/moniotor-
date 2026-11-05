@@ -1,0 +1,4 @@
+{
+  "idrac--Cpu-status-0-fine": "(dell_hw_chassis_processor_status{job='IDRAC-__FILTER__'})",
+  "ilo--Cpu-status-0-fine": "(hpilo_processor{job= 'ILO-__FILTER__'})"
+}

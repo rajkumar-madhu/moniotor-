@@ -1,0 +1,3 @@
+{
+  "fortigate--Cpu-usage-in-percentage": "fgSysCpuUsage{instance='__FILTER__'}"
+}
