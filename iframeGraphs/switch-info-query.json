@@ -1,0 +1,7 @@
+{
+  "cisco--Ping-status-0-notAbleToPing-1-ableToPing": "probe_success{instance='__FILTER__'} ",
+  "huawei--Ping-status-0-notAbleToPing-1-ableToPing": "probe_success{instance='__FILTER__'} ",
+  "arista--Ping-status-0-notAbleToPing-1-ableToPing": "probe_success{instance='__FILTER__'} ",
+  "dell--Ping-status-0-notAbleToPing-1-ableToPing": "probe_success{instance='__FILTER__'} ",
+  "aruba--Ping-status-0-notAbleToPing-1-ableToPing": "probe_success{instance='__FILTER__'} "
+}

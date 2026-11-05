@@ -1,0 +1,4 @@
+{
+  "fortigate--In-status": "(rate(ifInOctets{instance= '__FILTER__', ifName='__PORT__'}[30s])*8/1024/1024)",
+  "fortigate--Out-status": "(rate(ifOutOctets{instance= '__FILTER__', ifName='__PORT__'}[30s])*8/1024/1024)"
+}

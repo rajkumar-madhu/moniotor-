@@ -1,0 +1,6 @@
+{
+  "huawei--Memory-scale-in-Percentage": "(hwEntityMemUsage{ entPhysicalIndex = '67108873', instance = '__FILTER__'})",
+  "dell--Memory-scale-in-Percentage": "(hrStorageUsed{instance = '__FILTER__', hrStorageIndex='1'})",
+  "cisco--router-Memory-scale-in-Percentage": "((ciscoMemoryPoolUsed{instance='__FILTER__', ciscoMemoryPoolType='1'} / (ciscoMemoryPoolUsed{instance='__FILTER__', ciscoMemoryPoolType='1'} + ciscoMemoryPoolFree{instance='__FILTER__', ciscoMemoryPoolType='1'})) * 100)",
+  "arista--Memory-scale-in-Percentage": "(hrStorageUsed{instance = '__FILTER__', hrStorageIndex='1'})"
+}

@@ -1,0 +1,6 @@
+{
+  "Port-In-Bytes": "ifInOctets{instance='__FILTER__',ifIndex='__PORT__'}",
+  "Port-Out-Bytes": "ifOutOctets{instance='__FILTER__',ifIndex='__PORT__'}",
+  "Port-Status": "ifOperStatus{instance='__FILTER__',ifIndex='__PORT__'}"
+}
+

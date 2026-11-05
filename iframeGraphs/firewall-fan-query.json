@@ -1,0 +1,4 @@
+{
+  "fortigate--Fan1-speed-rpm": "fgHwSensorEntName{fgHwSensorEntName='SYS Fan1 Speed', instance='__FILTER__'}",
+  "fortigate--Fan2-speed-rpm": "fgHwSensorEntName{fgHwSensorEntName='SYS Fan2 Speed', instance='__FILTER__'}"
+}
