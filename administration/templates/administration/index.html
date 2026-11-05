@@ -20,6 +20,11 @@
     <div class="adm-card-body"><h2>Users &amp; Roles</h2><p>Accounts, site memberships and roles (admin / operator / viewer), activation and passwords.</p>
       <div class="adm-card-meta"><b>{{ n_active }}</b> active of {{ n_users }} · <b>{{ n_admins }}</b> admin{{ n_admins|pluralize }}</div></div>
     {% icon "chevron-right" 18 "adm-go" %}</a>
+  <a class="panel adm-card" href="{% url 'administration:clients' %}">
+    <div class="tile s-info">{% icon "users" 24 %}</div>
+    <div class="adm-card-body"><h2>Client wise</h2><p>Customer accounts with live roll-ups of sites, incidents and monitoring health.</p>
+      <div class="adm-card-meta"><b>{{ n_clients }}</b> client{{ n_clients|pluralize }}</div></div>
+    {% icon "chevron-right" 18 "adm-go" %}</a>
   <a class="panel adm-card" href="{% url 'administration:sites' %}">
     <div class="tile s-purple">{% icon "globe" 24 %}</div>
     <div class="adm-card-body"><h2>Sites</h2><p>Customer sites and locations with region, timezone and criticality.</p>

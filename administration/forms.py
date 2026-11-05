@@ -8,7 +8,7 @@ from django.contrib.auth.forms import AuthenticationForm, UsernameField
 from django.core.exceptions import ValidationError
 from django.utils.text import slugify
 
-from core.models import Membership, Site
+from core.models import Client, Membership, Site
 
 User = get_user_model()
 
@@ -150,12 +150,65 @@ def timezone_choices(current=None):
     return [(z, z.replace("_", " ")) for z in zones]
 
 
+def client_choices():
+    return Client.objects.filter(tenant_key=settings.LINKEDEYE_TENANT).order_by("name")
+
+
+class ClientForm(forms.ModelForm):
+    modules = forms.MultipleChoiceField(required=False, choices=Client.MODULES,
+                                        widget=forms.CheckboxSelectMultiple, label="Enabled modules")
+
+    class Meta:
+        model = Client
+        fields = ["name", "code", "status", "contact_name", "contact_email", "go_live", "modules", "notes"]
+        help_texts = {"code": "Short identifier (letters, digits, hyphens). Leave blank to derive it from the name."}
+        widgets = {"notes": forms.Textarea(attrs={"rows": 3})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["code"].required = False
+        if self.instance.pk and isinstance(self.instance.modules, list):
+            self.fields["modules"].initial = self.instance.modules
+
+    def _scope(self):
+        qs = Client.objects.filter(tenant_key=settings.LINKEDEYE_TENANT)
+        return qs.exclude(pk=self.instance.pk) if self.instance.pk else qs
+
+    def clean_name(self):
+        name = " ".join((self.cleaned_data.get("name") or "").split())
+        if not name:
+            raise forms.ValidationError("Enter a name.")
+        if self.instance.pk and " ".join(self.instance.name.split()) == name:
+            return self.instance.name
+        if self._scope().filter(name__iexact=name).exists():
+            raise forms.ValidationError("A client with this name already exists.")
+        return name
+
+    def clean(self):
+        cleaned = super().clean()
+        code = (cleaned.get("code") or "").strip().lower()
+        if not code and cleaned.get("name"):
+            base = slugify(cleaned["name"])[:50] or "client"
+            code = base
+            n = 2
+            while self._scope().filter(code=code).exists():
+                suffix = f"-{n}"
+                code = f"{base[:50 - len(suffix)]}{suffix}"
+                n += 1
+        elif code and self._scope().filter(code=code).exists():
+            self.add_error("code", "A client with this code already exists.")
+            return cleaned
+        cleaned["code"] = code
+        cleaned["modules"] = cleaned.get("modules") or []
+        return cleaned
+
+
 class SiteForm(forms.ModelForm):
     timezone = forms.ChoiceField(label="Timezone")
 
     class Meta:
         model = Site
-        fields = ["name", "code", "region", "timezone", "criticality", "description"]
+        fields = ["client", "name", "code", "region", "timezone", "criticality", "description"]
         help_texts = {"code": "Short identifier (letters, digits, hyphens). Leave blank to derive it from the name.",
                       "name": "Records in other modules refer to the site by this name."}
         widgets = {"description": forms.Textarea(attrs={"rows": 3})}
@@ -163,6 +216,9 @@ class SiteForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["code"].required = False
+        self.fields["client"].queryset = client_choices()
+        self.fields["client"].required = False
+        self.fields["client"].empty_label = "No client"
         current = self.instance.timezone if self.instance and self.instance.pk else None
         self.fields["timezone"].choices = timezone_choices(current)
         if not self.instance.pk:
@@ -201,6 +257,90 @@ class SiteForm(forms.ModelForm):
                 self.add_error("code", "A site with this code already exists.")
             cleaned["code"] = code
         return cleaned
+
+
+# ------------------------------------------------------------------ integrations (Administration › Integrations)
+class _SecretOptionalMixin:
+    """Password-style fields: blank means keep the stored secret."""
+
+    secret_fields = ()
+
+    def clean(self):
+        cleaned = super().clean()
+        for name in self.secret_fields:
+            if not cleaned.get(name):
+                cleaned.pop(name, None)
+        return cleaned
+
+
+class PrometheusIntegrationForm(_SecretOptionalMixin, forms.Form):
+    url = forms.URLField(label="Server URL", required=False, assume_scheme="https")
+    timeout = forms.FloatField(label="Timeout (seconds)", required=False, min_value=1, max_value=120)
+
+
+class AlertmanagerIntegrationForm(_SecretOptionalMixin, forms.Form):
+    secret_fields = ("token",)
+    token = forms.CharField(label="Bearer token", required=False, strip=True, widget=forms.PasswordInput(render_value=False),
+                            help_text="Leave blank to keep the current token.")
+
+
+class LogIngestIntegrationForm(_SecretOptionalMixin, forms.Form):
+    secret_fields = ("token",)
+    token = forms.CharField(label="Bearer token", required=False, strip=True, widget=forms.PasswordInput(render_value=False),
+                            help_text="Leave blank to keep the current token.")
+
+
+class StackStormIntegrationForm(_SecretOptionalMixin, forms.Form):
+    secret_fields = ("api_key",)
+    url = forms.URLField(label="Webhook URL", required=False, assume_scheme="https")
+    api_key = forms.CharField(label="API key", required=False, strip=True, widget=forms.PasswordInput(render_value=False),
+                              help_text="Leave blank to keep the current key.")
+
+
+class WebhooksIntegrationForm(forms.Form):
+    urls = forms.CharField(label="Webhook URLs (one per line)", required=False, widget=forms.Textarea(attrs={"rows": 3}))
+    severities = forms.CharField(label="Severities (comma-separated)", required=False,
+                                 help_text="e.g. critical, warning")
+
+
+class EmailIntegrationForm(_SecretOptionalMixin, forms.Form):
+    secret_fields = ("email_host_password",)
+    recipients = forms.CharField(label="Recipients (one e-mail per line)", required=False, widget=forms.Textarea(attrs={"rows": 2}))
+    email_host = forms.CharField(label="SMTP host", required=False)
+    email_port = forms.IntegerField(label="SMTP port", required=False, min_value=1, max_value=65535)
+    email_host_user = forms.CharField(label="SMTP user", required=False)
+    email_host_password = forms.CharField(label="SMTP password", required=False, strip=False,
+                                          widget=forms.PasswordInput(render_value=False),
+                                          help_text="Leave blank to keep the current password.")
+    email_use_tls = forms.BooleanField(label="Use TLS", required=False)
+    default_from_email = forms.EmailField(label="From address", required=False)
+
+
+class NagiosIntegrationForm(_SecretOptionalMixin, forms.Form):
+    secret_fields = ("password",)
+    url = forms.URLField(label="Server URL", required=False, assume_scheme="https")
+    user = forms.CharField(label="User", required=False)
+    password = forms.CharField(label="Password", required=False, strip=False, widget=forms.PasswordInput(render_value=False),
+                               help_text="Leave blank to keep the current password.")
+    timeout = forms.FloatField(label="Timeout (seconds)", required=False, min_value=1, max_value=120)
+
+
+INTEGRATION_FORMS = {
+    "prometheus": PrometheusIntegrationForm,
+    "alertmanager": AlertmanagerIntegrationForm,
+    "logs": LogIngestIntegrationForm,
+    "stackstorm": StackStormIntegrationForm,
+    "webhooks": WebhooksIntegrationForm,
+    "email": EmailIntegrationForm,
+    "nagios": NagiosIntegrationForm,
+}
+
+
+def integration_form(slug, data=None, initial=None):
+    cls = INTEGRATION_FORMS.get(slug)
+    if not cls:
+        return None
+    return cls(data=data, initial=initial or {})
 
 
 # ------------------------------------------------------------------ sign-in throttling

@@ -10,7 +10,7 @@ from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import AuditEvent, Event, Membership, Site
+from core.models import AuditEvent, Client as LeClient, Event, Membership, Site
 from domainmonitor.models import Domain, DomainCheck
 from urlchecker.models import UrlCheck, UrlResult
 
@@ -188,7 +188,8 @@ class IntegrationTestServiceTests(Base):
             ok, msg = services.test_notify()
         d.assert_not_called()
         self.assertFalse(ok)
-        self.assertIn("NOTIFY_SEVERITIES", msg)
+        self.assertIn("warning", msg.lower())
+        self.assertIn("severities", msg.lower())
 
     @override_settings(NOTIFY_WEBHOOK_URLS=[], NOTIFY_EMAILS=[])
     def test_notify_without_channels(self):
@@ -324,9 +325,10 @@ class JobTests(Base):
 
 # ------------------------------------------------------------------ permissions
 class PermissionTests(Base):
-    PAGES = ["administration:index", "administration:users", "administration:user_create", "administration:sites",
-             "administration:site_create", "administration:audit", "administration:integrations",
-             "administration:health", "administration:users_export", "administration:audit_export"]
+    PAGES = ["administration:index", "administration:users", "administration:user_create", "administration:clients",
+             "administration:client_create", "administration:sites", "administration:site_create", "administration:audit",
+             "administration:integrations", "administration:health", "administration:users_export",
+             "administration:audit_export", "administration:clients_export"]
 
     def test_admin_pages_forbidden_for_non_admins(self):
         for user in (self.viewer, self.operator, self.site_admin):
@@ -355,8 +357,10 @@ class PermissionTests(Base):
             c.post(reverse("administration:user_toggle_active", args=[self.admin.pk]))
             c.post(reverse("administration:user_password", args=[self.admin.pk]), {"password_mode": "generate"})
             c.post(reverse("administration:site_create"), {"name": "Evil", "timezone": "UTC", "criticality": "low"})
+            c.post(reverse("administration:client_create"), {"name": "EvilCo", "status": "active"})
             c.post(reverse("administration:site_delete", args=[self.dr.pk]))
             c.post(reverse("administration:sites_bootstrap"))
+            c.post(reverse("administration:clients_bootstrap"))
             r = c.post(reverse("administration:integration_test", args=["prometheus"]),
                        HTTP_X_CSRFTOKEN="x", HTTP_ACCEPT="application/json")
             self.assertEqual(r.status_code, 403)
@@ -393,9 +397,10 @@ class PageTests(Base):
     def test_pages_render(self):
         UrlCheck.objects.create(name="a", url="https://a.example", site="Mumbai (NSE)")
         AuditEvent.objects.create(actor=self.admin, actor_name="boss", action="create", object_type="core.site", details={"k": "v"})
-        for name in ("administration:index", "administration:users", "administration:user_create", "administration:sites",
-                     "administration:site_create", "administration:audit", "administration:integrations",
-                     "administration:health", "administration:profile"):
+        for name in ("administration:index", "administration:users", "administration:user_create", "administration:clients",
+                     "administration:client_create", "administration:sites", "administration:site_create",
+                     "administration:audit", "administration:integrations", "administration:health",
+                     "administration:profile"):
             r = self.c.get(reverse(name))
             self.assertEqual(r.status_code, 200, name)
             self.assertContains(r, "administration/page.css")
@@ -405,7 +410,7 @@ class PageTests(Base):
 
     def test_index_cards(self):
         r = self.c.get(reverse("administration:index"))
-        for name in ("users", "sites", "audit", "integrations", "health"):
+        for name in ("users", "clients", "sites", "audit", "integrations", "health"):
             self.assertContains(r, reverse(f"administration:{name}"))
         self.assertContains(r, reverse("admin:index"))
 
@@ -442,6 +447,26 @@ class PageTests(Base):
         self.assertContains(r, "Not connected")
         self.assertContains(r, "LINKEDEYE_PROMETHEUS_URL")
         self.assertContains(r, "LINKEDEYE_NAGIOS_URL")
+        self.assertContains(r, "Edit settings")
+        self.assertContains(r, reverse("administration:integration_save", args=["prometheus"]))
+
+    def test_integration_save_prometheus(self):
+        from administration import integration_config as ic
+
+        ic.invalidate_cache()
+        with override_settings(PROMETHEUS_URL="https://env.example/"):
+            self.assertEqual(ic.prometheus_url(), "https://env.example/")
+        c = client_for(self.admin, csrf=True)
+        r = csrf_post(c, reverse("administration:integration_save", args=["prometheus"]),
+                      {"url": "https://console.example/", "timeout": "30"})
+        self.assertEqual(r.status_code, 302)
+        self.assertIn("#prometheus", r["Location"])
+        ic.invalidate_cache()
+        self.assertEqual(ic.prometheus_url(), "https://console.example/")
+        self.assertTrue(ic.has_override("prometheus"))
+        ev = AuditEvent.objects.filter(action="update", object_type="administration.integrationsetting").first()
+        self.assertIsNotNone(ev)
+        self.assertEqual(ev.details.get("integration"), "prometheus")
 
     def test_integrations_page_hides_secret_values(self):
         with override_settings(ALERTMANAGER_WEBHOOK_TOKEN="am-token-secret-value-1234567890",
@@ -888,3 +913,24 @@ class QARegressionTests(Base):
     def test_log_ingest_card_names_what_it_measures(self):
         item = next(i for i in services.integrations() if i["key"] == "logs")
         self.assertIn("Last error-level log event", [label for label, _ in item["details"]])
+
+    def test_client_wise_tracker_and_site_link(self):
+        client = LeClient.objects.create(name="WeCrew", code="wecrew", status="active")
+        self.mum.client = client
+        self.mum.save(update_fields=["client"])
+        UrlCheck.objects.create(name="portal", url="https://portal.example/", site=self.mum.name, last_status="down")
+        r = self.c.get(reverse("administration:clients"))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "WeCrew")
+        self.assertContains(r, "Client wise tracker")
+        row = next(x for x in services.client_wise_rows() if x["client"] and x["client"].pk == client.pk)
+        self.assertEqual(row["sites"], 1)
+        self.assertEqual(row["urls_down"], 1)
+        exp = self.c.get(reverse("administration:clients_export"))
+        self.assertEqual(exp.status_code, 200)
+        self.assertIn("WeCrew", exp.content.decode())
+        other = LeClient.objects.create(name="OtherCo", code="other", status="inactive")
+        exp_f = self.c.get(reverse("administration:clients_export"), {"q": "wecrew"})
+        body = exp_f.content.decode()
+        self.assertIn("WeCrew", body)
+        self.assertNotIn("OtherCo", body)

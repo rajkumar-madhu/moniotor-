@@ -77,3 +77,23 @@ class LoginThrottle(models.Model):
 
     def __str__(self):
         return f"{self.kind}:{self.value} ({self.failures} failures)"
+
+
+class IntegrationSetting(models.Model):
+    """Per-tenant integration overrides edited from Administration › Integrations (falls back to env when unset)."""
+
+    tenant_key = models.CharField(max_length=100, db_index=True, default=settings.LINKEDEYE_TENANT)
+    slug = models.CharField(max_length=30, db_index=True)
+    values = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name="+")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["tenant_key", "slug"], name="administration_integrationsetting_unique"),
+        ]
+        ordering = ["slug"]
+
+    def __str__(self):
+        return f"{self.slug} ({self.tenant_key})"
