@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }}</title>
+</head>
+<body style="margin:0;padding:0;background:#f2f2f2;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#333;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f2f2f2;padding:24px 12px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;">
+        <tr><td style="padding:16px 20px;background:#1f1f1f;color:#ffffff;font-size:18px;font-weight:600;">
+          Linked<span style="color:#e99123;">Eye</span>
+        </td></tr>
+        <tr><td style="padding:20px;">
+          <p style="margin:0 0 8px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#888;">
+            {{ severity_label }}
+          </p>
+          <h1 style="margin:0 0 12px;font-size:20px;line-height:1.35;color:#222;">{{ title }}</h1>
+          {% if message %}
+          <p style="margin:0 0 16px;font-size:15px;line-height:1.5;color:#444;white-space:pre-wrap;">{{ message }}</p>
+          {% endif %}
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="font-size:13px;color:#555;border-top:1px solid #eee;">
+            <tr><td style="padding:10px 0 4px;width:88px;color:#888;">Source</td><td style="padding:10px 0 4px;">{{ source }}</td></tr>
+            {% if site %}<tr><td style="padding:4px 0;color:#888;">Site</td><td style="padding:4px 0;">{{ site }}</td></tr>{% endif %}
+            {% if occurred_at %}<tr><td style="padding:4px 0;color:#888;">When</td><td style="padding:4px 0;">{{ occurred_at }}</td></tr>{% endif %}
+            {% if kind %}<tr><td style="padding:4px 0;color:#888;">Kind</td><td style="padding:4px 0;">{{ kind }}</td></tr>{% endif %}
+            {% if object_type %}<tr><td style="padding:4px 0 10px;color:#888;">Object</td><td style="padding:4px 0 10px;">{{ object_type }}{% if object_id %}:{{ object_id }}{% endif %}</td></tr>{% endif %}
+          </table>
+        </td></tr>
+        <tr><td style="padding:12px 20px;background:#fafafa;font-size:11px;color:#888;border-top:1px solid #eee;">
+          LinkedEye monitoring and ITSM
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>

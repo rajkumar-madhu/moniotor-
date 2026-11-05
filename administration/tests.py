@@ -178,7 +178,8 @@ class IntegrationTestServiceTests(Base):
                        NOTIFY_SEVERITIES=["critical", "warning"])
     def test_notify_partial_failure(self):
         with mock.patch("core.notify._post", side_effect=OSError("refused")), \
-                mock.patch("core.notify.send_mail", return_value=1), self.assertLogs("linkedeye.notify", "WARNING"):
+                mock.patch("core.notify.EmailMultiAlternatives") as em, self.assertLogs("linkedeye.notify", "WARNING"):
+            em.return_value.send.return_value = None
             ok, msg = services.test_notify()
         self.assertFalse(ok)
         self.assertIn("1 of 2", msg)

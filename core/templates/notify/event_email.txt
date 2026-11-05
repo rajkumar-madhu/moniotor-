@@ -1,0 +1,12 @@
+LinkedEye — {{ severity_label }}: {{ title }}
+
+{% if message %}{{ message }}
+
+{% endif %}Severity: {{ severity_label }}
+Source: {{ source }}{% if site %}
+Site: {{ site }}{% endif %}{% if occurred_at %}
+When: {{ occurred_at }}{% endif %}{% if kind %}
+Kind: {{ kind }}{% endif %}{% if object_type %}
+Object: {{ object_type }}{% if object_id %}:{{ object_id }}{% endif %}{% endif %}
+
+Sent by LinkedEye monitoring and ITSM.

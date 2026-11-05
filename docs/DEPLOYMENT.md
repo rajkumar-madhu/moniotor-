@@ -311,7 +311,7 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 | `LINKEDEYE_PROBE_RETENTION_DAYS` | `30` | | Days of URL / domain check results kept (pruned hourly). |
 | `LINKEDEYE_NOTIFY_WEBHOOK_URLS` | empty | yes (URLs often embed tokens) | Comma-separated URLs that receive a JSON POST per notified event (Slack, Teams, Apprise, StackStorm, …). |
 | `LINKEDEYE_NOTIFY_EMAILS` | empty | | Comma-separated recipients of event e-mails. |
-| `LINKEDEYE_NOTIFY_SEVERITIES` | `critical,warning` | | Event severities that notify. |
+| `LINKEDEYE_NOTIFY_SEVERITIES` | `critical,warning` | | Event severities that notify. Webhook JSON shape and e-mail templates: [NOTIFICATION_TEMPLATES.md](NOTIFICATION_TEMPLATES.md). |
 | `LINKEDEYE_EMAIL_BACKEND` | SMTP (console backend with DEBUG) | | Django e-mail backend class path. |
 | `LINKEDEYE_EMAIL_HOST` | `localhost` | | SMTP server. |
 | `LINKEDEYE_EMAIL_PORT` | `25` | | SMTP port. |

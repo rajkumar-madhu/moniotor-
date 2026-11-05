@@ -22,7 +22,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 from django.conf import settings
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives, send_mail
 from django.db import connections, transaction
 from django.dispatch import receiver
 
@@ -57,14 +57,17 @@ def _post(url, payload, timeout=5):
         return r.status
 
 
-def _send(payload, subject, body):
+def _send(payload, subject, text_body, html_body=None):
     """Send one notification to every configured channel. Returns how many channels accepted it. Never raises."""
     from administration import integration_config as ic
 
     sent = 0
+    hook_payload = dict(payload)
+    if html_body:
+        hook_payload["html"] = html_body
     for url in ic.notify_webhook_urls():
         try:
-            _post(url, payload)
+            _post(url, hook_payload)
             sent += 1
         except Exception as e:  # never let a notification failure break the caller
             log.warning("webhook %s failed: %s", url.split("?")[0], e)
@@ -82,8 +85,13 @@ def _send(payload, subject, body):
                     password=ic.email_host_password() or None,
                     use_tls=ic.email_use_tls(),
                 )
-            send_mail(subject, body, ic.default_from_email() or settings.DEFAULT_FROM_EMAIL, recipients,
-                      fail_silently=False, connection=conn)
+            from_addr = ic.default_from_email() or settings.DEFAULT_FROM_EMAIL
+            if html_body:
+                msg = EmailMultiAlternatives(subject, text_body, from_addr, recipients, connection=conn)
+                msg.attach_alternative(html_body, "text/html")
+                msg.send(fail_silently=False)
+            else:
+                send_mail(subject, text_body, from_addr, recipients, fail_silently=False, connection=conn)
             sent += 1
         except Exception as e:
             log.warning("email notification failed: %s", e)
@@ -93,26 +101,27 @@ def _send(payload, subject, body):
 def deliver(event):
     """Send one event now, on this thread (also used by Administration's "Send test notification")."""
     from administration import integration_config as ic
+    from . import notify_templates
 
     if event.severity not in ic.notify_severities():
         return 0
     payload = {"title": event.title, "body": event.message, "severity": event.severity, "source": event.source,
                "site": event.site, "occurred_at": event.occurred_at.isoformat(), "kind": event.kind,
                "object": f"{event.object_type}:{event.object_id}"}
-    return _send(payload, f"[LinkedEye {event.severity.upper()}] {event.title}", event.message or event.title)
+    text_body, html_body = notify_templates.render_event_email(event)
+    return _send(payload, f"[LinkedEye {event.severity.upper()}] {event.title}", text_body, html_body)
 
 
 def deliver_digest(digest):
     """Send the summary of a collapsed window: {"severity", "count", "titles", "window"}."""
-    n, sev = digest["count"], digest["severity"]
-    title = f"{n} more {sev} event{'s' if n != 1 else ''} in the last {digest['window']} s"
-    lines = list(digest["titles"])
-    if n > len(lines):
-        lines.append(f"… and {n - len(lines)} more")
-    body = "Notifications were collapsed into this summary to avoid a flood:\n" + "\n".join(f"- {t}" for t in lines)
-    payload = {"title": title, "body": body, "severity": sev, "source": "linkedeye", "site": "",
-               "occurred_at": "", "kind": "digest", "object": "", "count": n, "titles": digest["titles"]}
-    return _send(payload, f"[LinkedEye {sev.upper()}] {title}", body)
+    from . import notify_templates
+
+    ctx = notify_templates.digest_context(digest)
+    payload = {"title": ctx["title"], "body": ctx["body"], "severity": ctx["severity"], "source": "linkedeye",
+               "site": "", "occurred_at": "", "kind": "digest", "object": "", "count": ctx["count"],
+               "titles": digest["titles"]}
+    text_body, html_body = notify_templates.render_digest_email(digest)
+    return _send(payload, f"[LinkedEye {ctx['severity'].upper()}] {ctx['title']}", text_body, html_body)
 
 
 # ------------------------------------------------------------------ digest
