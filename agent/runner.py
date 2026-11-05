@@ -159,8 +159,11 @@ def _openai_history(thread):
 def _format_summary(summary):
     site = summary.get("site") or "your sites"
     n = summary.get("needs_attention")
-    tiles = ", ".join(f"{t['label']} {t['value']}" for t in summary.get("tiles") or [])
-    return f"Snapshot for {site}: {n} item(s) need attention" + (f". {tiles}." if tiles else ".")
+    lines = [f"Snapshot for {site}: {n} item(s) need attention."]
+    tiles = summary.get("tiles") or []
+    if tiles:
+        lines.append(" · ".join(f"{t['label']} {t['value']}" for t in tiles))
+    return "\n".join(lines)
 
 
 def _citations_from_result(result):

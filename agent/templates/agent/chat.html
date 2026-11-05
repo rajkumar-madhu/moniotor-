@@ -23,11 +23,11 @@
 
 <section class="ag-shell">
   <aside class="panel ag-threads">
-    <div class="panel-h"><h2>Conversations</h2></div>
+    <div class="panel-h"><h2>Conversations</h2>{% if threads %}<small>{{ threads|length }}</small>{% endif %}</div>
     <ul>{% for t in threads %}
       <li class="{% if thread and t.pk == thread.pk %}on{% endif %}">
-        <a href="{{ t.get_absolute_url }}">{{ t.display_title }}</a>
-        <small>{{ t.updated_at|date:"d M H:i" }}{% if t.site %} · {{ t.site }}{% endif %}</small>
+        <a href="{{ t.get_absolute_url }}"><span class="ag-t-title">{{ t.display_title }}</span>
+        <small>{{ t.updated_at|date:"d M H:i" }}{% if t.site %} · {{ t.site }}{% endif %}</small></a>
       </li>
     {% empty %}<li class="empty">No conversations yet.</li>{% endfor %}</ul>
   </aside>
@@ -35,6 +35,7 @@
   <div class="panel ag-chat">
     <div class="panel-h">
       <h2>{% if thread %}{{ thread.display_title }}{% else %}New conversation{% endif %}</h2>
+      {% if thread and thread.site %}<span class="ag-site">{{ thread.site }}</span>{% endif %}
       {% if thread %}
       <form method="post" action="{% url 'agent:delete' thread.pk %}" class="right" data-confirm="Delete this conversation?">{% csrf_token %}
         <button class="btn sm" type="submit">{% icon "trash" 14 %}Delete</button>
@@ -53,8 +54,8 @@
       </label>
       <button class="btn primary" type="submit">{% icon "arrow-right" 16 %}Send</button>
     </form>
-    {% if llm_configured %}<p class="t-mute ag-foot">Answers from {{ agent_model }} using tools over your LinkedEye records. The API key never leaves the server.</p>
-    {% else %}<p class="t-mute ag-foot">Retrieval-only mode until <code>LINKEDEYE_AGENT_API_KEY</code> is set.</p>{% endif %}
+    {% if llm_configured %}<p class="t-mute ag-foot">Answers from {{ agent_model }} using tools over your LinkedEye records. Enter to send, Shift+Enter for a new line. The API key never leaves the server.</p>
+    {% else %}<p class="t-mute ag-foot">Retrieval-only mode until <code>LINKEDEYE_AGENT_API_KEY</code> is set. Enter to send, Shift+Enter for a new line.</p>{% endif %}
   </div>
 </section>
 </div>

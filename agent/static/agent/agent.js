@@ -74,7 +74,7 @@
       if (d.title) {
         const h = root.querySelector(".ag-chat .panel-h h2");
         if (h) h.textContent = d.title;
-        const on = root.querySelector(".ag-threads li.on a");
+        const on = root.querySelector(".ag-threads li.on .ag-t-title");
         if (on) on.textContent = d.title;
       }
       if (d.assistant) append("assistant", d.assistant.content || "", d.assistant.citations || []);
@@ -84,7 +84,27 @@
     } finally {
       form.classList.remove("is-busy");
       if (btn) btn.disabled = false;
+      if (box) {
+        box.style.height = "";
+        box.focus();
+      }
     }
   });
+
+  const box = form.querySelector("textarea[name=content]");
+  function fit() {
+    if (!box) return;
+    box.style.height = "auto";
+    box.style.height = Math.min(box.scrollHeight, 160) + "px";
+  }
+  if (box) {
+    box.addEventListener("input", fit);
+    box.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        form.requestSubmit();
+      }
+    });
+  }
   if (stream) stream.scrollTop = stream.scrollHeight;
 })();
