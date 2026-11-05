@@ -8,6 +8,10 @@ DNS answer cannot change between the policy check and the connection.
 Policy:
   * link-local (incl. cloud metadata 169.254.169.254), multicast, unspecified
     and reserved ranges are always refused;
+  * documentation ranges (RFC 5737 TEST-NET-1/2/3 and RFC 3849 2001:db8::/32)
+    are not private networks. They are refused unless explicitly listed in
+    settings.PROBE_ALLOWED_PRIVATE_CIDRS, and the refusal says they are
+    documentation addresses, not private ones;
   * every other address that is not globally routable (loopback, private,
     shared/CGNAT 100.64.0.0/10 incl. the 100.100.100.200 metadata service,
     192.0.0.0/24, IPv6 site-local, NAT64 64:ff9b::/96 forms of such IPv4
@@ -40,6 +44,11 @@ ALWAYS_BLOCKED = [ipaddress.ip_network(n) for n in (
     "0.0.0.0/8", "169.254.0.0/16", "224.0.0.0/4", "240.0.0.0/4", "255.255.255.255/32",
     "::/128", "fe80::/10", "ff00::/8",
 )]
+# RFC 5737 and RFC 3849. Recent CPython reports these as is_private (IANA special-purpose)
+# and not is_global; they are documentation space, not RFC 1918 private networks.
+DOCUMENTATION = [ipaddress.ip_network(n) for n in (
+    "192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24", "2001:db8::/32",
+)]
 # IPv6 prefixes that carry an IPv4 address in their last 32 bits (NAT64 well-known prefix, SIIT IPv4-translated);
 # Python calls these global, so the embedded IPv4 address is checked instead.
 EMBEDS_IPV4 = [ipaddress.ip_network(n) for n in ("64:ff9b::/96", "::ffff:0:0:0/96")]
@@ -53,6 +62,10 @@ def _allowed_private():
     return [ipaddress.ip_network(c, strict=False) for c in settings.PROBE_ALLOWED_PRIVATE_CIDRS]
 
 
+def _documentation(addr):
+    return any(addr in n for n in DOCUMENTATION)
+
+
 def check_address(ip: str) -> None:
     addr = ipaddress.ip_address(ip)
     if addr.version == 6 and addr.ipv4_mapped:
@@ -61,9 +74,15 @@ def check_address(ip: str) -> None:
         addr = ipaddress.IPv4Address(addr.packed[-4:])  # a NAT64/SIIT translator would connect to this IPv4 address
     if any(addr in n for n in ALWAYS_BLOCKED):
         raise ProbeBlocked(f"{ip} is in a blocked range")
-    # not is_global covers loopback/private/reserved and ranges Python does not call private, e.g. 100.64.0.0/10
+    # not is_global covers loopback/private/reserved and ranges Python does not call private, e.g. 100.64.0.0/10.
+    # Documentation ranges are also not global; they are not private networks, so they get their own reason.
+    opted_in = any(addr in n for n in _allowed_private())
+    if _documentation(addr):
+        if not opted_in:
+            raise ProbeBlocked(f"{ip} is a documentation address and is not a permitted probe target")
+        return
     if not addr.is_global or (addr.version == 6 and addr.is_site_local):
-        if not any(addr in n for n in _allowed_private()):
+        if not opted_in:
             raise ProbeBlocked(f"{ip} is a private address not in PROBE_ALLOWED_PRIVATE_CIDRS")
 
 
