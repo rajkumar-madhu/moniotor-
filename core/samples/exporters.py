@@ -14,10 +14,10 @@ def _rng(name):
 
 # category -> (icon, colour); shared by the category strip and the table's Category column
 CATEGORY_STYLE = {
-    "Network": ("network", "#2b4cff"), "Firewalls": ("brick", "#d92d20"), "Servers": ("server", "#7a4fd6"),
-    "Virtualization": ("layers", "#0e8a7a"), "Storage": ("hdd", "#e08a00"), "Databases": ("database", "#2b4cff"),
-    "Applications": ("app", "#7a4fd6"), "Kubernetes": ("hexagon", "#0e8a7a"), "Wireless": ("wifi", "#0f7a55"),
-    "Security": ("shield", "#ff5b2e"), "Custom": ("settings", "#6f6a61"),
+    "Network": ("network", "var(--chart-6)"), "Firewalls": ("brick", "var(--chart-1)"), "Servers": ("server", "var(--chart-7)"),
+    "Virtualization": ("layers", "var(--chart-10)"), "Storage": ("hdd", "var(--chart-2)"), "Databases": ("database", "var(--chart-6)"),
+    "Applications": ("app", "var(--chart-7)"), "Kubernetes": ("hexagon", "var(--chart-10)"), "Wireless": ("wifi", "var(--chart-4)"),
+    "Security": ("shield", "var(--chart-9)"), "Custom": ("settings", "var(--muted)"),
 }
 CATEGORIES = list(CATEGORY_STYLE)
 # how many exporters each category holds (sums to 87)
@@ -142,9 +142,9 @@ def exporters(request=None):
             for i, (e, lvl, m) in enumerate(LOG_LINES)]
     hours = [f"{h:02d}:00" for h in range(24)]
     trend = {"labels": hours, "unit": "", "yMax": 80000, "yTicks": 4, "xLabelEvery": 4, "series": [
-        {"name": "Info", "color": "#2b4cff", "values": [r.randint(18, 42) * 1000 for _ in hours]},
-        {"name": "Warn", "color": "#e08a00", "values": [r.randint(3, 10) * 1000 for _ in hours]},
-        {"name": "Error", "color": "#d92d20", "values": [r.randint(1, 5) * 1000 for _ in hours]}]}
+        {"name": "Info", "color": "var(--chart-6)", "values": [r.randint(18, 42) * 1000 for _ in hours]},
+        {"name": "Warn", "color": "var(--chart-warn)", "values": [r.randint(3, 10) * 1000 for _ in hours]},
+        {"name": "Error", "color": "var(--chart-crit)", "values": [r.randint(1, 5) * 1000 for _ in hours]}]}
     cats = [{"name": c, "count": sum(1 for x in rows if x["category"] == c), "icon": CATEGORY_STYLE[c][0],
              "color": CATEGORY_STYLE[c][1]} for c in CATEGORIES]
     top = sorted(rows, key=lambda x: -x["logs"])[:8]
@@ -153,10 +153,10 @@ def exporters(request=None):
         tone, ic = SEVERITY[s]
         events.append({"time": (now - timedelta(minutes=2 * i + 1)).strftime("%H:%M"), "sev": s, "tone": tone, "icon": ic, "msg": m})
     health = {k: sum(x["status"] == k for x in rows) for k, _ in STATUSES}
-    legend = [{"label": "Active", "n": health["active"], "color": "#0f7a55"},
-              {"label": "Inactive", "n": health["inactive"], "color": "#a8a398"},
-              {"label": "Error", "n": health["error"], "color": "#d92d20"},
-              {"label": "Not Configured", "n": health["not_configured"], "color": "#e08a00"}]
+    legend = [{"label": "Active", "n": health["active"], "color": "var(--chart-ok)"},
+              {"label": "Inactive", "n": health["inactive"], "color": "var(--stone)"},
+              {"label": "Error", "n": health["error"], "color": "var(--chart-crit)"},
+              {"label": "Not Configured", "n": health["not_configured"], "color": "var(--chart-warn)"}]
     for seg in legend:
         seg["pct"] = _pct(seg["n"], total)
     return {"rows": page.object_list, "all_rows": rows, "page": page, "query": query, "strip_query": strip_query,
