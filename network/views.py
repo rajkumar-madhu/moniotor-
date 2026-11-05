@@ -1,6 +1,7 @@
 import csv
 import ipaddress
 import re
+from collections import Counter
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -32,9 +33,52 @@ TYPE_INTRO = {
     "physical_server": "Bare-metal servers and appliances",
     "virtual_machine": "Virtual machines and their hypervisor guests",
 }
-TABS = [("overview", "Overview"), ("interfaces", "Interfaces"), ("traffic", "Traffic"), ("events", "Events"),
-        ("configuration", "Configuration")]
+TABS = [("overview", "Overview"), ("interfaces", "Interfaces"), ("traffic", "Traffic"),
+        ("hardware", "Hardware"), ("neighbours", "Neighbours"), ("events", "Alerts"), ("configuration", "Configuration")]
 CHECK_ALL_LIMIT = 100
+FRONT_PANEL_MAX = 96   # ports drawn on the front panel; the Interfaces tab still lists every interface
+PANEL_CHUNK = 12       # ports per column group (two rows of six), as on most fixed-port switches
+IF_FILTERS = [("all", "All"), ("up", "Up"), ("busy", "Busy or errors"), ("down", "Down"), ("unused", "Unused or admin down")]
+
+
+def _front_panel(ports):
+    """Ports in if_index order, grouped into runs of one speed (48 × 25G, then 4 × 100G), each run split into
+    PANEL_CHUNK-port groups. A port with no reported speed (common while the link is down) joins the current run.
+    Entries are (position on the panel, interface)."""
+    from .templatetags.network_tags import speed
+    blocks = []
+    for n, p in enumerate(ports, 1):
+        s = p.speed_mbps or None
+        if blocks and (s is None or blocks[-1]["speed"] in (None, s)):
+            blocks[-1]["speed"] = blocks[-1]["speed"] or s
+        else:
+            blocks.append({"speed": s, "ports": []})
+        blocks[-1]["ports"].append((n, p))
+    for b in blocks:
+        b["label"] = f'{len(b["ports"])} × {speed(b["speed"])}' if b["speed"] else f'{len(b["ports"])} ports'
+        b["chunks"] = [b["ports"][i:i + PANEL_CHUNK] for i in range(0, len(b["ports"]), PANEL_CHUNK)]
+    return blocks
+
+
+def _port_data(ports):
+    """What the port drawer shows, pre-formatted like the tables (device-reported names are rendered as text)."""
+    from .templatetags.network_tags import mbps, per_s, speed
+    return [{"n": n, "ifIndex": p.if_index, "name": p.name, "alias": p.alias, "type": p.if_type or "–",
+             "tone": p.port_tone, "toneLabel": p.port_tone_label,
+             "admin": p.get_admin_status_display(), "oper": p.get_oper_status_display(), "speed": speed(p.speed_mbps),
+             "in": mbps(p.in_mbps), "out": mbps(p.out_mbps),
+             "util": "–" if p.utilization is None else f"{p.utilization:.0f}%",
+             "errors": per_s(p.errors_per_s), "discards": per_s(p.discards_per_s),
+             "flaps": "–" if p.flaps_24h is None else str(p.flaps_24h)}
+            for n, p in enumerate(ports, 1)]
+
+
+def _iface_matches(i, state, q):
+    if state == "up" and i.oper_status != "up":
+        return False
+    if state in ("busy", "down", "unused") and i.port_tone != state:
+        return False
+    return not q or q in f"{i.name} {i.alias}".lower()
 
 
 # ------------------------------------------------------------------ helpers
@@ -229,10 +273,26 @@ def detail(request, pk):
     top = ranked[:10] if has_rates else interfaces[:10]
     total_in = sum(i.in_mbps or 0 for i in interfaces) if any(i.in_mbps is not None for i in interfaces) else None
     total_out = sum(i.out_mbps or 0 for i in interfaces) if any(i.out_mbps is not None for i in interfaces) else None
+    errs = [i.errors_per_s for i in interfaces if i.errors_per_s is not None]
+    discs = [i.discards_per_s for i in interfaces if i.discards_per_s is not None]
+    physical = [i for i in interfaces if i.is_physical]
+    ports = physical[:FRONT_PANEL_MAX]
+    tones = Counter(i.port_tone for i in interfaces)
+    # ?port=<ifIndex> narrows the overview charts to one interface of this device
+    port = None
+    if request.GET.get("port", "").isdigit():
+        port = next((i for i in interfaces if i.if_index == int(request.GET["port"])), None)
+    port_index = port.if_index if port else None
     traffic_range = request.GET.get("range", "24h") if request.GET.get("range") in ("24h", "7d") else "24h"
     traffic, traffic_msg = (None, "")
+    errors_chart, errors_msg = (None, "")
     if tab in ("overview", "traffic"):
-        traffic, traffic_msg = metrics.traffic_range(device, 86400 if traffic_range == "24h" else 7 * 86400)
+        traffic, traffic_msg = metrics.traffic_range(device, 86400 if traffic_range == "24h" else 7 * 86400, port_index)
+    if tab == "overview":
+        errors_chart, errors_msg = metrics.errors_range(device, 86400, port_index)
+    if_filter = request.GET.get("state") if request.GET.get("state") in dict(IF_FILTERS) else "all"
+    if_q = request.GET.get("q", "").strip()[:100]
+    if_counts = {"all": len(interfaces), "up": if_up, "busy": tones["busy"], "down": tones["down"], "unused": tones["unused"]}
     can_op = services.can_manage(request.user, "operate", device.site)
     if not prometheus.configured() or not device.prometheus_instance:
         metrics_msg = "No metrics source: set LINKEDEYE_PROMETHEUS_URL and the device Prometheus instance."
@@ -245,13 +305,24 @@ def detail(request, pk):
     ctx = {
         "device": device, "tab": tab, "tabs": TABS, "interfaces": interfaces, "top_interfaces": top,
         "if_up": if_up, "if_down": if_down, "if_admin_down": if_admin_down, "if_total": len(interfaces), "has_rates": has_rates, "total_in": total_in, "total_out": total_out,
+        "total_errors": round(sum(errs), 3) if errs else None, "total_discards": round(sum(discs), 3) if discs else None,
+        "ports_with_errors": sum(1 for e in errs if e > 0),
+        "ports": ports, "panel_blocks": _front_panel(ports), "port_data": _port_data(ports),
+        "ports_total": len(physical), "ports_up": sum(1 for i in physical if i.oper_status == "up"),
+        "ports_down": sum(1 for i in physical if i.port_tone == "down"),
+        "ports_unused": sum(1 for i in physical if i.port_tone == "unused"), "panel_truncated": len(physical) > FRONT_PANEL_MAX,
+        "port": port, "port_pos": next((n for n, p in enumerate(ports) if port and p.pk == port.pk), None),
+        "errors_chart": errors_chart, "errors_msg": errors_msg,
+        "if_filters": [(key, label, if_counts[key]) for key, label in IF_FILTERS], "if_filter": if_filter, "if_q": if_q,
+        "if_rows": [i for i in interfaces if _iface_matches(i, if_filter, if_q.lower())],
         "avail24": services.availability([device.pk], 24).get(device.pk),
         "avail7": services.availability([device.pk], 24 * 7).get(device.pk),
         "avg_latency": services.avg_latency(device), "spark": services.latency_spark(device),
         "avail_chart": services.availability_chart(device), "latency_chart": services.latency_chart(device),
         "traffic": traffic, "traffic_msg": traffic_msg, "traffic_range": traffic_range,
         "prometheus_on": prometheus.configured(), "metrics_msg": metrics_msg,
-        "metrics_ok": bool(prometheus.configured() and device.prometheus_instance and device.metrics_updated_at),
+        "metrics_ok": bool(prometheus.configured() and device.prometheus_instance and device.metrics_updated_at
+                           and not device.metrics_error),
         "events": services.events_for(device, 50 if tab == "events" else 6),
         "polls": device.polls.all()[:50] if tab == "events" else [],
         "topology_url": services.topology_url(device), "discovery_url": services.discovery_url(device),
@@ -574,10 +645,11 @@ def interfaces_csv(request, pk):
     resp["Content-Disposition"] = f'attachment; filename="{safe}-interfaces.csv"'
     w = csv.writer(resp)
     w.writerow(["if_index", "name", "alias", "type", "admin_status", "oper_status", "speed_mbps", "in_mbps", "out_mbps",
-                "utilization_pct", "updated_at"])
+                "utilization_pct", "errors_per_s", "discards_per_s", "flaps_24h", "updated_at"])
     for i in device.interfaces.all():
         w.writerow([_cell(v) for v in [i.if_index, i.name, i.alias, i.if_type, i.admin_status, i.oper_status, _blank(i.speed_mbps),
-                    _blank(i.in_mbps), _blank(i.out_mbps), _blank(i.utilization), i.updated_at.isoformat()]])
+                    _blank(i.in_mbps), _blank(i.out_mbps), _blank(i.utilization), _blank(i.errors_per_s),
+                    _blank(i.discards_per_s), _blank(i.flaps_24h), i.updated_at.isoformat()]])
     return resp
 
 

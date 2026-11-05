@@ -127,7 +127,9 @@ class OverviewTests(TestCase):
         self.assertContains(resp, "core-sw-01")
         self.assertContains(resp, "Oracle (db.example.com:1521)")
         self.assertNotContains(resp, "dr-fw-01")
-        self.assertContains(resp, ">Devices</a></th>")  # site matrix column replaced the "Devices up" tile
+        self.assertContains(resp, 'class="ov-health-card"')
+        self.assertContains(resp, 'class="legacy-heatmap-card"')
+        self.assertContains(resp, '<th>Devices</th>')  # site matrix column for the device kind
 
     def test_recent_events_render_in_one_wrapping_cell(self):
         # The events panel is a narrow column: the time sits on the source line and the title cell may wrap,

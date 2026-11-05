@@ -3,6 +3,7 @@ from django.db.models import Q
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.utils.text import capfirst
+from django.views.decorators.http import require_GET
 
 from urlchecker.models import UrlCheck
 from urlchecker.stats import overall_uptime
@@ -17,15 +18,27 @@ def dashboard(request):
     user = request.user
     t = settings.LINKEDEYE_TENANT
     urls = scope_by_site(UrlCheck.objects.filter(tenant_key=t, enabled=True), user)
+    request.le_site_names = names = overview.site_names(user)   # reused by the context processor
+    site = request.GET.get("site", "")
+    matrix = overview.site_matrix(user, site, names=names)
     return render(request, "core/dashboard.html", {
         "problems": overview.problems(user, limit=50),
         "events": overview.recent_events(user, limit=10),
         "uptime7": overall_uptime(list(urls), 24 * 7),
         "desk": overview.desk_summary(user),
-        "matrix": overview.site_matrix(user),
+        "matrix": matrix,
+        "map_points": overview.site_map_points(user, matrix["rows"], site),
         "md": overview.market_day(user),
         "heatmap_url": overview._url("cmdb:heatmap") or overview._url("heatmap"),
     })
+
+
+@require_GET
+def backend_summary_api(request):
+    """Load legacy backend health independently from the page render."""
+    from .backend_summary import summary
+
+    return JsonResponse(summary(request.user, request.GET.get("site", "")))
 
 
 SEARCH_LIMIT = 25

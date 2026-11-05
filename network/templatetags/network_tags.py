@@ -51,6 +51,19 @@ def speed(value):
 
 
 @register.filter
+def per_s(value):
+    """Errors / discards per second ('–' when not collected)."""
+    if value is None or value == "":
+        return "–"
+    v = float(value)
+    if v == 0:
+        return "0/s"
+    if v < 0.01:
+        return "<0.01/s"
+    return f"{v:.2f}/s".replace(".00/s", "/s") if v < 10 else f"{v:,.0f}/s"
+
+
+@register.filter
 def latency(value):
     if value is None or value == "":
         return "–"

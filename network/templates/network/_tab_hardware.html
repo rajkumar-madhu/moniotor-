@@ -1,0 +1,31 @@
+{% load le network_tags %}
+<section class="grid g-2 nw-reference-details">
+  <div class="panel"><div class="panel-h"><h2>System · SNMPv2-MIB</h2><span class="right t-mute small">{% if device.metrics_updated_at %}Updated {{ device.metrics_updated_at|ago }}{% else %}Waiting for telemetry{% endif %}</span></div>
+    <dl class="kv">
+      <dt>sysName</dt><dd>{{ device.name }}</dd>
+      <dt>sysDescr</dt><dd>{{ device.vendor|default:"Network device" }} {{ device.model }}{% if device.firmware %} · {{ device.firmware }}{% endif %}</dd>
+      <dt>Serial</dt><dd>{{ device.serial|default:"–" }}</dd>
+      <dt>sysUpTime</dt><dd>{% if device.uptime_seconds is not None %}{{ device.uptime_display }}{% else %}<span class="t-mute">–</span>{% endif %}</dd>
+      <dt>sysLocation</dt><dd>{{ device.site|default:"–" }}</dd>
+      <dt>Management</dt><dd><span class="mono">{{ device.mgmt_ip }} · TCP {{ device.check_port }}</span></dd>
+      <dt>SNMP instance</dt><dd>{% if device.prometheus_instance %}<span class="mono">{{ device.prometheus_instance }}</span>{% else %}<span class="t-mute">Not configured</span>{% endif %}</dd>
+      <dt>Metrics source</dt><dd>{% if metrics_ok %}<span class="t-ok">Connected</span>{% else %}<span class="t-mute">{{ metrics_msg }}</span>{% endif %}</dd>
+    </dl>
+  </div>
+  <div class="panel"><div class="panel-h"><h2>Hardware inventory</h2>{% if can_operate %}<a class="right view-all" href="{% url 'network:edit' device.pk %}">Edit device {% icon "arrow-right" 14 %}</a>{% endif %}</div>
+    <dl class="kv">
+      <dt>Device</dt><dd>{{ device.name }}</dd>
+      <dt>Type</dt><dd>{{ device.get_device_type_display }}</dd>
+      <dt>Vendor / model</dt><dd>{{ device.vendor|default:"–" }} {{ device.model }}</dd>
+      <dt>Firmware / OS</dt><dd>{{ device.firmware|default:"–" }}</dd>
+      <dt>Role</dt><dd>{{ device.role|default:"–" }}</dd>
+      <dt>Environment</dt><dd>{{ device.get_environment_display|default:"–" }}</dd>
+      <dt>Contact</dt><dd>{{ device.contact|default:"–" }}</dd>
+      <dt>Description</dt><dd>{{ device.description|default:"–" }}</dd>
+    </dl>
+  </div>
+</section>
+<section class="panel"><div class="panel-h"><h2>Front panel status</h2><a class="right view-all" href="?tab=interfaces">View all {{ if_total }} interfaces {% icon "arrow-right" 14 %}</a></div>
+  {% if interfaces %}{% include "network/_iface_table.html" with rows=interfaces %}
+  {% else %}<div class="nw-empty sm">{% icon "plug" 24 %}<p>No interface telemetry is available yet. {{ metrics_msg }}</p></div>{% endif %}
+</section>
