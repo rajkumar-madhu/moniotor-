@@ -34,9 +34,9 @@ STATUS_PILL = {"Open": ("crit", False), "In Progress": ("warn", True), "On Hold"
 AVATAR_COLORS = {"Arul": "#2b4cff", "Priya": "#7a4fd6", "Karthik": "#0f7a55", "Ravi": "#9a4a06",
                  "Divya": "#cc4216", "Mani": "#3d3a35"}
 
-CATEGORIES = [("Network", 32, "#2b4cff"), ("Server", 28, "#ff5b2e"), ("Application", 20, "#7a4fd6"),
-              ("Access Management", 16, "#0f7a55"), ("Email", 12, "#e08a00"), ("Database", 8, "#d92d20"),
-              ("Hardware", 8, "#a8a398")]
+CATEGORIES = [("Network", 32, "var(--chart-6)"), ("Server", 28, "var(--chart-2)"), ("Application", 20, "var(--chart-7)"),
+              ("Access Management", 16, "var(--chart-4)"), ("Email", 12, "var(--chart-3)"), ("Database", 8, "var(--chart-1)"),
+              ("Hardware", 8, "var(--stone)")]
 
 # Shape of the 15-day trend (created / resolved per day), with a little seeded jitter.
 CREATED = [10, 8, 13, 9, 12, 23, 27, 20, 16, 19, 22, 24, 23, 28, 35]
@@ -71,12 +71,12 @@ def incidents():
     def kpi(label, value, sub, glyph, tone, change, rotate=False):
         return {"label": label, "value": value, "sub": sub, "glyph": glyph, "tone": tone, "delta": change, "rotate": rotate}
 
-    by_status = [{"label": "Open", "value": 48, "color": "#d92d20"}, {"label": "In Progress", "value": 24, "color": "#e08a00"},
-                 {"label": "On Hold", "value": 12, "color": "#7a4fd6"}, {"label": "Resolved", "value": 76, "color": "#0f7a55"},
-                 {"label": "Closed", "value": 36, "color": "#a8a398"}]
-    sla_legend = [{"label": "Met", "value": 108, "color": "#0f7a55", "link": True},
-                  {"label": "Breached", "value": 12, "color": "#d92d20"},
-                  {"label": "At Risk", "value": 4, "color": "#e08a00"}]
+    by_status = [{"label": "Open", "value": 48, "color": "var(--chart-crit)"}, {"label": "In Progress", "value": 24, "color": "var(--chart-warn)"},
+                 {"label": "On Hold", "value": 12, "color": "var(--chart-7)"}, {"label": "Resolved", "value": 76, "color": "var(--chart-ok)"},
+                 {"label": "Closed", "value": 36, "color": "var(--stone)"}]
+    sla_legend = [{"label": "Met", "value": 108, "color": "var(--chart-ok)", "link": True},
+                  {"label": "Breached", "value": 12, "color": "var(--chart-crit)"},
+                  {"label": "At Risk", "value": 4, "color": "var(--chart-warn)"}]
     met = sla_legend[0]["value"]
     sla_total = sum(s["value"] for s in sla_legend)
 
@@ -102,12 +102,12 @@ def incidents():
         "trend": {"labels": [d.strftime("%b %-d") for d in days],
                   "tipLabels": [d.strftime("%a, %b %-d") for d in days],
                   "unit": "", "yMax": 40, "yTicks": 4, "xLabelEvery": 2, "series": [
-                      {"name": "Created", "color": "#2b4cff", "values": created, "area": True, "areaOpacity": 0.2, "width": 2},
-                      {"name": "Resolved", "color": "#0f7a55", "values": resolved, "area": True, "areaOpacity": 0.2, "width": 2}]},
+                      {"name": "Created", "color": "var(--chart-6)", "values": created, "area": True, "areaOpacity": 0.2, "width": 2},
+                      {"name": "Resolved", "color": "var(--chart-ok)", "values": resolved, "area": True, "areaOpacity": 0.2, "width": 2}]},
         "by_status": {"segments": by_status, "center": {"value": "124", "label": "Total"},
                       "thickness": 24},
-        "sla": {"segments": [{"label": "Met", "value": met, "color": "#0f7a55"},
-                             {"label": "Not met", "value": sla_total - met, "color": "#ebe5d9"}],
+        "sla": {"segments": [{"label": "Met", "value": met, "color": "var(--chart-ok)"},
+                             {"label": "Not met", "value": sla_total - met, "color": "var(--chart-track)"}],
                 "center": {"value": f"{round(met * 100 / sla_total)}%"}, "thickness": 18},
         "sla_legend": sla_legend,
         "categories": CATEGORIES,
