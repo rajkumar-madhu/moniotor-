@@ -41,6 +41,40 @@ class OverviewTests(TestCase):
         self.assertIn("Mumbai (NSE)", sites)
         self.assertNotIn("DR Site", sites)
 
+    def test_site_matrix_selected_site_narrows_rows_and_totals(self):
+        m = overview.site_matrix(self.admin, "DR Site")
+        self.assertEqual([r["site"] for r in m["rows"]], ["DR Site"])
+        self.assertEqual(next(t for t in m["totals"] if t["key"] == "url")["total"], 1)
+
+    def test_site_matrix_unknown_or_hidden_site_returns_no_rows(self):
+        # Same behaviour as backend_summary: a site outside the user's scope shows nothing, not every site.
+        self.assertEqual(overview.site_matrix(self.admin, "Typo")["rows"], [])
+        m = overview.site_matrix(self.mum_viewer, "DR Site")
+        self.assertEqual(m["rows"], [])
+        self.assertTrue(all(t["total"] == 0 for t in m["totals"]))
+
+    def test_heatmap_page_renders_site_heatmap_without_overview_css(self):
+        self.client.force_login(self.admin)
+        r = self.client.get("/monitoring/heatmap/")
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "legacy-heatmap-card")
+        self.assertContains(r, "site-heatmap.css")
+        self.assertNotContains(r, "pages/overview.css")
+
+    def test_site_map_points_require_coordinates_and_respect_site_scope(self):
+        self.mum.latitude, self.mum.longitude = 19.076, 72.8777
+        self.mum.save(update_fields=["latitude", "longitude"])
+        self.dr.latitude, self.dr.longitude = 12.9716, 77.5946
+        self.dr.save(update_fields=["latitude", "longitude"])
+        matrix = overview.site_matrix(self.mum_viewer)
+        points = overview.site_map_points(self.mum_viewer, matrix["rows"])
+        self.assertEqual([point["name"] for point in points], ["Mumbai (NSE)"])
+        self.assertEqual(points[0]["latLng"], [19.076, 72.8777])
+        # With a site filter only that site is plotted (others would otherwise show as 'none').
+        matrix = overview.site_matrix(self.admin, "DR Site")
+        points = overview.site_map_points(self.admin, matrix["rows"], "DR Site")
+        self.assertEqual([point["name"] for point in points], ["DR Site"])
+
     def test_market_day_midday_places_now_and_missed_bod(self):
         Mode.objects.create(code="BOD", name="BOD", window_start=time(7), window_end=time(9))
         eod = Mode.objects.create(code="EOD", name="EOD", window_start=time(15, 30), window_end=time(16))
