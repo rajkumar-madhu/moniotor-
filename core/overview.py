@@ -8,6 +8,7 @@ from django.conf import settings
 from django.core.exceptions import FieldError
 from django.db import DatabaseError
 from django.urls import NoReverseMatch, reverse
+from urllib.parse import urlencode
 
 from .access import scope_by_site, visible_sites
 
@@ -185,25 +186,32 @@ MATRIX_KINDS = [
 SHARED = "All sites"
 
 
-def site_matrix(user):
+def site_matrix(user, selected_site="", names=None):
     """Per site, per check kind: total / healthy / down / other, plus firing alerts. Records with no site or
-    'All Sites' are grouped under one shared row. Returns {"kinds": [...], "rows": [...], "totals": {...}}."""
-    from django.db.models import Count, Q
-    kinds, cells = [], {}
+    'All Sites' are grouped under one shared row. Returns {"kinds": [...], "rows": [...], "totals": {...}}.
+    `selected_site` narrows to one site; a site the user cannot see yields no rows (same as backend_summary).
+    Pass `names` (the user's site_names) when the caller already has them, to avoid recomputing."""
+    from django.db.models import Count, Max, Q
+    names = site_names(user) if names is None else names
+    kinds, cells, updates_by_site = [], {}, {}
     for key, label, app_label, name, field, enabled, status_field, ok, bad, url_name in MATRIX_KINDS:
         m = model(app_label, name)
         if not m:
             continue
         rows = _safe(lambda: list(_scoped(m, user, field).filter(**enabled).values(field).annotate(
             total=Count("pk"), ok=Count("pk", filter=Q(**{f"{status_field}__in": ok})),
-            bad=Count("pk", filter=Q(**{f"{status_field}__in": bad})))), None)
+            bad=Count("pk", filter=Q(**{f"{status_field}__in": bad})),
+            last_update=Max("last_checked_at"))), None)
         if rows is None:
             continue
         kinds.append({"key": key, "label": label, "href": _url(url_name)})
         for r in rows:
             site = r[field] if r[field] not in ("", "All Sites", None) else SHARED
-            cells.setdefault(site, {})[key] = {"total": r["total"], "ok": r["ok"], "bad": r["bad"],
-                                               "other": r["total"] - r["ok"] - r["bad"]}
+            site_cells = cells.setdefault(site, {})
+            site_cells[key] = {"total": r["total"], "ok": r["ok"], "bad": r["bad"],
+                               "other": r["total"] - r["ok"] - r["bad"]}
+            if r["last_update"] and (site not in updates_by_site or r["last_update"] > updates_by_site[site]):
+                updates_by_site[site] = r["last_update"]
     Alert = model("telemetry", "Alert")
     alerts = {}
     if Alert:
@@ -213,10 +221,14 @@ def site_matrix(user):
             a = alerts.setdefault(site, {"n": 0, "crit": 0})
             a["n"] += r["n"]
             a["crit"] += r["crit"]
-    sites = sorted(set(cells) | set(alerts) | set(site_names(user)), key=lambda s: (s == SHARED, s.lower()))
+    if selected_site:
+        sites = [selected_site] if selected_site in names else []
+    else:
+        sites = sorted(set(cells) | set(alerts) | set(names), key=lambda s: (s == SHARED, s.lower()))
     out, totals = [], {k["key"]: {"total": 0, "ok": 0, "bad": 0, "other": 0} for k in kinds}
     for site in sites:
-        row = {"site": site, "cells": [], "alerts": alerts.get(site, {"n": 0, "crit": 0}), "bad": 0}
+        row = {"site": site, "cells": [], "alerts": alerts.get(site, {"n": 0, "crit": 0}), "bad": 0,
+               "last_update": updates_by_site.get(site)}
         for k in kinds:
             c = cells.get(site, {}).get(k["key"])
             if c:
@@ -226,13 +238,40 @@ def site_matrix(user):
                 tone = "crit" if c["bad"] else ("warn" if c["other"] else "ok")
             else:
                 tone = "none"
-            q = "" if site == SHARED else f"?site={site}"
+            q = "" if site == SHARED else "?" + urlencode({"site": site})
             row["cells"].append({"kind": k["key"], "c": c, "tone": tone, "href": (k["href"] + q) if k["href"] else ""})
         row["tone"] = "crit" if row["bad"] or row["alerts"]["crit"] else (
             "warn" if any(x["tone"] == "warn" for x in row["cells"]) or row["alerts"]["n"] else "ok")
         out.append(row)
     out.sort(key=lambda r: ({"crit": 0, "warn": 1, "ok": 2}[r["tone"]], r["site"] == SHARED, r["site"].lower()))
-    return {"kinds": kinds, "rows": out, "totals": [dict(totals[k["key"]], key=k["key"]) for k in kinds]}
+    summaries = []
+    for kind in kinds:
+        summary = dict(totals[kind["key"]], key=kind["key"], label=kind["label"], href=kind["href"])
+        total = summary["total"]
+        summary["ok_pct"] = round(summary["ok"] * 100 / total, 1) if total else 0
+        summary["bad_end_pct"] = round((summary["ok"] + summary["bad"]) * 100 / total, 1) if total else 0
+        summaries.append(summary)
+    return {"kinds": kinds, "rows": out, "totals": summaries}
+
+
+def site_map_points(user, rows, selected_site=""):
+    """Return authorized sites with explicitly configured coordinates and current status. With `selected_site`
+    (the same filter passed to site_matrix) only that site is plotted, so unfiltered sites never show as 'none'."""
+    from .models import Site
+
+    status_by_name = {row["site"]: row["tone"] for row in rows}
+    qs = _scoped(Site, user, field="name")
+    if selected_site:
+        qs = qs.filter(name=selected_site)
+    points = []
+    for site in qs.filter(latitude__isnull=False, longitude__isnull=False).only(
+            "name", "latitude", "longitude"):
+        points.append({
+            "name": site.name,
+            "latLng": [float(site.latitude), float(site.longitude)],
+            "tone": status_by_name.get(site.name, "none"),
+        })
+    return points
 
 
 DAY_START_H, DAY_END_H = 6, 24   # the market-day strip spans 06:00–24:00 IST

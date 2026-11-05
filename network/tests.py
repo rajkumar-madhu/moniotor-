@@ -443,7 +443,7 @@ class ViewTests(TestCase):
         r = self.c.get(reverse("network:all") + "?status=unknown&q=core")
         self.assertContains(r, "core-sw-01")
         self.assertNotContains(r, ">FG-01<")
-        for tab in ("overview", "interfaces", "traffic", "events", "configuration"):
+        for tab in ("overview", "interfaces", "traffic", "hardware", "neighbours", "events", "configuration"):
             r = self.c.get(reverse("network:detail", args=[self.d.pk]) + f"?tab={tab}")
             self.assertEqual(r.status_code, 200, tab)
             self.assertContains(r, "core-sw-01")
@@ -467,6 +467,14 @@ class ViewTests(TestCase):
         self.assertContains(r, "86 days")
         self.assertContains(r, "core-sw-01 is down")
         self.assertContains(r, "Timed out after 5s")
+        r = self.c.get(reverse("network:detail", args=[self.d.pk]) + "?tab=hardware")
+        self.assertContains(r, "System · SNMPv2-MIB")
+        self.assertContains(r, "Gi1/0/1")
+        r = self.c.get(reverse("network:detail", args=[self.d.pk]) + "?tab=neighbours")
+        self.assertContains(r, "LLDP neighbour collection is not connected")
+        self.assertContains(r, "Open topology")
+        r = self.c.get(reverse("network:detail", args=[self.d.pk]) + "?tab=configuration")
+        self.assertContains(r, "Running config · diff since last backup")
         r = self.c.get(reverse("network:detail", args=[self.d.pk]) + "?tab=events")
         self.assertContains(r, "Check History")
         r = self.c.get(reverse("network:interfaces_export", args=[self.d.pk]))

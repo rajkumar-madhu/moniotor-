@@ -33,8 +33,8 @@ TYPE_INTRO = {
     "physical_server": "Bare-metal servers and appliances",
     "virtual_machine": "Virtual machines and their hypervisor guests",
 }
-TABS = [("overview", "Overview"), ("interfaces", "Interfaces"), ("traffic", "Traffic"), ("events", "Events"),
-        ("configuration", "Configuration")]
+TABS = [("overview", "Overview"), ("interfaces", "Interfaces"), ("traffic", "Traffic"),
+        ("hardware", "Hardware"), ("neighbours", "Neighbours"), ("events", "Alerts"), ("configuration", "Configuration")]
 CHECK_ALL_LIMIT = 100
 FRONT_PANEL_MAX = 96   # ports drawn on the front panel; the Interfaces tab still lists every interface
 PANEL_CHUNK = 12       # ports per column group (two rows of six), as on most fixed-port switches
@@ -321,7 +321,8 @@ def detail(request, pk):
         "avail_chart": services.availability_chart(device), "latency_chart": services.latency_chart(device),
         "traffic": traffic, "traffic_msg": traffic_msg, "traffic_range": traffic_range,
         "prometheus_on": prometheus.configured(), "metrics_msg": metrics_msg,
-        "metrics_ok": bool(prometheus.configured() and device.prometheus_instance and device.metrics_updated_at),
+        "metrics_ok": bool(prometheus.configured() and device.prometheus_instance and device.metrics_updated_at
+                           and not device.metrics_error),
         "events": services.events_for(device, 50 if tab == "events" else 6),
         "polls": device.polls.all()[:50] if tab == "events" else [],
         "topology_url": services.topology_url(device), "discovery_url": services.discovery_url(device),

@@ -5,7 +5,7 @@ from .models import AuditEvent, Event, Membership, Site
 
 @admin.register(Site)
 class SiteAdmin(admin.ModelAdmin):
-    list_display = ("name", "code", "region", "criticality", "tenant_key")
+    list_display = ("name", "code", "region", "latitude", "longitude", "criticality", "tenant_key")
     search_fields = ("name", "code", "region")
     prepopulated_fields = {"code": ("name",)}
 
