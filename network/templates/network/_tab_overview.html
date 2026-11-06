@@ -1,7 +1,7 @@
 {% load le network_tags %}
 {% if ports %}{% include "network/_front_panel.html" %}{% endif %}
 
-{% if port %}<div class="nw-alert info nw-scope" role="status">{% icon "filter" 16 %}<span>Charts above filtered to <b>{{ port.name }}</b>{% if port.alias %} ({{ port.alias }}){% endif %}</span><a class="right" href="?tab=overview">Show whole device {% icon "x" 13 %}</a></div>{% endif %}
+{% if port %}<div class="nw-alert info nw-scope" role="status">{% icon "filter" 16 %}<span>Charts filtered to <b>{{ port.name }}</b>{% if port.alias %} ({{ port.alias }}){% endif %}</span><a class="right" href="?tab=overview">Show whole device {% icon "x" 13 %}</a></div>{% endif %}
 
 <section class="grid nw-row2">
   <div class="panel" id="device-info"><div class="panel-h"><h2>Device Information</h2>{% if can_operate %}<a class="right view-all" href="{% url 'network:edit' device.pk %}">Edit {% icon "arrow-right" 14 %}</a>{% endif %}</div>
