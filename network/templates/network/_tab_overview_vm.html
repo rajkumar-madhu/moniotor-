@@ -1,41 +1,4 @@
 {% load le network_tags %}
-<section class="kpis nw-dkpis nw-vm-kpis" aria-label="VM summary">
-  <div class="kpi"><div class="kpi-top"><div class="tile bg-info sq">{% icon "cpu" 22 %}</div>
-    <div class="kpi-body"><div class="label">CPU usage</div>
-      {% if vm_metrics.cpu is not None %}<div class="value">{{ vm_metrics.cpu|floatformat:1 }}%</div>
-      <div class="sub{% if vm_metrics.cpu_delta != None and vm_metrics.cpu_delta < 0 %} t-ok{% elif vm_metrics.cpu_delta %} t-warn{% endif %}">{% if vm_metrics.cpu_delta != None %}{% if vm_metrics.cpu_delta > 0 %}+{% endif %}{{ vm_metrics.cpu_delta|floatformat:0 }}%{% else %}Guest CPU{% endif %}</div>
-      {% else %}<div class="value t-mute">–</div><div class="sub">No guest metrics</div>{% endif %}
-    </div></div></div>
-  <div class="kpi"><div class="kpi-top"><div class="tile bg-purple sq">{% icon "layers" 22 %}</div>
-    <div class="kpi-body"><div class="label">Memory usage</div>
-      {% if vm_metrics.memory is not None %}<div class="value">{{ vm_metrics.memory|floatformat:1 }}%</div>
-      <div class="sub{% if vm_metrics.memory_delta != None and vm_metrics.memory_delta < 0 %} t-ok{% elif vm_metrics.memory_delta %} t-warn{% endif %}">{% if vm_metrics.memory_delta != None %}{% if vm_metrics.memory_delta > 0 %}+{% endif %}{{ vm_metrics.memory_delta|floatformat:0 }}%{% else %}Guest memory{% endif %}</div>
-      {% else %}<div class="value t-mute">–</div><div class="sub">No guest metrics</div>{% endif %}
-    </div></div></div>
-  <div class="kpi"><div class="kpi-top"><div class="tile bg-warn sq">{% icon "hdd" 22 %}</div>
-    <div class="kpi-body"><div class="label">Disk usage (total)</div>
-      {% if vm_metrics.disk is not None %}<div class="value">{{ vm_metrics.disk|floatformat:1 }}%</div>
-      <div class="sub{% if vm_metrics.disk_delta != None and vm_metrics.disk_delta > 0 %} t-warn{% elif vm_metrics.disk_delta != None %} t-ok{% endif %}">{% if vm_metrics.disk_delta != None %}{% if vm_metrics.disk_delta > 0 %}+{% endif %}{{ vm_metrics.disk_delta|floatformat:0 }}%{% else %}Root filesystem{% endif %}</div>
-      {% else %}<div class="value t-mute">–</div><div class="sub">No guest metrics</div>{% endif %}
-    </div></div></div>
-  <div class="kpi"><div class="kpi-top"><div class="tile bg-ok sq">{% icon "activity" 22 %}</div>
-    <div class="kpi-body"><div class="label">Network (total)</div>
-      {% if vm_metrics.network_mbps is not None %}<div class="value">{{ vm_metrics.network_mbps|floatformat:1 }} Mb/s</div>
-      <div class="sub{% if vm_metrics.network_delta != None and vm_metrics.network_delta > 0 %} t-ok{% endif %}">{% if vm_metrics.network_delta != None %}{% if vm_metrics.network_delta > 0 %}+{% endif %}{{ vm_metrics.network_delta|floatformat:0 }}%{% else %}RX + TX{% endif %}</div>
-      {% else %}<div class="value t-mute">–</div><div class="sub">No guest metrics</div>{% endif %}
-    </div></div></div>
-  <div class="kpi"><div class="kpi-top"><div class="tile bg-info sq">{% icon "clock" 22 %}</div>
-    <div class="kpi-body"><div class="label">Uptime</div>
-      {% if device.uptime_seconds is not None %}<div class="value">{{ device.uptime_short }}</div><div class="sub">{{ device.uptime_display }}</div>
-      {% elif sample_mode %}<div class="value">27d</div><div class="sub">27 days, 8 hours (sample)</div>
-      {% else %}<div class="value t-mute">–</div><div class="sub" title="{{ metrics_msg }}">No uptime yet</div>{% endif %}
-    </div></div></div>
-  <div class="kpi"><div class="kpi-top"><div class="nw-status t-{{ device.status|tone }}">{% if device.status == "up" %}{% ficon "check-circle" 38 %}{% elif device.status == "down" %}{% ficon "x-circle" 38 %}{% else %}{% ficon "help" 38 %}{% endif %}</div>
-    <div class="kpi-body"><div class="label">Status</div><div class="value t-{{ device.status|tone }}">{{ vm_power }}</div>
-      <div class="sub">{% if vm_meta.ha or vm_metrics.ha %}HA: {{ vm_meta.ha|default:vm_metrics.ha }}{% else %}Last seen: {{ device.last_seen|ago }}{% endif %}</div>
-    </div></div></div>
-</section>
-
 {% if sample_mode %}<div class="nw-alert mute" role="status">{% icon "info" 16 %}<span>Showing <b>sample</b> guest metrics. Scrape <code>node_exporter</code> into Prometheus and set the device instance label{% if can_operate %}, or remove <code>?sample=1</code>{% endif %}.</span>
   <a class="right" href="?tab=overview">Live only</a></div>
 {% elif not prometheus_on or not device.prometheus_instance %}
@@ -43,23 +6,14 @@
   <a class="right" href="?tab=overview&amp;sample=1">Show sample data</a></div>
 {% endif %}
 
-<section class="grid nw-row2 nw-vm-main">
-  <div class="panel" id="vm-info">
-    <div class="panel-h"><h2>VM Information</h2>{% if can_operate %}<a class="right view-all" href="{% url 'network:edit' device.pk %}">Edit {% icon "arrow-right" 14 %}</a>{% endif %}</div>
-    <div class="table-wrap dense"><table class="nw-kv"><tbody>
-      {% for label, value in vm_info_rows %}
-      <tr><td>{{ label }}</td><td{% if label == "Management IP" or label == "vCenter" %} class="mono"{% endif %}>{{ value }}</td></tr>
-      {% endfor %}
-    </tbody></table></div>
-    {% if vm_metrics %}<p class="nw-note">{{ vm_metrics.source }}{% if vm_metrics.sample %} · synced just now{% else %}{% if device.metrics_updated_at %} · synced {{ device.metrics_updated_at|ago }}{% endif %}{% endif %}</p>{% endif %}
-  </div>
-  <div class="panel" id="vm-util">
-    <div class="panel-h nowrap"><h2>Resource utilization</h2><span class="right t-mute small">Last 1 hour</span></div>
-    {% if vm_metrics.util_1h %}
-    <div class="chart" data-chart="line" data-src="nw-vm-util" style="height:180px"></div>
-    <div class="legend nw-legend"><span><i class="sw-in"></i>CPU</span><span><i class="sw-out"></i>Memory</span><span><i class="sw-disc" style="background:var(--teal)"></i>Disk</span></div>
-    {% else %}<div class="nw-empty sm">{% icon "activity" 24 %}<p>No guest utilization series yet.</p></div>{% endif %}
-  </div>
+<section class="panel nw-vm-main" id="vm-info">
+  <div class="panel-h"><h2>VM Information</h2>{% if can_operate %}<a class="right view-all" href="{% url 'network:edit' device.pk %}">Edit {% icon "arrow-right" 14 %}</a>{% endif %}</div>
+  <div class="table-wrap dense"><table class="nw-kv"><tbody>
+    {% for label, value in vm_info_rows %}
+    <tr><td>{{ label }}</td><td{% if label == "Management IP" or label == "vCenter" %} class="mono"{% endif %}>{{ value }}</td></tr>
+    {% endfor %}
+  </tbody></table></div>
+  {% if vm_metrics %}<p class="nw-note">{{ vm_metrics.source }}{% if vm_metrics.sample %} · synced just now{% else %}{% if device.metrics_updated_at %} · synced {{ device.metrics_updated_at|ago }}{% endif %}{% endif %} — CPU, memory, disk, and network charts use Prometheus (guest exporter) above.</p>{% endif %}
 </section>
 
 <section class="panel nw-vm-actions">
@@ -72,29 +26,7 @@
   <p class="nw-note">Power, console, snapshot, and migrate require a vCenter or hypervisor connector. Inventory and guest metrics above still work without it.</p>
 </section>
 
-<section class="grid nw-charts nw-vm-charts">
-  <div class="panel"><div class="panel-h nowrap"><h2>CPU utilization</h2><span class="right t-mute small">Last 24 hours</span></div>
-    {% if vm_metrics.cpu_24h %}<div class="chart" data-chart="line" data-src="nw-vm-cpu" style="height:132px"></div>
-    {% else %}<div class="nw-empty sm">{% icon "cpu" 24 %}<p>No CPU series.</p></div>{% endif %}
-  </div>
-  <div class="panel"><div class="panel-h nowrap"><h2>Memory usage</h2><span class="right t-mute small">Last 24 hours</span></div>
-    {% if vm_metrics.memory_24h %}<div class="chart" data-chart="line" data-src="nw-vm-mem" style="height:132px"></div>
-    {% else %}<div class="nw-empty sm">{% icon "layers" 24 %}<p>No memory series.</p></div>{% endif %}
-  </div>
-  <div class="panel"><div class="panel-h nowrap"><h2>Network traffic</h2><span class="right t-mute small">Last 24 hours</span></div>
-    {% if vm_metrics.network_24h %}<div class="chart" data-chart="line" data-src="nw-vm-net" style="height:132px"></div>
-    {% else %}<div class="nw-empty sm">{% icon "activity" 24 %}<p>No network series.</p></div>{% endif %}
-  </div>
-</section>
-
-<section class="grid nw-row3">
-  <div class="panel">
-    <div class="panel-h"><h2>Recent Alerts</h2><a class="right view-all" href="?tab=events">View All {% icon "arrow-right" 14 %}</a></div>
-    {% include "network/_events_table.html" %}
-  </div>
-  <div class="panel">
-    <div class="panel-h nowrap"><h2>Check Latency</h2><span class="right t-mute small">Hourly average, last 24 hours</span></div>
-    {% if latency_chart %}<div class="chart" data-chart="line" data-src="nw-latency" style="height:150px"></div>
-    {% else %}<div class="nw-empty sm">{% icon "zap" 24 %}<p>No successful checks in the last 24 hours.</p></div>{% endif %}
-  </div>
+<section class="panel">
+  <div class="panel-h"><h2>Recent Alerts</h2><a class="right view-all" href="?tab=events">View All {% icon "arrow-right" 14 %}</a></div>
+  {% include "network/_events_table.html" %}
 </section>
