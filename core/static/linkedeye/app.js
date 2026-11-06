@@ -65,6 +65,7 @@
   const moon = '<svg class="ic" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 0010 9.8z"/></svg>';
   const applyTheme = t => {
     document.documentElement.setAttribute('data-theme', t);
+    document.documentElement.style.backgroundColor = t === 'dark' ? '#101012' : '#f6f5f3';
     localStorage.setItem(THEME_KEY, t);
     if (themeBtn) {
       themeBtn.innerHTML = t === 'light' ? moon : sun;
@@ -74,7 +75,7 @@
     document.dispatchEvent(new CustomEvent('linkedeye-theme', { detail: { theme: t } }));
   };
   const initial = document.documentElement.getAttribute('data-theme');
-  applyTheme(initial === 'dark' || initial === 'light' ? initial : 'light');
+  applyTheme(initial === 'dark' || initial === 'light' ? initial : 'dark');
   document.addEventListener('linkedeye-theme', () => {
     if (typeof window.leChartsRefresh === 'function') window.leChartsRefresh();
   });

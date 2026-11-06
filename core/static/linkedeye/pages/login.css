@@ -9,20 +9,20 @@
   --ink-2: #666666;
   --on-shape: #000000;            /* text on the yellow shape. The legacy white link is only 1.51:1 there */
   --caption: #004085;
-  --primary: #0078c1;
-  --brand: #0078c1;
+  --primary: #d84a31;
+  --brand: #d84a31;
   --input-bg: #ffffff;
   --input-line: #8a8a8a;
-  --input-focus: #0078c1;
-  --btn-primary: #0078c1;
-  --btn-primary-hover: #0070b4;
-  --btn-primary-active: #0068a7;
+  --input-focus: #14806e;
+  --btn-primary: #d84a31;
+  --btn-primary-hover: #c24028;
+  --btn-primary-active: #9c3222;
   --btn-primary-ink: #ffffff;
   --crit-bg: #fde7e4;
   --crit-ink: #a33219;
   --crit-line: #f6c5bf;
   --card-shadow: 0 4px 6px rgba(0, 0, 0, .1);
-  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font: "Switzer", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   color-scheme: light;
 }
 

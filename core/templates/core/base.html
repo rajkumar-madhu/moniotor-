@@ -4,16 +4,20 @@
   <script>
     (function () {
       var k = 'linkedeye-theme', t = localStorage.getItem(k);
-      if (t !== 'dark' && t !== 'light') { t = 'light'; }
+      if (t !== 'dark' && t !== 'light') { t = 'dark'; }
       document.documentElement.setAttribute('data-theme', t);
-      document.documentElement.style.backgroundColor = t === 'dark' ? '#0e1116' : '#f7f7f4';
+      document.documentElement.style.backgroundColor = t === 'dark' ? '#101012' : '#f6f5f3';
     })();
   </script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}LinkedEye{% endblock %} · LinkedEye</title>
   <link rel="icon" href="{% static 'linkedeye/img/logo-favicon.png' %}">
+  <link rel="preconnect" href="https://api.fontshare.com">
+  <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
+  <link href="https://api.fontshare.com/v2/css?f[]=switzer@400,500,600,700&f[]=sentient@400i&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'linkedeye/app.css' %}">
+  <link rel="stylesheet" href="{% static 'linkedeye/theme-openclaw.css' %}">
   {% block page_css %}{% endblock %}
 </head>
 <body>
