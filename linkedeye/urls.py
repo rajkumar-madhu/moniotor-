@@ -10,6 +10,7 @@ admin.site.site_header = "LinkedEye administration"
 admin.site.site_title = "LinkedEye"   # admin.site.login_form is set in AdministrationConfig.ready()
 
 urlpatterns = [
+    path("welcome/", core.b2b_landing, name="b2b_landing"),
     path("", core.dashboard, name="dashboard"),
     path("search/", core.search, name="search"),
     path("healthz", core.healthz, name="healthz"),

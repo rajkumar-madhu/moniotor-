@@ -151,6 +151,18 @@
 .login .card .btn.primary:active { background: var(--btn-primary-active); border-color: var(--btn-primary-active); }
 .login .card .messages li.error { background: var(--crit-bg); border-color: var(--crit-line); color: var(--crit-ink); border-radius: 8px; }
 
+.login .card .login-aux {
+  margin: 8px 0 0;
+  text-align: center;
+  font-size: 13px;
+}
+.login .card .login-aux a {
+  color: var(--ink-2);
+  font-weight: 600;
+  text-decoration: none;
+}
+.login .card .login-aux a:hover { color: var(--brand); text-decoration: underline; }
+
 .login .copyright { color: var(--ink-2); font-size: 13px; text-align: center; }
 .login .copyright a { color: var(--ink); text-decoration: none; font-weight: 600; }
 .login .copyright a:hover { color: var(--brand); text-decoration: underline; }
