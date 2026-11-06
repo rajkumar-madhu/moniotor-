@@ -1,0 +1,37 @@
+{% load static %}<!doctype html>
+<html lang="en" class="login-page">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block auth_title %}Sign in{% endblock %} · LinkedEye</title>
+  <link rel="icon" href="{% static 'linkedeye/img/logo-favicon.png' %}">
+  <link rel="preconnect" href="https://api.fontshare.com">
+  <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
+  <link href="https://api.fontshare.com/v2/css?f[]=switzer@400,500,600,700&f[]=sentient@400i&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'linkedeye/app.css' %}">
+  <link rel="stylesheet" href="{% static 'linkedeye/pages/login.css' %}">
+</head>
+<body>
+<div class="auth">
+  <aside class="auth-aside" aria-label="LinkedEye platform">
+    <a class="auth-brand" href="https://linkedeye.in/" target="_blank" rel="noopener">
+      <span class="auth-logo"><img src="{% static 'linkedeye/img/logo-in.png' %}" alt="" width="40" height="40"></span>
+      <span class="auth-wordmark"><b>Linked<span>Eye</span></b><small>Enterprise operations</small></span>
+    </a>
+    <p class="auth-tagline">Unified ITSM, monitoring, and CMDB for teams that run production at scale.</p>
+    <ul class="auth-points">
+      <li><strong>Service desk</strong> — incidents, changes, and SLA-aware workflows</li>
+      <li><strong>Observability</strong> — alerts, metrics, uptime, and network health</li>
+      <li><strong>Governance</strong> — site-scoped access, audit trail, and role-based control</li>
+    </ul>
+    <p class="auth-trust">Encrypted sessions · Optional e-mail verification · Multi-site tenancy</p>
+  </aside>
+  <main class="auth-main">
+    <div class="auth-panel">
+      {% block auth_content %}{% endblock %}
+    </div>
+    <footer class="auth-foot">&copy; {% now "Y" %} <a href="https://linkedeye.in/" target="_blank" rel="noopener">LinkedEye.in</a></footer>
+  </main>
+</div>
+</body>
+</html>

@@ -1,30 +1,14 @@
-{% load static %}<!doctype html>
-<html lang="en" class="login-page"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in · LinkedEye</title>
-<link rel="icon" href="{% static 'linkedeye/img/logo-favicon.png' %}">
-<link rel="preconnect" href="https://api.fontshare.com">
-<link href="https://api.fontshare.com/v2/css?f[]=switzer@400,500,600,700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="{% static 'linkedeye/app.css' %}">
-<link rel="stylesheet" href="{% static 'linkedeye/pages/login.css' %}"></head>
-<body><div class="login">
-  <section class="showcase">
-    <img class="wordmark" src="{% static 'linkedeye/img/name-logo.png' %}" alt="LinkedEye" width="404" height="127">
-    <figure>
-      <img src="{% static 'linkedeye/img/Monitors.png' %}" alt="" width="600" height="470">
-      <figcaption>Monitoring</figcaption>
-    </figure>
-  </section>
-  <main class="entry">
-    <form class="card" method="post">{% csrf_token %}
-      <div class="eyebrow">Sign in</div>
-      <h1>Welcome back</h1>
-      <p class="lead">Use your LinkedEye account.</p>
-      {% if form.throttle_message %}<ul class="messages"><li class="error">{{ form.throttle_message }}</li></ul>{% elif form.non_field_errors %}<ul class="messages">{% for err in form.non_field_errors %}<li class="error">{{ err }}</li>{% endfor %}</ul>{% elif form.errors %}<ul class="messages"><li class="error">Your username and password didn't match. Try again.</li></ul>{% endif %}
-      <div class="field"><label for="id_username">Username</label><input type="text" name="username" id="id_username" autocomplete="username" required autofocus></div>
-      <div class="field"><label for="id_password">Password</label><input type="password" name="password" id="id_password" autocomplete="current-password" required></div>
-      <input type="hidden" name="next" value="{{ next }}">
-      <button class="btn primary" type="submit">Sign in</button>
-    </form>
-    <footer class="copyright"><b>Copyright &copy;</b> <a href="https://linkedeye.in/" target="_blank" rel="noopener"><i>LinkedEye.in</i></a> <b>2025</b></footer>
-  </main>
-</div></body></html>
+{% extends "registration/auth_base.html" %}
+{% block auth_title %}Sign in{% endblock %}
+{% block auth_content %}
+<form class="auth-form" method="post">{% csrf_token %}
+  <div class="eyebrow">Sign in</div>
+  <h1>Welcome back</h1>
+  <p class="lead">Use your organization account to access the operations console.</p>
+  {% if form.throttle_message %}<ul class="messages"><li class="error">{{ form.throttle_message }}</li></ul>{% elif form.non_field_errors %}<ul class="messages">{% for err in form.non_field_errors %}<li class="error">{{ err }}</li>{% endfor %}</ul>{% elif form.errors %}<ul class="messages"><li class="error">Your username and password didn't match. Try again.</li></ul>{% endif %}
+  <div class="field"><label for="id_username">Username</label><input type="text" name="username" id="id_username" autocomplete="username" required autofocus></div>
+  <div class="field"><label for="id_password">Password</label><input type="password" name="password" id="id_password" autocomplete="current-password" required></div>
+  <input type="hidden" name="next" value="{{ next }}">
+  <button class="btn primary auth-submit" type="submit">Continue to console</button>
+</form>
+{% endblock %}
