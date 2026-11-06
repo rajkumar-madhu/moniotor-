@@ -14,6 +14,7 @@ from .samples import exporters as s_exporters, firewall as s_firewall, heatmap a
 from .nav import NAV
 
 
+
 def dashboard(request):
     from . import overview
     user = request.user
@@ -28,7 +29,6 @@ def dashboard(request):
         "uptime7": overall_uptime(list(urls), 24 * 7),
         "desk": overview.desk_summary(user),
         "matrix": matrix,
-        "map_points": overview.site_map_points(user, matrix["rows"], site),
         "md": overview.market_day(user),
         "heatmap_url": overview._url("cmdb:heatmap") or overview._url("heatmap"),
     })

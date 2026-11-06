@@ -1,13 +1,7 @@
 {% extends "core/base.html" %}{% load static le %}
 {% block title %}Operations{% endblock %}
-{% block page_css %}<link rel="stylesheet" href="{% static 'linkedeye/vendor/jvectormap/jquery-jvectormap.css' %}"><link rel="stylesheet" href="{% static 'linkedeye/pages/overview.css' %}"><link rel="stylesheet" href="{% static 'linkedeye/pages/site-heatmap.css' %}"><link rel="stylesheet" href="{% static 'linkedeye/pages/backend-health.css' %}">{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'linkedeye/pages/overview.css' %}"><link rel="stylesheet" href="{% static 'linkedeye/pages/site-heatmap.css' %}"><link rel="stylesheet" href="{% static 'linkedeye/pages/backend-health.css' %}">{% endblock %}
 {% block content %}
-<section class="legacy-overview-card" aria-labelledby="legacy-overview-title">
-  <div class="legacy-panel-head"><h1 id="legacy-overview-title">Site locations</h1><span class="legacy-map-controls"><button type="button" data-map-zoom="in" aria-label="Zoom in">+</button><button type="button" data-map-zoom="out" aria-label="Zoom out">−</button></span></div>
-  <div id="linkedeye-world-map" class="legacy-world-map" role="img" aria-label="World map overview of monitored sites"></div>
-  {% if not map_points %}<p class="legacy-map-empty">No site coordinates are configured. Add latitude and longitude in site administration to plot locations.</p>{% endif %}
-</section>
-
 {% include "core/_legacy_heatmap.html" %}
 {% include "core/_backend_health.html" %}
 
@@ -94,44 +88,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{% static 'linkedeye/vendor/jquery/jquery-3.5.1.min.js' %}"></script>
-<script src="{% static 'linkedeye/vendor/jvectormap/jquery-jvectormap.min.js' %}"></script>
-<script src="{% static 'linkedeye/vendor/jvectormap/jquery-jvectormap-world-mill-en.js' %}"></script>
-{{ map_points|json_script:"site-map-points" }}
 <script src="{% static 'linkedeye/pages/backend-health.js' %}"></script>
-<script>
-(function () {
-  var el = document.getElementById('linkedeye-world-map');
-  if (!window.jQuery || !jQuery.fn.vectorMap) {
-    el.removeAttribute('role');
-    el.textContent = 'The site map could not be loaded.';
-    el.className += ' legacy-map-empty';
-    return;
-  }
-  var $map = jQuery(el);
-  var points = JSON.parse(document.getElementById('site-map-points').textContent);
-  // jVectorMap writes colours into SVG attributes, so resolve the tokens to literals here.
-  var styles = getComputedStyle(document.documentElement);
-  function token(name) { return styles.getPropertyValue(name).trim(); }
-  var panel = token('--panel');
-  var colors = { crit: token('--crit'), warn: token('--warn'), ok: token('--ok'), none: token('--stone') };
-  var markerValues = {};
-  points.forEach(function (point, index) { markerValues[index] = colors[point.tone] || colors.none; });
-  $map.vectorMap({
-    map: 'world_mill_en',
-    backgroundColor: panel,
-    zoomOnScroll: false,
-    zoomButtons: false,
-    // white land, as on the live site
-    regionStyle: { initial: { fill: token('--ink'), 'fill-opacity': 1, stroke: panel, 'stroke-width': 0.5 } },
-    markers: points.map(function (point) { return { name: point.name, latLng: point.latLng }; }),
-    markerStyle: { initial: { r: 6, fill: colors.ok, stroke: panel, 'stroke-width': 2 } },
-    series: { markers: [{ attribute: 'fill', values: markerValues }] }
-  });
-  var map = $map.vectorMap('get', 'mapObject');
-  document.querySelectorAll('[data-map-zoom]').forEach(function (button) {
-    button.addEventListener('click', function () { if (button.dataset.mapZoom === 'in') map.zoomIn(); else map.zoomOut(); });
-  });
-}());
-</script>
 {% endblock %}
