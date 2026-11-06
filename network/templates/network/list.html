@@ -70,7 +70,12 @@
         {% if not device_type %}<th>Type</th>{% endif %}
         <th>Vendor / Model</th><th>{% sort_link query "ip" request.GET.sort "Mgmt IP" %}</th><th>{% sort_link query "site" request.GET.sort "Site" %}</th>
         <th>{% sort_link query "status" request.GET.sort "Status" %}</th><th>{% sort_link query "seen" request.GET.sort "Last Seen" %}</th>
-        <th class="num">{% sort_link query "latency" request.GET.sort "Latency" %}</th><th class="num">Avail. 24h</th><th>Interfaces</th><th>Actions</th>
+        <th class="num">{% sort_link query "latency" request.GET.sort "Latency" %}</th><th class="num">Avail. 24h</th><th>Interfaces</th>
+        {% if prometheus_on %}<th class="num" title="Guest CPU (node_exporter, 5m rate)">CPU</th>
+        <th class="num" title="Guest memory % used">Mem</th>
+        <th class="num" title="Root filesystem % used">Disk</th>
+        <th class="num" title="Guest network RX+TX">Net</th>{% endif %}
+        <th>Actions</th>
       </tr></thead>
       <tbody>
       {% for d in page %}
@@ -85,6 +90,12 @@
           <td class="num{% if d.status == 'down' %} t-crit{% endif %}">{{ d.last_latency_ms|latency }}</td>
           <td class="num {{ d.avail24|avail_tone }}">{{ d.avail24|percent:2 }}</td>
           <td>{% if d.ifs %}<span class="{% if d.ifs.0 < d.ifs.1 %}t-warn{% else %}t-ok{% endif %}">{{ d.ifs.0 }}</span> / {{ d.ifs.1 }} up{% else %}<span class="t-mute">–</span>{% endif %}</td>
+          {% if prometheus_on %}
+          <td class="num">{% if d.guest_live and d.guest_live.cpu != None %}{{ d.guest_live.cpu|floatformat:0 }}%{% elif d.prometheus_instance %}<span class="t-mute" title="No series for this instance">–</span>{% else %}<span class="t-mute">—</span>{% endif %}</td>
+          <td class="num">{% if d.guest_live and d.guest_live.memory != None %}{{ d.guest_live.memory|floatformat:0 }}%{% elif d.prometheus_instance %}<span class="t-mute" title="No series for this instance">–</span>{% else %}<span class="t-mute">—</span>{% endif %}</td>
+          <td class="num">{% if d.guest_live and d.guest_live.disk != None %}{{ d.guest_live.disk|floatformat:0 }}%{% elif d.prometheus_instance %}<span class="t-mute" title="No series for this instance">–</span>{% else %}<span class="t-mute">—</span>{% endif %}</td>
+          <td class="num">{% if d.guest_live and d.guest_live.network_mbps != None %}{{ d.guest_live.network_mbps|floatformat:1 }}{% elif d.prometheus_instance %}<span class="t-mute" title="No series for this instance">–</span>{% else %}<span class="t-mute">—</span>{% endif %}</td>
+          {% endif %}
           <td><div class="row-actions">
             {% if can_operate %}
             {% if d.enabled %}<form method="post" action="{% url 'network:check' d.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn icon blue" type="submit" title="Check now" aria-label="Check {{ d.name }} now">{% icon "play" 14 %}</button></form>{% else %}<span class="btn icon" title="Monitoring disabled" aria-hidden="true">{% icon "play" 14 %}</span>{% endif %}
@@ -94,11 +105,11 @@
           </div></td>
         </tr>
       {% empty %}
-        <tr><td colspan="11" class="empty">{% if counts.total %}No devices match these filters.{% else %}No {{ title|lower }} yet.{% if can_operate %} <a href="{{ create_url }}">Add a device</a> or <a href="{% url 'network:discovery' %}">run a discovery</a>.{% endif %}{% endif %}</td></tr>
+        <tr><td colspan="{{ list_colspan }}" class="empty">{% if counts.total %}No devices match these filters.{% else %}No {{ title|lower }} yet.{% if can_operate %} <a href="{{ create_url }}">Add a device</a> or <a href="{% url 'network:discovery' %}">run a discovery</a>.{% endif %}{% endif %}</td></tr>
       {% endfor %}
       </tbody></table></div>
     {% include "core/_pager.html" with pager_noun="devices" %}
-    <p class="nw-note">Reachability: TCP connect to the management address every 60 s (manage.py run_probes). Interfaces: {% if prometheus_on %}Prometheus snmp_exporter.{% else %}Prometheus not connected – set LINKEDEYE_PROMETHEUS_URL.{% endif %}</p>
+    <p class="nw-note">Reachability: TCP connect to the management address every 60 s (manage.py run_probes). Interfaces: {% if prometheus_on %}Prometheus snmp_exporter.{% else %}Prometheus not connected – set LINKEDEYE_PROMETHEUS_URL.{% endif %}{% if prometheus_on %} Guest columns: instant <code>node_exporter</code> metrics per <code>prometheus_instance</code> (batched query on this page).{% endif %}</p>
   </div>
 
 </section>

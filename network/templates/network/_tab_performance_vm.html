@@ -1,0 +1,55 @@
+{% load le %}
+<section class="panel nw-vm-perf">
+  <div class="panel-h nowrap">
+    <h2>Guest performance</h2>
+    <div class="right">
+      <span class="seg" role="group" aria-label="Time range">
+        {% for key, sec in perf_range_choices %}
+        <a href="?tab=performance&amp;perf_range={{ key }}{% if sample_mode %}&amp;sample=1{% endif %}"
+           class="{% if perf_range == key %}on{% endif %}">{{ key }}</a>
+        {% endfor %}
+      </span>
+    </div>
+  </div>
+  {% if vm_perf_sample %}
+  <div class="nw-alert mute" role="status">{% icon "info" 16 %}<span>Showing <b>sample</b> time series. Point Prometheus at <code>node_exporter</code> and set the device Prometheus instance for live data.</span>
+    <a class="right" href="?tab=performance&amp;perf_range={{ perf_range }}">Live only</a>
+  </div>
+  {% elif not prometheus_on or not device.prometheus_instance %}
+  <div class="nw-alert mute" role="status">{% icon "info" 16 %}<span>{{ metrics_msg }}</span>
+    <a class="right" href="?tab=performance&amp;perf_range={{ perf_range }}&amp;sample=1">Show sample data</a>
+  </div>
+  {% elif not vm_performance %}
+  <div class="nw-empty sm">{% icon "activity" 28 %}<p>No guest time series returned for this window. Check that <code>node_exporter</code> metrics exist for <span class="mono">{{ device.prometheus_instance }}</span>.</p></div>
+  {% endif %}
+</section>
+
+{% if vm_performance %}
+<section class="grid g-2 nw-vm-perf-charts">
+  {% if vm_performance.cpu %}
+  <div class="panel"><div class="panel-h nowrap"><h2>CPU</h2><span class="right t-mute small">Last {{ perf_range }}</span></div>
+    <div class="chart" data-chart="line" data-src="nw-vm-perf-cpu" style="height:160px"></div>
+  </div>{% endif %}
+  {% if vm_performance.memory %}
+  <div class="panel"><div class="panel-h nowrap"><h2>Memory</h2><span class="right t-mute small">Last {{ perf_range }}</span></div>
+    <div class="chart" data-chart="line" data-src="nw-vm-perf-mem" style="height:160px"></div>
+  </div>{% endif %}
+  {% if vm_performance.disk_used %}
+  <div class="panel"><div class="panel-h nowrap"><h2>Root filesystem used</h2><span class="right t-mute small">Last {{ perf_range }}</span></div>
+    <div class="chart" data-chart="line" data-src="nw-vm-perf-disk" style="height:160px"></div>
+  </div>{% endif %}
+  {% if vm_performance.network %}
+  <div class="panel"><div class="panel-h nowrap"><h2>Network throughput</h2><span class="right t-mute small">RX + TX · Last {{ perf_range }}</span></div>
+    <div class="chart" data-chart="line" data-src="nw-vm-perf-net" style="height:160px"></div>
+  </div>{% endif %}
+  {% if vm_performance.disk_io %}
+  <div class="panel"><div class="panel-h nowrap"><h2>Disk I/O</h2><span class="right t-mute small">Read + write · Last {{ perf_range }}</span></div>
+    <div class="chart" data-chart="line" data-src="nw-vm-perf-dio" style="height:160px"></div>
+  </div>{% endif %}
+  {% if vm_performance.load1 %}
+  <div class="panel"><div class="panel-h nowrap"><h2>Load average (1m)</h2><span class="right t-mute small">Last {{ perf_range }}</span></div>
+    <div class="chart" data-chart="line" data-src="nw-vm-perf-load" style="height:160px"></div>
+  </div>{% endif %}
+</section>
+{% endif %}
+<p class="nw-note">Same <code>instance</code> label as Overview (<span class="mono">{{ device.prometheus_instance|default:"–" }}</span>). Summed disk I/O uses <code>node_disk_*</code> where <code>device</code> matches common Linux disk names.</p>

@@ -1,26 +1,27 @@
-/* Sign-in page aligned with the LinkedEye console: cool canvas, amber brand, Source Sans. */
+/* Sign-in page: InfraAsset warm paper, coral accent, Fraunces + IBM Plex. */
 .login-page {
-  --bg: #f3f4f6;
-  --frame: #f3f4f6;
-  --panel: #ffffff;
-  --ink: #15191f;
-  --ink-2: #66707d;
-  --on-shape: #15191f;
-  --caption: #d97706;
-  --primary: #d97706;
-  --brand: #e99123;
-  --input-bg: #ffffff;
-  --input-line: #cfd5de;
-  --input-focus: #e99123;
-  --btn-primary: #d97706;
-  --btn-primary-hover: #c56a05;
-  --btn-primary-active: #a85a04;
-  --btn-primary-ink: #ffffff;
-  --crit-bg: #fde7e4;
-  --crit-ink: #a33219;
-  --crit-line: #f6c5bf;
-  --card-shadow: 0 1px 2px rgba(15, 20, 25, .04), 0 18px 48px -24px rgba(15, 20, 25, .22);
-  --font: "Source Sans 3", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --bg: #f4f1ea;
+  --frame: #f4f1ea;
+  --panel: #fffcf7;
+  --ink: #0e1116;
+  --ink-2: #5c6370;
+  --on-shape: #0e1116;
+  --caption: #ff5b2e;
+  --primary: #ff5b2e;
+  --brand: #ff5b2e;
+  --input-bg: #fffcf7;
+  --input-line: #c9c2b4;
+  --input-focus: #0f7a55;
+  --btn-primary: #ff5b2e;
+  --btn-primary-hover: #e84d22;
+  --btn-primary-active: #d0451c;
+  --btn-primary-ink: #fffcf7;
+  --crit-bg: #fde8e6;
+  --crit-ink: #a81818;
+  --crit-line: #f0c4bf;
+  --card-shadow: 0 1px 0 rgba(14, 17, 22, .04) inset, 0 14px 40px -20px rgba(14, 17, 22, .14);
+  --font: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --display: "Fraunces", Georgia, "Times New Roman", serif;
   color-scheme: light;
 }
 
@@ -31,8 +32,8 @@
   place-items: stretch;
   padding: 0;
   background:
-    radial-gradient(ellipse 80% 60% at 100% 0%, rgba(233, 145, 35, .12), transparent 55%),
-    linear-gradient(160deg, #eef1f5 0%, #f3f4f6 45%, #e8ebf0 100%);
+    radial-gradient(ellipse 85% 55% at 100% 0%, rgba(255, 91, 46, .1), transparent 58%),
+    linear-gradient(165deg, #f0ebe2 0%, #f4f1ea 48%, #ebe4d8 100%);
 }
 
 .login .showcase {
@@ -40,29 +41,33 @@
   flex-direction: column;
   gap: 28px;
   padding: 28px 28px 32px 6vw;
-  background:
-    linear-gradient(145deg, rgba(15, 20, 25, .92) 0%, rgba(23, 28, 34, .96) 55%, rgba(18, 23, 29, .98) 100%);
-  color: #f3f5f7;
+  background-color: #0e1116;
+  background-image:
+    linear-gradient(rgba(244, 241, 234, .04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(244, 241, 234, .04) 1px, transparent 1px);
+  background-size: 28px 28px;
+  background-position: -1px -1px;
+  color: #f4f1ea;
   position: relative;
   overflow: hidden;
 }
 .login .showcase::after {
   content: "";
   position: absolute;
-  inset: auto -20% -30% 20%;
-  height: 70%;
-  background: radial-gradient(circle, rgba(233, 145, 35, .22), transparent 65%);
+  inset: auto -25% -35% 15%;
+  height: 75%;
+  background: radial-gradient(circle, rgba(255, 91, 46, .18), transparent 62%);
   pointer-events: none;
 }
-.login .wordmark { display: block; width: 190px; height: auto; filter: brightness(1.05); position: relative; z-index: 1; }
+.login .wordmark { display: block; width: 190px; height: auto; filter: brightness(1.08); position: relative; z-index: 1; }
 .login .showcase figure {
   position: relative;
   z-index: 1;
   width: min(560px, 100%);
   margin: 0;
   overflow: hidden;
-  background: rgba(255, 255, 255, .04);
-  border: 1px solid rgba(255, 255, 255, .08);
+  background: rgba(255, 252, 247, .05);
+  border: 1px solid rgba(244, 241, 234, .1);
   border-radius: 16px;
   box-shadow: 0 24px 64px -28px rgba(0, 0, 0, .55);
 }
@@ -71,10 +76,10 @@
   position: absolute;
   left: 18px;
   bottom: 18px;
-  color: #f4c98f;
-  font: 600 22px/1.25 var(--font);
+  color: #ffc9a3;
+  font: 600 22px/1.25 var(--display);
   letter-spacing: -.01em;
-  text-shadow: 0 2px 12px rgba(0, 0, 0, .45);
+  text-shadow: 0 2px 14px rgba(0, 0, 0, .5);
 }
 
 .login .entry {
@@ -94,7 +99,7 @@
   max-width: 400px;
   padding: 36px 32px;
   background: var(--panel);
-  border: 1px solid #dde1e7;
+  border: 1px solid #ddd6c8;
   border-radius: 14px;
   box-shadow: var(--card-shadow);
 }
@@ -108,7 +113,7 @@
 .login .card h1 {
   margin: 0;
   color: var(--ink);
-  font: 700 28px/1.2 var(--font);
+  font: 700 28px/1.2 var(--display);
   letter-spacing: -.02em;
 }
 .login .card .lead { margin: -4px 0 4px; color: var(--ink-2); font-size: 14.5px; }
@@ -131,7 +136,7 @@
 .login .card input[type=password]:focus {
   border-color: var(--input-focus);
   outline: 0;
-  box-shadow: 0 0 0 3px rgba(233, 145, 35, .18);
+  box-shadow: 0 0 0 3px rgba(15, 122, 85, .2);
 }
 .login .card .btn.primary {
   height: 42px;

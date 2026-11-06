@@ -22,7 +22,7 @@ from core.audit import audit
 from core.client_scope import SESSION_KEY as CLIENT_SESSION_KEY
 from core.client_scope import active_client
 
-from . import discovery, jobs, legacy_panels, metrics, services
+from . import discovery, jobs, legacy_panels, metrics, services, vm_metrics
 from .forms import ApproveForm, DeviceForm, DiscoveryForm
 from .models import TYPE_PAGES, Device, DeviceStatus, DeviceType, DiscoveredHost, DiscoveryRun, Environment
 
@@ -37,6 +37,13 @@ TYPE_INTRO = {
 }
 TABS = [("overview", "Overview"), ("interfaces", "Interfaces"), ("traffic", "Traffic"),
         ("hardware", "Hardware"), ("neighbours", "Neighbours"), ("events", "Alerts"), ("configuration", "Configuration")]
+# Prototype VM console tabs. `interfaces` / `events` reuse network templates under Network / Alerts labels.
+VM_TABS = [
+    ("overview", "Overview"), ("performance", "Performance"), ("storage", "Storage"),
+    ("interfaces", "Network"), ("snapshots", "Snapshots"), ("guest", "Guest OS"),
+    ("processes", "Processes"), ("services", "Services"), ("logs", "Logs"),
+    ("events", "Alerts"), ("topology", "Topology"), ("configuration", "Configuration"),
+]
 CHECK_ALL_LIMIT = 100
 FRONT_PANEL_MAX = 96   # ports drawn on the front panel; the Interfaces tab still lists every interface
 PANEL_CHUNK = 12       # ports per column group (two rows of six), as on most fixed-port switches
@@ -206,9 +213,14 @@ def device_list(request, device_type=None):
     ids = [d.pk for d in page]
     avail = services.availability(ids, 24)
     ifs = services.interface_counts(ids)
+    guest_metrics = {}
+    if prometheus.configured():
+        guest_metrics = vm_metrics.batch_guest_instants(list(page))
+    list_colspan = (11 if device_type is None else 10) + (4 if prometheus.configured() else 0)
     for d in page:
         d.avail24 = avail.get(d.pk)
         d.ifs = ifs.get(d.pk)
+        d.guest_live = guest_metrics.get(d.pk) if prometheus.configured() else None
     total = counts["total"]
     pct = {s: (100.0 * counts[s] / total if total else 0) for s in DeviceStatus.values}
     if device_type:
@@ -249,6 +261,8 @@ def device_list(request, device_type=None):
         "create_url": reverse("network:create") + (f"?type={device_type}" if device_type else ""),
         "prometheus_on": prometheus.configured(),
         "last_poll": base.exclude(last_checked_at=None).order_by("-last_checked_at").values_list("last_checked_at", flat=True).first(),
+        "guest_metrics": guest_metrics,
+        "list_colspan": list_colspan,
         **_perms(request),
     }
     return render(request, "network/list.html", ctx)
@@ -295,8 +309,10 @@ def detail(request, pk):
     device, early = _as_device(_device(request, pk))
     if early:
         return early
+    is_vm = device.device_type == DeviceType.VIRTUAL_MACHINE
+    tabs = VM_TABS if is_vm else TABS
     tab = request.GET.get("tab", "overview")
-    if tab not in dict(TABS):
+    if tab not in dict(tabs):
         tab = "overview"
     interfaces = list(device.interfaces.all())
     if_up = sum(1 for i in interfaces if i.oper_status == "up")
@@ -320,9 +336,10 @@ def detail(request, pk):
     traffic_range = request.GET.get("range", "24h") if request.GET.get("range") in ("24h", "7d") else "24h"
     traffic, traffic_msg = (None, "")
     errors_chart, errors_msg = (None, "")
-    if tab in ("overview", "traffic"):
+    # Network devices still use IF-MIB traffic/errors on overview; VMs use guest metrics instead.
+    if not is_vm and tab in ("overview", "traffic"):
         traffic, traffic_msg = metrics.traffic_range(device, 86400 if traffic_range == "24h" else 7 * 86400, port_index)
-    if tab == "overview":
+    if not is_vm and tab == "overview":
         errors_chart, errors_msg = metrics.errors_range(device, 86400, port_index)
     if_filter = request.GET.get("state") if request.GET.get("state") in dict(IF_FILTERS) else "all"
     if_q = request.GET.get("q", "").strip()[:100]
@@ -337,15 +354,18 @@ def detail(request, pk):
     else:
         metrics_msg = ""
     ctx = {
-        "device": device, "tab": tab, "tabs": TABS, "interfaces": interfaces, "top_interfaces": top,
+        "device": device, "tab": tab, "tabs": tabs, "is_vm": is_vm,
+        "interfaces": interfaces, "top_interfaces": top,
         "if_up": if_up, "if_down": if_down, "if_admin_down": if_admin_down, "if_total": len(interfaces), "has_rates": has_rates, "total_in": total_in, "total_out": total_out,
         "total_errors": round(sum(errs), 3) if errs else None, "total_discards": round(sum(discs), 3) if discs else None,
         "ports_with_errors": sum(1 for e in errs if e > 0),
-        "ports": ports, "panel_blocks": _front_panel(ports), "port_data": _port_data(ports),
+        "ports": ports if not is_vm else [], "panel_blocks": _front_panel(ports) if not is_vm else [],
+        "port_data": _port_data(ports) if not is_vm else [],
         "ports_total": len(physical), "ports_up": sum(1 for i in physical if i.oper_status == "up"),
         "ports_down": sum(1 for i in physical if i.port_tone == "down"),
         "ports_unused": sum(1 for i in physical if i.port_tone == "unused"), "panel_truncated": len(physical) > FRONT_PANEL_MAX,
-        "port": port, "port_pos": next((n for n, p in enumerate(ports) if port and p.pk == port.pk), None),
+        "port": port if not is_vm else None,
+        "port_pos": next((n for n, p in enumerate(ports) if port and p.pk == port.pk), None) if not is_vm else None,
         "errors_chart": errors_chart, "errors_msg": errors_msg,
         "if_filters": [(key, label, if_counts[key]) for key, label in IF_FILTERS], "if_filter": if_filter, "if_q": if_q,
         "if_rows": [i for i in interfaces if _iface_matches(i, if_filter, if_q.lower())],
@@ -363,7 +383,46 @@ def detail(request, pk):
         "can_operate": can_op, "can_admin": services.can_manage(request.user, "admin", device.site),
         "discovered": device.discovered_as.select_related("run").first(),
         "legacy_onboard": legacy_panels.resolve_legacy_panel(device),
+        "vm_metrics": None, "sample_mode": False, "vm_meta": {}, "vm_info_rows": [],
+        "vm_actions": vm_metrics.VM_ACTIONS, "vm_power": "", "vm_stub": None,
     }
+    if is_vm:
+        force_sample = request.GET.get("sample") in ("1", "true", "yes")
+        need_metrics = tab in ("overview", "performance")
+        guest, used_sample = (None, False)
+        vm_perf, perf_sample = None, False
+        perf_range_key = request.GET.get("perf_range", "24h")
+        if perf_range_key not in vm_metrics.PERF_RANGE_SECONDS:
+            perf_range_key = "24h"
+        perf_seconds = vm_metrics.PERF_RANGE_SECONDS[perf_range_key]
+        if need_metrics:
+            guest, used_sample = vm_metrics.resolve_vm_metrics(device, force_sample=force_sample)
+        elif force_sample:
+            used_sample = True
+        if tab == "performance":
+            vm_perf, perf_sample = vm_metrics.resolve_vm_performance(
+                device, force_sample=force_sample, seconds=perf_seconds
+            )
+        meta, _extra = vm_metrics.parse_vm_meta(device)
+        if guest and guest.get("info"):
+            for key, val in guest["info"].items():
+                if key in meta and not meta[key] and val:
+                    meta[key] = val
+        ctx.update({
+            "vm_metrics": guest,
+            "sample_mode": used_sample or force_sample,
+            "vm_meta": meta,
+            "vm_info_rows": vm_metrics.vm_info_rows(device, meta, guest),
+            "vm_power": vm_metrics.guest_power_label(device),
+            "vm_performance": vm_perf,
+            "vm_perf_sample": perf_sample,
+            "perf_range": perf_range_key,
+            "perf_seconds": perf_seconds,
+            "perf_range_choices": [(k, v) for k, v in vm_metrics.PERF_RANGE_SECONDS.items()],
+        })
+        if tab in vm_metrics.STUB_COPY:
+            title, blurb = vm_metrics.STUB_COPY[tab]
+            ctx["vm_stub"] = {"title": title, "blurb": blurb}
     if tab == "configuration":
         from core.models import AuditEvent
         ctx["audit_rows"] = AuditEvent.objects.filter(object_type="network.device", object_id=str(device.pk))[:25]
