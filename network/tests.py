@@ -16,6 +16,7 @@ from core import prometheus
 from core.models import AuditEvent, Event, Membership, Site
 
 from . import discovery, jobs, legacy_panels, metrics, probe, services
+from .templatetags.network_tags import event_util_row_class
 from .models import Device, DevicePoll, DiscoveredHost, DiscoveryRun, Interface, NetworkProductImage, validate_host
 from .probe import TcpResult
 
@@ -876,6 +877,39 @@ class RegressionTests(TestCase):
         self.assertEqual(Device.objects.get(name="lb-01").tags, "examples-lab")
         call_command("seed_network", "--remove", stdout=StringIO())
         self.assertEqual(sorted(Device.objects.values_list("name", flat=True)), ["fg-01", "lb-01"])
+
+
+class EventUtilRowClassTests(TestCase):
+    """Utilization % in event row: ≥80 red, 70–79 warning, <70 green."""
+
+    def _ev(self, **kw):
+        defaults = {
+            "tenant_key": T,
+            "source": "prometheus",
+            "kind": "alert",
+            "title": "Test",
+            "message": "",
+            "severity": "warning",
+            "data": {},
+        }
+        defaults.update(kw)
+        return Event(**defaults)
+
+    def test_data_json_decimal_fraction(self):
+        e = self._ev(data={"cpu": 0.835})
+        self.assertEqual(event_util_row_class(e), "nw-ev-hot")
+
+    def test_data_percent_number(self):
+        self.assertEqual(event_util_row_class(self._ev(data={"memory": 72})), "nw-ev-warm")
+        self.assertEqual(event_util_row_class(self._ev(data={"utilization": 55})), "nw-ev-cool")
+
+    def test_parse_percent_from_message_with_usage_word(self):
+        e = self._ev(title="Host load", message="CPU usage at 84% sustained")
+        self.assertEqual(event_util_row_class(e), "nw-ev-hot")
+
+    def test_no_class_without_util_context(self):
+        e = self._ev(message="Run 2 of 5 succeeded — 50% complete (batch progress only)")
+        self.assertEqual(event_util_row_class(e), "")
 
 
 # ------------------------------------------------------------------------------------------- legacy iframeGraphs
