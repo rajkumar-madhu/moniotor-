@@ -1,0 +1,31 @@
+{% load static %}<!doctype html>
+<html lang="en" class="login-page"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verify code · LinkedEye</title>
+<link rel="icon" href="{% static 'linkedeye/img/logo-favicon.png' %}">
+<link rel="stylesheet" href="{% static 'linkedeye/app.css' %}">
+<link rel="stylesheet" href="{% static 'linkedeye/pages/login.css' %}"></head>
+<body><div class="login">
+  <section class="showcase">
+    <img class="wordmark" src="{% static 'linkedeye/img/name-logo.png' %}" alt="LinkedEye" width="404" height="127">
+    <figure>
+      <img src="{% static 'linkedeye/img/Monitors.png' %}" alt="" width="600" height="470">
+      <figcaption>Monitoring</figcaption>
+    </figure>
+  </section>
+  <main class="entry">
+    <form class="card" method="post" action="">{% csrf_token %}
+      <div class="eyebrow">Verification</div>
+      <h1>Check your e-mail</h1>
+      <p class="lead">We sent a 6-digit code to <strong>{{ email_hint }}</strong>.</p>
+      {% if error %}<ul class="messages"><li class="error">{{ error }}</li></ul>{% endif %}
+      {% if messages %}<ul class="messages">{% for message in messages %}<li class="{{ message.tags }}">{{ message }}</li>{% endfor %}</ul>{% endif %}
+      <div class="field"><label for="id_otp">Sign-in code</label>
+        <input type="text" name="otp" id="id_otp" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required autofocus></div>
+      <button class="btn primary" type="submit">Continue</button>
+    </form>
+    <form class="card" method="post" action="{% url 'resend_otp' %}" style="max-width:400px;padding-top:0;margin-top:-8px;">{% csrf_token %}
+      <button class="btn" type="submit" style="width:100%;">Resend code</button>
+    </form>
+    <footer class="copyright"><b>Copyright &copy;</b> <a href="https://linkedeye.in/" target="_blank" rel="noopener"><i>LinkedEye.in</i></a> <b>2025</b></footer>
+  </main>
+</div></body></html>

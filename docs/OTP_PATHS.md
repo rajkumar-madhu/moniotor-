@@ -1,6 +1,6 @@
 # OTP paths and route gating
 
-LinkedEye uses **email OTP** (and optional **Google Authenticator / TOTP**) on the **legacy Flask/Django backend** under `backend/`. The **Django console** (`linkedeye/` at repo root) uses username/password login only today — no login OTP yet.
+LinkedEye uses **email OTP** (and optional **Google Authenticator / TOTP**) on the **legacy Flask/Django backend** under `backend/`. The **Django console** (`linkedeye/` at repo root) supports optional **e-mail OTP after password** when `LINKEDEYE_LOGIN_OTP` is enabled (default: on in production, off when `LINKEDEYE_DEBUG=true` unless `LINKEDEYE_LOGIN_OTP=true`).
 
 ## Legacy backend — OTP HTTP paths
 
@@ -46,25 +46,38 @@ Implementation: `backend/app/views.py`, models `Userotp` / `UserTOTP` in `backen
 
 Everything else (dashboard, API, admin, etc.) redirects to `/` until OTP is cleared in `verify_otps` or `verify_google_authenticator_login`.
 
-## Django console — auth public paths (no OTP gate)
+## Django console — OTP paths
 
-`LoginRequiredMiddleware` (`core/middleware.py`) treats these as **unauthenticated** entry points:
+| Path | Name | Purpose |
+|------|------|---------|
+| `/accounts/login/` | `login` | Password step (`OTPLoginView`); sends OTP when enabled |
+| `/accounts/verify-otp/` | `verify_otp` | Enter 6-digit e-mail code; completes `auth.login()` |
+| `/accounts/resend-otp/` | `resend_otp` | POST: send a new code |
+
+Implementation: `core/auth_views.py`, `core/login_otp.py`, templates `registration/verify_otp.html` and `notify/login_otp.*`.
+
+## Django console — paths while `otp_pending_user_id` is in session
+
+Same idea as legacy: **all routes redirect to `/accounts/verify-otp/`** except:
 
 | Prefix / path | Notes |
 |---------------|--------|
-| `/accounts/login/` | Login form |
-| `/static/` | Static assets |
+| `/accounts/login/` | Start over |
+| `/accounts/verify-otp/` | OTP form |
+| `/accounts/resend-otp/` | Resend (POST) |
+| `/accounts/logout/` | Cancel (session flush) |
+| `/static/` | Assets |
 | `/healthz` | Health probe |
 | `/api/v1/alertmanager/` | Webhook (own auth) |
 | `/api/v1/logs/` | Log ingest (own auth) |
 
-All other Django routes require a signed-in user (401 for `/api/` JSON, redirect to login otherwise).
+Configured in `LoginRequiredMiddleware` (`core/middleware.py`).
+
+## Django console — other public paths (no session)
+
+When not in OTP-pending state, unauthenticated users may also only hit the rows above (minus verify/resend unless pending).
 
 **Admin one-time password** (not login OTP): when an admin creates a user with a generated password, the password is shown once via session key `administration_one_time_password` on the user edit page (`administration/views.py`).
-
-## Parity note
-
-To apply the same **“all paths blocked until OTP”** behaviour on the Django console, you would add middleware similar to `KeycloakOTPGateMiddleware`, OTP verify/resend views under e.g. `/accounts/verify-otp/`, and defer `auth.login()` until OTP passes — mirroring the legacy allowlist above plus `/healthz` and webhook prefixes.
 
 ## Dump all Django URL paths
 

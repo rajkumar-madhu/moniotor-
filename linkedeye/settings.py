@@ -169,6 +169,8 @@ DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", "linkedeye@localhost")
 EMAIL_TIMEOUT = float(env("EMAIL_TIMEOUT", "10"))
 LINKEDEYE_WELCOME_EMAIL = env("WELCOME_EMAIL", "true").lower() in ("1", "true", "yes")
 LINKEDEYE_PORTAL_URL = env("PORTAL_URL", "").strip()
+# E-mail OTP after password on console sign-in (off in DEBUG unless LOGIN_OTP=true).
+LINKEDEYE_LOGIN_OTP = env("LOGIN_OTP", "false" if DEBUG else "true").lower() in ("1", "true", "yes")
 
 # ---- Sign-in throttling (administration.LoginThrottle; shared by every web worker) ----
 LOGIN_MAX_FAILURES = int(env("LOGIN_MAX_FAILURES", "5"))                 # per username, within the window

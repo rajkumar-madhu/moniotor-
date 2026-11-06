@@ -2,7 +2,7 @@ from django.conf import settings
 from django.shortcuts import redirect
 from django.urls import reverse
 
-PUBLIC_PREFIXES = ("/accounts/login/", "/static/", "/healthz",
+PUBLIC_PREFIXES = ("/accounts/login/", "/accounts/verify-otp/", "/accounts/resend-otp/", "/static/", "/healthz",
                    # machine-to-machine endpoints; they authenticate with their own bearer token
                    "/api/v1/alertmanager/", "/api/v1/logs/")
 
@@ -15,7 +15,13 @@ class LoginRequiredMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        if not request.user.is_authenticated and not request.path.startswith(PUBLIC_PREFIXES):
+        if request.session.get("otp_pending_user_id"):
+            path = request.path
+            if path.startswith(PUBLIC_PREFIXES) or path == reverse("logout"):
+                pass
+            else:
+                return redirect(reverse("verify_otp"))
+        elif not request.user.is_authenticated and not request.path.startswith(PUBLIC_PREFIXES):
             if "/api/" in request.path:
                 from django.http import JsonResponse
                 return JsonResponse({"error": "authentication required"}, status=401)
