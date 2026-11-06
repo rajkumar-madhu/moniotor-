@@ -15,8 +15,8 @@ from core import jobs as core_jobs
 from core import prometheus
 from core.models import AuditEvent, Event, Membership, Site
 
-from . import discovery, jobs, metrics, probe, services
-from .models import Device, DevicePoll, DiscoveredHost, DiscoveryRun, Interface, validate_host
+from . import discovery, jobs, legacy_panels, metrics, probe, services
+from .models import Device, DevicePoll, DiscoveredHost, DiscoveryRun, Interface, NetworkProductImage, validate_host
 from .probe import TcpResult
 
 T = "default"
@@ -558,6 +558,22 @@ class ViewTests(TestCase):
         self.assertEqual(tp.call_count, 1)
         self.assertEqual(r.status_code, 302)
 
+    def test_catalog_fills_product_image_on_save(self):
+        self.login(self.operator)
+        NetworkProductImage.objects.create(
+            tenant_key=T, vendor="Juniper", device_type="router", model_key="MX204",
+            product_image_url="https://cdn.example/mx204.webp",
+            product_page_url="https://example.com/mx204",
+        )
+        data = {"name": "cat-rtr", "device_type": "router", "vendor": "Juniper", "model": "MX204-HBASE",
+                "mgmt_ip": "192.0.2.50", "check_port": 22, "site": "", "environment": "prod", "enabled": "on"}
+        with mock.patch("network.probe.tcp_probe", return_value=ok(2.0)):
+            r = self.c.post(reverse("network:create"), data)
+        d = Device.objects.get(name="cat-rtr")
+        self.assertRedirects(r, d.get_absolute_url())
+        self.assertEqual(d.product_image_url, "https://cdn.example/mx204.webp")
+        self.assertEqual(d.product_page_url, "https://example.com/mx204")
+
     def test_operator_cannot_delete_admin_can(self):
         self.login(self.operator)
         self.c.post(reverse("network:delete", args=[self.d.pk]))
@@ -860,3 +876,39 @@ class RegressionTests(TestCase):
         self.assertEqual(Device.objects.get(name="lb-01").tags, "examples-lab")
         call_command("seed_network", "--remove", stdout=StringIO())
         self.assertEqual(sorted(Device.objects.values_list("name", flat=True)), ["fg-01", "lb-01"])
+
+
+# ------------------------------------------------------------------------------------------- legacy iframeGraphs
+@override_settings(LINKEDEYE_TENANT=T)
+class LegacyPanelsTests(TestCase):
+    def test_fortigate_100f(self):
+        d = Device(vendor="Fortigate", model="Fortigate 100F")
+        r = legacy_panels.resolve_legacy_panel(d)
+        self.assertIsNotNone(r)
+        self.assertIn("100F", r["iframe_j2"])
+
+    def test_huawei_switch_prefers_52x(self):
+        d = Device(vendor="Huawei", model="Huawei S5720-52X-LI-AC")
+        r = legacy_panels.resolve_legacy_panel(d)
+        self.assertIsNotNone(r)
+        self.assertTrue(r["iframe_j2"].startswith("Huawei_S5720_52X"))
+
+    def test_load_panel_markup_and_legacy_panel_url(self):
+        d = dev("fw-panel", vendor="Fortigate", model="Fortigate 100F", device_type="firewall")
+        r = legacy_panels.resolve_legacy_panel(d)
+        html = legacy_panels.load_panel_markup(d, r["iframe_j2"])
+        self.assertIsNotNone(html)
+        self.assertIn("<svg", html)
+        self.assertNotIn("__IP__", html)
+
+        _, operator, _ = users()
+        c = Client()
+        c.force_login(operator)
+        url = reverse("network:legacy_panel", args=[d.pk])
+        resp = c.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(b"<svg", resp.content)
+
+        r2 = c.get(reverse("network:detail", args=[d.pk]) + "?tab=hardware")
+        self.assertEqual(r2.status_code, 200)
+        self.assertContains(r2, 'src="' + url)

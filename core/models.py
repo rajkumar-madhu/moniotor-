@@ -72,6 +72,47 @@ class Site(models.Model):
         return self.name
 
 
+class SiteLesiteProfile(models.Model):
+    """Optional per-site integration profile for legacy Lesites / observability URLs."""
+
+    site = models.OneToOneField(Site, on_delete=models.CASCADE, related_name="lesite_profile")
+    enabled = models.BooleanField(default=True)
+    legacy_sitename = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Lesites sitename slug (e.g. fs-dr-le). Defaults from site code when empty.",
+    )
+    websocket_url = models.CharField(max_length=500, blank=True)
+    environment = models.CharField(max_length=40, blank=True, default="PROD")
+    entity_host = models.CharField(max_length=255, blank=True)
+    entity_port = models.CharField(max_length=8, blank=True, default="443")
+    is_url_secured = models.BooleanField(default=True)
+    analytics_prefix_url = models.URLField(max_length=500, blank=True)
+    location = models.CharField(max_length=80, blank=True, help_text="Country-state key, e.g. IN-KA")
+    country_code = models.CharField(max_length=8, blank=True)
+    redis_host = models.CharField(max_length=255, blank=True)
+    redis_port = models.CharField(max_length=8, blank=True, default="6379")
+    prometheus_url = models.URLField(max_length=500, blank=True)
+    elastic_host = models.CharField(max_length=255, blank=True)
+    elastic_port = models.CharField(max_length=8, blank=True, default="9200")
+    grafana_api = models.CharField(max_length=500, blank=True)
+    le_url = models.URLField(max_length=500, blank=True)
+    incident_url = models.URLField(max_length=500, blank=True)
+    incident_api = models.CharField(max_length=500, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "site lesites profile"
+
+    def __str__(self):
+        return f"Lesites profile · {self.site}"
+
+    @property
+    def sitename(self):
+        """Lesites slug for templates (legacy_sitename)."""
+        return (self.legacy_sitename or "").strip()
+
+
 class Membership(models.Model):
     """Grants a user a role, either on one site or (site=None) on every site of the tenant."""
     ROLES = [("admin", "Admin"), ("operator", "Operator"), ("viewer", "Viewer")]

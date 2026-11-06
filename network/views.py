@@ -14,13 +14,13 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.views.decorators.http import require_http_methods, require_POST
+from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from core import prometheus
 from core.access import can, can_on, require, visible_sites
 from core.audit import audit
 
-from . import discovery, jobs, metrics, services
+from . import discovery, jobs, legacy_panels, metrics, services
 from .forms import ApproveForm, DeviceForm, DiscoveryForm
 from .models import TYPE_PAGES, Device, DeviceStatus, DeviceType, DiscoveredHost, DiscoveryRun, Environment
 
@@ -137,7 +137,7 @@ def _cell(value):
 
 
 def _device(request, pk):
-    return get_object_or_404(services.devices_for(request.user), pk=pk)
+    return get_object_or_404(services.devices_for(request.user, request), pk=pk)
 
 
 def _filtered(request, qs, with_type=False):
@@ -165,7 +165,7 @@ def _filtered(request, qs, with_type=False):
 # ------------------------------------------------------------------ lists
 @require("view")
 def device_list(request, device_type=None):
-    base = services.devices_for(request.user)
+    base = services.devices_for(request.user, request)
     if device_type:
         base = base.filter(device_type=device_type)
     counts = services.status_counts(base)
@@ -240,7 +240,7 @@ virtual_machines = _type_view("virtual_machine")
 
 @require("view")
 def export_csv(request):
-    qs = _filtered(request, services.devices_for(request.user), with_type=True)
+    qs = _filtered(request, services.devices_for(request.user, request), with_type=True)
     resp = HttpResponse(content_type="text/csv; charset=utf-8")
     kind = request.GET.get("type") if request.GET.get("type") in DeviceType.values else "all"
     resp["Content-Disposition"] = f'attachment; filename="network-devices-{kind}.csv"'
@@ -328,11 +328,33 @@ def detail(request, pk):
         "topology_url": services.topology_url(device), "discovery_url": services.discovery_url(device),
         "can_operate": can_op, "can_admin": services.can_manage(request.user, "admin", device.site),
         "discovered": device.discovered_as.select_related("run").first(),
+        "legacy_onboard": legacy_panels.resolve_legacy_panel(device),
     }
     if tab == "configuration":
         from core.models import AuditEvent
         ctx["audit_rows"] = AuditEvent.objects.filter(object_type="network.device", object_id=str(device.pk))[:25]
     return render(request, "network/detail.html", ctx)
+
+
+@require("view")
+@require_GET
+def legacy_panel(request, pk):
+    """Serve the matched iframeGraphs front-panel markup (SVG) for a device."""
+    device = get_object_or_404(services.devices_for(request.user, request), pk=pk)
+    info = legacy_panels.resolve_legacy_panel(device)
+    if not info or not info.get("iframe_j2"):
+        return HttpResponse("No legacy panel matched for this vendor/model.", status=404)
+    markup = legacy_panels.load_panel_markup(device, info["iframe_j2"])
+    if not markup:
+        return HttpResponse("Legacy panel file is missing on the server.", status=404)
+    html = (
+        "<!doctype html><html><head><meta charset=\"utf-8\">"
+        "<style>body{margin:0;padding:12px;background:#12151a;color:#e8eaed;"
+        "font:13px system-ui,sans-serif}.firerow,svg{max-width:100%;height:auto}"
+        "legend{width:auto!important}</style></head><body>"
+        f"{markup}</body></html>"
+    )
+    return HttpResponse(html)
 
 
 # ------------------------------------------------------------------ mutations
@@ -442,7 +464,7 @@ def check_now(request, pk):
 @require("operate")
 @require_POST
 def check_all(request):
-    qs = services.devices_for(request.user).filter(enabled=True)
+    qs = services.devices_for(request.user, request).filter(enabled=True)
     t = request.POST.get("type") or request.GET.get("type")
     if t in DeviceType.values:
         qs = qs.filter(device_type=t)

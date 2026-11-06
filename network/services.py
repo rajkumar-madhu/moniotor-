@@ -9,6 +9,7 @@ from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
 from core.access import can, scope_by_site
+from core.client_scope import filter_qs_by_scope
 
 from .models import Device, DevicePoll, DeviceStatus, Interface
 
@@ -17,8 +18,16 @@ def tenant():
     return settings.LINKEDEYE_TENANT
 
 
-def devices_for(user):
-    return scope_by_site(Device.objects.filter(tenant_key=tenant()), user)
+def devices_for(user, request=None):
+    qs = Device.objects.filter(tenant_key=tenant())
+    qs = scope_by_site(qs, user)
+    if request is not None:
+        from core.client_scope import active_client
+
+        cid = active_client(request)
+        if cid:
+            qs = filter_qs_by_scope(qs, user, field="site", client_param=cid)
+    return qs
 
 
 def can_manage(user, perm, site):

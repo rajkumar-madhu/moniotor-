@@ -1,0 +1,19 @@
+{% load le network_tags %}
+<div class="nw-photo{% if device.product_image_url %} has-img{% endif %}">
+  <span class="nw-photo-lbl">{{ device.vendor|default:device.get_device_type_display }} {{ device.model }}</span>
+  {% if device.product_image_url %}
+  {% if device.product_page_url %}
+  <a class="nw-photo-frame" href="{{ device.product_page_url }}" target="_blank" rel="noopener noreferrer" title="Open vendor product page">
+    <img src="{{ device.product_image_url }}" alt="{{ device.vendor }} {{ device.model }} product photo" loading="lazy" decoding="async">
+    <span class="nw-photo-zoom">{% icon "search" 16 %} Product page</span>
+  </a>
+  {% else %}
+  <a class="nw-photo-frame" href="{{ device.product_image_url }}" target="_blank" rel="noopener noreferrer" title="Open full image">
+    <img src="{{ device.product_image_url }}" alt="{{ device.vendor }} {{ device.model }} product photo" loading="lazy" decoding="async">
+    <span class="nw-photo-zoom">{% icon "search" 16 %} Expand</span>
+  </a>
+  {% endif %}
+  {% else %}
+  <span class="nw-appliance" aria-hidden="true">{% icon device.type_icon 24 %}<i></i><i></i><i></i><i></i><i></i><i></i></span>
+  {% endif %}
+</div>

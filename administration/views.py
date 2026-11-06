@@ -23,11 +23,13 @@ from django.views.decorators.http import require_GET, require_POST
 
 from core.access import can, require
 from core.audit import audit
-from core.models import AuditEvent, Client, Membership, Site
+from core.models import AuditEvent, Client, Membership, Site, SiteLesiteProfile
 from core.welcome_mail import send_welcome_email
 
 from . import services
-from .forms import ClientForm, MembershipForm, SetPasswordForm, SiteForm, UserCreateForm, UserEditForm
+from .forms import ClientForm, MembershipForm, SetPasswordForm, SiteForm, SiteLesiteProfileForm, UserCreateForm, UserEditForm
+from .finspot_naming import admin_lesites_url, entity_host as fs_entity_host, lesites_url, portal_url
+from .lesites_defaults import default_profile_fields, legacy_slug_for_site, port_connection_rows
 from .models import IntegrationTest
 
 User = get_user_model()
@@ -643,6 +645,93 @@ def sites_bootstrap(request):
     else:
         messages.info(request, "Every site name used by URL checks and domains already has a site record.")
     return redirect("administration:sites")
+
+
+# ------------------------------------------------------------------ site onboarding (Lesites)
+def _site_lesites_slug(site: Site) -> str:
+    if hasattr(site, "lesite_profile") and site.lesite_profile and (site.lesite_profile.legacy_sitename or "").strip():
+        return (site.lesite_profile.legacy_sitename or "").strip().lower()
+    return legacy_slug_for_site(site)
+
+
+def _site_lesites_link(site: Site) -> str:
+    return lesites_url(_site_lesites_slug(site))
+
+
+@admin_required
+def site_onboarding_list(request):
+    qs = _sites_qs().select_related("lesite_profile").order_by("name")
+    q = request.GET.get("q", "").strip()
+    if q:
+        qs = qs.filter(Q(name__icontains=q) | Q(code__icontains=q))
+    for s in qs:
+        s.lesites_slug = _site_lesites_slug(s)
+        s.lesites_link = _site_lesites_link(s)
+    page = Paginator(qs, _per_page(request)).get_page(request.GET.get("page"))
+    return render(request, "administration/site_onboarding_list.html", {"page": page, "query": _query(request), "tab": "sites"})
+
+
+@admin_required
+def site_onboarding(request, pk):
+    site = get_object_or_404(_sites_qs().select_related("client"), pk=pk)
+    profile, _created = SiteLesiteProfile.objects.get_or_create(site=site)
+
+    if request.GET.get("defaults"):
+        defaults = default_profile_fields(site, legacy_slug_for_site(site))
+        for k, v in defaults.items():
+            setattr(profile, k, v)
+        profile.save()
+        messages.info(request, "Applied FinSpot default field values (not saved until you submit).")
+
+    if request.method == "POST":
+        form = SiteLesiteProfileForm(request.POST, instance=profile, site=site)
+        if form.is_valid():
+            obj = form.save(commit=False)
+            obj.site = site
+            obj.save()
+            user_ids = {u.pk for u in (form.cleaned_data.get("users") or [])}
+            with transaction.atomic():
+                # Sync handoff users as viewers only; do not strip admin/operator memberships on this site.
+                Membership.objects.filter(site=site, role="viewer").exclude(user_id__in=user_ids).delete()
+                for uid in user_ids:
+                    m, created = Membership.objects.get_or_create(user_id=uid, site=site, defaults={"role": "viewer"})
+                    if not created and m.role != "viewer":
+                        pass  # keep existing role if user already had a stronger membership
+            audit(request, "update", object_type="core.sitelesiteprofile", site=site.name, sitename=obj.legacy_sitename)
+            messages.success(request, f"Saved onboarding for “{site.name}”.")
+            return redirect("administration:site_onboarding_list")
+    else:
+        form = SiteLesiteProfileForm(instance=profile, site=site)
+
+    slug = (profile.legacy_sitename or legacy_slug_for_site(site)).strip().lower()
+    naming = {
+        "portal": portal_url(slug),
+        "lesites": lesites_url(slug),
+        "lesites_admin": admin_lesites_url(slug),
+        "entity_host": fs_entity_host(slug),
+        "entity_port": profile.entity_port or "443",
+    }
+    return render(request, "administration/site_onboarding_form.html", {
+        "form": form, "site": site, "profile": profile, "naming": naming, "tab": "sites",
+        "latitude": site.latitude, "longitude": site.longitude,
+    })
+
+
+@admin_required
+def site_domain(request, pk):
+    site = get_object_or_404(_sites_qs(), pk=pk)
+    profile = getattr(site, "lesite_profile", None)
+    slug = _site_lesites_slug(site)
+    naming = {
+        "entity_host": fs_entity_host(slug) if slug else "",
+        "entity_port": (profile.entity_port if profile else None) or "443",
+        "portal": portal_url(slug) if slug else "",
+        "lesites": lesites_url(slug) if slug else "",
+    }
+    port_rows = port_connection_rows(slug) if slug else []
+    return render(request, "administration/site_domain.html", {
+        "site": site, "profile": profile, "slug": slug, "naming": naming, "port_rows": port_rows, "tab": "sites",
+    })
 
 
 # ------------------------------------------------------------------ audit log

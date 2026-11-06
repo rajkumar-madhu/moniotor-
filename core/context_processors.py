@@ -39,6 +39,10 @@ def shell(request):
     admin_url = overview._url("administration:index") or overview._url("admin:index")
     client = active_client(request)
     sites = getattr(request, "le_site_names", None)
+    if sites is None:
+        sites = overview.site_names(request.user)
+    if client:
+        sites = narrow_site_names(sites, request.user, client)
     le_clients = clients_for_user(request.user)
     le_client_name = ""
     if client:
@@ -46,8 +50,6 @@ def shell(request):
             if str(c.pk) == str(client):
                 le_client_name = c.name
                 break
-    if sites is None:
-        sites = narrow_site_names(overview.site_names(request.user), request.user, client)
     return {"nav": nav, "le_version": settings.LINKEDEYE_VERSION,
             "le_problem_count": overview.problem_count(request.user),
             "le_sites": sites,

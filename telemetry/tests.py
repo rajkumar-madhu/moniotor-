@@ -761,7 +761,7 @@ class JobAndSeedTests(TestCase):
         out = io.StringIO()
         call_command("seed_telemetry", stdout=out)
         call_command("seed_telemetry", stdout=out)
-        self.assertEqual(Alert.objects.count(), 5)
+        self.assertEqual(Alert.objects.count(), 6)
         self.assertTrue(all(a.is_example for a in Alert.objects.all()))
         self.assertEqual(SavedQuery.objects.filter(name__startswith="Example: ").count(), 4)
         self.assertFalse(Event.objects.filter(source="telemetry").exists())

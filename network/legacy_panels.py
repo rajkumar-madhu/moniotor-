@@ -1,7 +1,8 @@
 """Map network devices to legacy Global LinkedEye assets (iframeGraphs + template/DIRECT).
 
-Legacy entity UI loads SVG front panels from ``backend/iframeGraphs/<name>.j2`` via
-``/getfilecontents`` and builds Neo4j nodes from ``template/DIRECT/*.yaml`` at onboard time.
+Panels load from ``iframeGraphs/<name>.j2`` at the repo root (uploaded from Global LinkedEye),
+with fallback to ``backend/iframeGraphs/``. Neo4j onboard templates live under
+``template/DIRECT`` or ``backend/template/DIRECT``.
 """
 import re
 from functools import lru_cache
@@ -9,8 +10,23 @@ from pathlib import Path
 
 from django.conf import settings
 
-_IFRAME_DIR = Path(settings.BASE_DIR) / "backend" / "iframeGraphs"
-_TEMPLATE_DIRECT = Path(settings.BASE_DIR) / "backend" / "template" / "DIRECT"
+
+def _first_dir(*candidates):
+    """Prefer repo-root legacy assets, then backend/ copies."""
+    for path in candidates:
+        if path.is_dir():
+            return path
+    return candidates[0]
+
+
+def _iframe_dir():
+    base = Path(settings.BASE_DIR)
+    return _first_dir(base / "iframeGraphs", base / "backend" / "iframeGraphs")
+
+
+def _template_direct_dir():
+    base = Path(settings.BASE_DIR)
+    return _first_dir(base / "template" / "DIRECT", base / "backend" / "template" / "DIRECT")
 
 
 def _norm(text):
@@ -21,23 +37,26 @@ def _norm(text):
 
 @lru_cache(maxsize=1)
 def iframe_panel_names():
-    if not _IFRAME_DIR.is_dir():
+    root = _iframe_dir()
+    if not root.is_dir():
         return ()
-    return tuple(sorted(p.name for p in _IFRAME_DIR.glob("*.j2") if not p.name.endswith("_stack.j2")))
+    return tuple(sorted(p.name for p in root.glob("*.j2") if not p.name.endswith("_stack.j2")))
 
 
 @lru_cache(maxsize=1)
 def iframe_stack_names():
-    if not _IFRAME_DIR.is_dir():
+    root = _iframe_dir()
+    if not root.is_dir():
         return ()
-    return tuple(sorted(p.name for p in _IFRAME_DIR.glob("*_stack.j2")))
+    return tuple(sorted(p.name for p in root.glob("*_stack.j2")))
 
 
 @lru_cache(maxsize=1)
 def direct_template_names():
-    if not _TEMPLATE_DIRECT.is_dir():
+    root = _template_direct_dir()
+    if not root.is_dir():
         return ()
-    return tuple(sorted(p.name for p in _TEMPLATE_DIRECT.glob("*.yaml")))
+    return tuple(sorted(p.name for p in root.glob("*.yaml")))
 
 
 def _stem_tokens(stem):
@@ -54,20 +73,45 @@ def _hay_tokens(device):
     return _stem_tokens(" ".join(chunks))
 
 
+def panel_token(device):
+    """Placeholder token for legacy ``__IP__`` markers (safe in HTML ids)."""
+    ip = (getattr(device, "mgmt_ip", None) or getattr(device, "hostname", None) or "").strip()
+    if ip:
+        return re.sub(r"[^0-9A-Za-z_]", "_", ip.replace(".", "_"))
+    return f"d{device.pk}"
+
+
+def load_panel_markup(device, filename):
+    """Read a matched iframeGraphs ``.j2`` file and substitute ``__IP__`` for display."""
+    if not filename or ".." in filename or "/" in filename or "\\" in filename:
+        return None
+    path = _iframe_dir() / filename
+    if not path.is_file() or path.suffix != ".j2":
+        return None
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    token = panel_token(device)
+    return text.replace("__IP__", token)
+
+
 def _best_match(candidates, hay_t):
     if not hay_t:
         return ""
-    best, best_score = "", 0
+    digit_tokens = [t for t in hay_t if any(c.isdigit() for c in t)]
+    best, best_score = "", (-1, -1)
     for name in candidates:
         stem = Path(name).stem.replace("_stack", "")
         key = _norm(stem)
-        if key and all(t in key for t in hay_t if len(t) >= 4):
-            if len(key) > best_score:
-                best, best_score = name, len(key)
+        if digit_tokens and not all(t in key for t in digit_tokens):
+            continue
         overlap = len(_stem_tokens(stem) & hay_t)
-        if overlap > best_score:
-            best, best_score = name, overlap
-    return best if best_score >= 2 else (best if best_score >= 1 and any(t.isdigit() or any(c.isdigit() for c in t) for t in hay_t) else "")
+        score = (overlap, len(key))
+        if score > best_score:
+            best, best_score = name, score
+    overlap = best_score[0]
+    return best if overlap >= 2 else (best if overlap >= 1 and digit_tokens else "")
 
 
 def resolve_legacy_panel(device, stacked=False):

@@ -66,6 +66,36 @@ class Environment(models.TextChoices):
     DEV = "dev", "Development"
 
 
+class NetworkProductImage(models.Model):
+    """Curated vendor product photo and datasheet URLs for device onboarding (per tenant)."""
+    tenant_key = models.CharField(max_length=100, db_index=True, default=_tenant)
+    vendor = models.CharField(max_length=100, db_index=True)
+    device_type = models.CharField(
+        max_length=20, blank=True, default="",
+        help_text="Limit to this device type, or leave blank for any type.",
+    )
+    model_key = models.CharField(
+        max_length=120, blank=True, default="",
+        help_text="Match device model: exact, then startswith, then substring (case-insensitive). Leave empty for a vendor default.",
+    )
+    product_image_url = models.URLField(max_length=500)
+    product_page_url = models.URLField(max_length=500, blank=True, default="")
+    notes = models.CharField(max_length=200, blank=True, default="")
+
+    class Meta:
+        ordering = ["vendor", "device_type", "model_key"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant_key", "vendor", "device_type", "model_key"],
+                name="network_productimage_unique",
+            ),
+        ]
+        indexes = [models.Index(fields=["tenant_key", "vendor", "device_type"])]
+
+    def __str__(self):
+        return f"{self.vendor} {self.model_key or '*'} ({self.device_type or 'any'})"
+
+
 class Device(models.Model):
     tenant_key = models.CharField(max_length=100, db_index=True, default=_tenant)
     name = models.CharField(max_length=150)
@@ -83,6 +113,12 @@ class Device(models.Model):
     environment = models.CharField(max_length=10, choices=Environment.choices, blank=True, default=Environment.PROD)
     contact = models.CharField(max_length=150, blank=True)
     description = models.TextField(blank=True)
+    product_image_url = models.URLField(
+        "Product image URL", max_length=500, blank=True,
+        help_text="Shown on the device overview. Can be filled from the product catalog when you pick vendor and model.")
+    product_page_url = models.URLField(
+        "Product page URL", max_length=500, blank=True,
+        help_text="Optional datasheet or vendor product page.")
     tags = models.CharField(max_length=300, blank=True, help_text="Comma-separated, e.g. core, dc1")
     prometheus_instance = models.CharField(
         "Prometheus instance", max_length=200, blank=True,

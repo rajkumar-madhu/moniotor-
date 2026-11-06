@@ -186,13 +186,20 @@ MATRIX_KINDS = [
 SHARED = "All sites"
 
 
-def site_matrix(user, selected_site="", names=None):
+def site_matrix(user, selected_site="", names=None, client_param=""):
     """Per site, per check kind: total / healthy / down / other, plus firing alerts. Records with no site or
     'All Sites' are grouped under one shared row. Returns {"kinds": [...], "rows": [...], "totals": {...}}.
     `selected_site` narrows to one site; a site the user cannot see yields no rows (same as backend_summary).
     Pass `names` (the user's site_names) when the caller already has them, to avoid recomputing."""
     from django.db.models import Count, Max, Q
+
+    from .client_scope import client_site_names
+
     names = site_names(user) if names is None else names
+    if client_param:
+        allowed = client_site_names(user, client_param)
+        if allowed is not None:
+            names = [n for n in names if n in allowed]
     kinds, cells, updates_by_site = [], {}, {}
     for key, label, app_label, name, field, enabled, status_field, ok, bad, url_name in MATRIX_KINDS:
         m = model(app_label, name)
@@ -224,7 +231,12 @@ def site_matrix(user, selected_site="", names=None):
     if selected_site:
         sites = [selected_site] if selected_site in names else []
     else:
-        sites = sorted(set(cells) | set(alerts) | set(names), key=lambda s: (s == SHARED, s.lower()))
+        raw = set(cells) | set(alerts) | set(names)
+        if client_param:
+            allowed_set = client_site_names(user, client_param)
+            if allowed_set is not None:
+                raw = {s for s in raw if s == SHARED or s in allowed_set}
+        sites = sorted(raw, key=lambda s: (s == SHARED, s.lower()))
     out, totals = [], {k["key"]: {"total": 0, "ok": 0, "bad": 0, "other": 0} for k in kinds}
     for site in sites:
         row = {"site": site, "cells": [], "alerts": alerts.get(site, {"n": 0, "crit": 0}), "bad": 0,

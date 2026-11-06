@@ -9,7 +9,7 @@ from django.contrib.auth.forms import AuthenticationForm, UsernameField
 from django.core.exceptions import ValidationError
 from django.utils.text import slugify
 
-from core.models import Client, Membership, Site
+from core.models import Client, Membership, Site, SiteLesiteProfile
 
 User = get_user_model()
 
@@ -258,6 +258,51 @@ class SiteForm(forms.ModelForm):
                 self.add_error("code", "A site with this code already exists.")
             cleaned["code"] = code
         return cleaned
+
+
+class SiteLesiteProfileForm(forms.ModelForm):
+    """Lesites / portal onboarding fields plus optional site-scoped user links (memberships)."""
+
+    users = forms.ModelMultipleChoiceField(
+        queryset=User.objects.order_by("username"),
+        required=False,
+        widget=forms.SelectMultiple,
+        help_text="Users linked to this site (viewer role) for onboarding handoff.",
+    )
+
+    class Meta:
+        model = SiteLesiteProfile
+        fields = [
+            "legacy_sitename",
+            "enabled",
+            "environment",
+            "websocket_url",
+            "le_url",
+            "is_url_secured",
+            "entity_host",
+            "entity_port",
+            "analytics_prefix_url",
+            "prometheus_url",
+            "elastic_host",
+            "elastic_port",
+            "grafana_api",
+            "country_code",
+            "location",
+            "redis_host",
+            "redis_port",
+            "incident_url",
+            "incident_api",
+        ]
+
+    def __init__(self, *args, site=None, **kwargs):
+        self.site = site
+        super().__init__(*args, **kwargs)
+        if self.instance and getattr(self.instance, "pk", None) and getattr(self.instance, "site_id", None):
+            self.fields["users"].initial = list(
+                Membership.objects.filter(site_id=self.instance.site_id).values_list("user_id", flat=True)
+            )
+        elif site is not None and getattr(site, "pk", None):
+            self.fields["users"].initial = list(Membership.objects.filter(site=site).values_list("user_id", flat=True))
 
 
 # ------------------------------------------------------------------ integrations (Administration › Integrations)

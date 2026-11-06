@@ -43,7 +43,7 @@
 
 <section class="grid nw-row2">
   <div class="panel" id="device-info"><div class="panel-h"><h2>Device Information</h2>{% if can_operate %}<a class="right view-all" href="{% url 'network:edit' device.pk %}">Edit {% icon "arrow-right" 14 %}</a>{% endif %}</div>
-    <div class="nw-photo" aria-hidden="true"><span class="nw-photo-lbl">{{ device.vendor }} {{ device.model }}</span><span class="nw-appliance">{% icon device.type_icon 24 %}<i></i><i></i><i></i><i></i><i></i><i></i></span></div>
+    {% include "network/_device_photo.html" %}
     <div class="table-wrap dense"><table class="nw-kv"><tbody>
       <tr><td>Hostname</td><td>{{ device.name }}</td></tr>
       <tr><td>Management IP</td><td class="mono">{{ device.mgmt_ip }}</td></tr>

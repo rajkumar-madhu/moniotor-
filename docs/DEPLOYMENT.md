@@ -322,6 +322,9 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 | `LINKEDEYE_LOGIN_MAX_FAILURES` | `5` | | Failed sign-ins for one username within the window before that username is locked out. |
 | `LINKEDEYE_LOGIN_MAX_FAILURES_PER_IP` | `20` | | Failed sign-ins from one client address (see `LINKEDEYE_TRUSTED_PROXIES`) within the window before that address is locked out. |
 | `LINKEDEYE_LOGIN_WINDOW_MINUTES` | `15` | | Counting window and lock-out length for sign-in throttling. Counters live in the database, so every web worker shares them. |
+| `LINKEDEYE_LOGIN_OTP` | `false` with `LINKEDEYE_DEBUG=true`, else `true` | | After a correct password, require a one-time code sent by e-mail before the session is created (see [OTP_PATHS.md](OTP_PATHS.md)). Set `false` for local dev or automation; keep `true` in production unless you use another MFA layer. |
+| `LINKEDEYE_WELCOME_EMAIL` | `true` | | When a global admin creates a user with an e-mail address, send the welcome message ([NOTIFICATION_TEMPLATES.md](NOTIFICATION_TEMPLATES.md)). |
+| `LINKEDEYE_PORTAL_URL` | empty | | Optional absolute sign-in URL for welcome e-mails; if empty, the creating request's login URL is used. |
 | `LINKEDEYE_NOTIFY_ASYNC` | `true` | | Deliver notifications on a background pool after the event's transaction commits. `false` delivers synchronously on the emitting thread (tests). |
 | `LINKEDEYE_NOTIFY_WORKERS` | `2` | | Notification delivery threads per process. |
 | `LINKEDEYE_NOTIFY_QUEUE_SIZE` | `500` | | Pending notifications per process; beyond this they are dropped with a logged warning. |
