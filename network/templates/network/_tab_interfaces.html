@@ -1,5 +1,5 @@
 {% load le network_tags %}
-<section class="panel">
+<section class="panel nw-busy">
   <div class="panel-h"><h2>Interfaces ({{ if_total }})</h2>
     <div class="right">{% if device.metrics_updated_at %}<span class="t-mute small">Updated {{ device.metrics_updated_at|ago }}</span>{% endif %}
       {% if if_total %}<a class="btn sm ghost-primary" href="{% url 'network:interfaces_export' device.pk %}">{% icon "download" 15 %}CSV</a>{% endif %}</div></div>
@@ -14,6 +14,17 @@
     {% if if_rows %}{% include "network/_iface_table.html" with rows=if_rows counters=True %}
     {% else %}<div class="nw-empty sm">{% icon "filter" 24 %}<p>No interfaces match{% if if_q %} “{{ if_q }}”{% endif %}{% if if_filter != "all" %} in this state{% endif %}.</p><a class="btn sm" href="?tab=interfaces">Show all interfaces</a></div>{% endif %}
   {% else %}
-    <div class="nw-empty">{% icon "plug" 28 %}<p>Interfaces come from Prometheus snmp_exporter (IF-MIB): <code>ifHCInOctets</code>, <code>ifHCOutOctets</code>, <code>ifOperStatus</code>, <code>ifAdminStatus</code>, <code>ifHighSpeed</code>, <code>ifInErrors</code> / <code>ifOutErrors</code> and <code>ifInDiscards</code> / <code>ifOutDiscards</code>. Set the device's Prometheus instance to the snmp_exporter target label.</p>{% if can_operate %}<a class="btn sm" href="{% url 'network:edit' device.pk %}#id_prometheus_instance">Edit device</a>{% endif %}</div>
+    <div class="nw-empty">{% icon "plug" 28 %}
+      {% if not prometheus_on or not device.prometheus_instance %}
+      <p>Interfaces come from Prometheus snmp_exporter (IF-MIB): <code>ifHCInOctets</code>, <code>ifHCOutOctets</code>, <code>ifOperStatus</code>, <code>ifAdminStatus</code>, <code>ifHighSpeed</code>, <code>ifInErrors</code> / <code>ifOutErrors</code> and <code>ifInDiscards</code> / <code>ifOutDiscards</code>. Set the device's Prometheus instance to the snmp_exporter target label.</p>
+      {% if can_operate %}<a class="btn sm" href="{% url 'network:edit' device.pk %}#id_prometheus_instance">Edit device</a>{% endif %}
+      {% elif device.metrics_error %}
+      <p>{{ device.metrics_error }}</p>
+      <p class="t-mute">Prometheus is connected and instance <code>{{ device.prometheus_instance }}</code> is set. Scrape this target with snmp_exporter (<code>if_mib</code>) so IF-MIB series appear under that <code>instance</code> label.</p>
+      {% if can_operate %}<a class="btn sm" href="{% url 'network:edit' device.pk %}#id_prometheus_instance">Edit instance label</a>{% endif %}
+      {% else %}
+      <p>Waiting for the first IF-MIB metrics for instance <code>{{ device.prometheus_instance }}</code> (collected while <code>run_probes</code> is running).</p>
+      {% endif %}
+    </div>
   {% endif %}
 </section>

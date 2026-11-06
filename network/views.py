@@ -9,7 +9,7 @@ from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db.models import Count, Q
-from django.http import HttpResponse, JsonResponse
+from django.http import Http404, HttpResponse, HttpResponseBase, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -19,6 +19,8 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from core import prometheus
 from core.access import can, can_on, require, visible_sites
 from core.audit import audit
+from core.client_scope import SESSION_KEY as CLIENT_SESSION_KEY
+from core.client_scope import active_client
 
 from . import discovery, jobs, legacy_panels, metrics, services
 from .forms import ApproveForm, DeviceForm, DiscoveryForm
@@ -137,7 +139,37 @@ def _cell(value):
 
 
 def _device(request, pk):
-    return get_object_or_404(services.devices_for(request.user, request), pk=pk)
+    """Return the device in scope, or a redirect that clears an over-narrow client filter.
+
+    Deep links 404 when the header client picker hides a site (e.g. R15 Rack while
+    FinSpot DR is selected). If the user can see the device with All Clients, clear
+    the filter and retry instead of a bare 404.
+    """
+    qs = services.devices_for(request.user, request)
+    device = qs.filter(pk=pk).first()
+    if device:
+        return device
+    bare = Device.objects.filter(tenant_key=services.tenant(), pk=pk).first()
+    if bare and active_client(request) and services.devices_for(request.user).filter(pk=pk).exists():
+        request.session.pop(CLIENT_SESSION_KEY, None)
+        request.session.modified = True
+        site = bare.site or "—"
+        messages.info(
+            request,
+            f"“{bare.name}” is at site {site}, outside the selected client. Switched to All Clients.",
+        )
+        params = request.GET.copy()
+        # Keep client= so middleware does not auto-reselect a single client on the next request.
+        params["client"] = ""
+        return redirect(f"{request.path}?{params.urlencode()}")
+    raise Http404("No Device matches the given query.")
+
+
+def _as_device(device_or_response):
+    """Unpack `_device` when callers must return redirects early."""
+    if isinstance(device_or_response, HttpResponseBase):
+        return None, device_or_response
+    return device_or_response, None
 
 
 def _filtered(request, qs, with_type=False):
@@ -260,7 +292,9 @@ def export_csv(request):
 # ------------------------------------------------------------------ detail
 @require("view")
 def detail(request, pk):
-    device = _device(request, pk)
+    device, early = _as_device(_device(request, pk))
+    if early:
+        return early
     tab = request.GET.get("tab", "overview")
     if tab not in dict(TABS):
         tab = "overview"
@@ -340,7 +374,9 @@ def detail(request, pk):
 @require_GET
 def legacy_panel(request, pk):
     """Serve the matched iframeGraphs front-panel markup (SVG) for a device."""
-    device = get_object_or_404(services.devices_for(request.user, request), pk=pk)
+    device, early = _as_device(_device(request, pk))
+    if early:
+        return early
     info = legacy_panels.resolve_legacy_panel(device)
     if not info or not info.get("iframe_j2"):
         return HttpResponse("No legacy panel matched for this vendor/model.", status=404)
@@ -361,7 +397,12 @@ def legacy_panel(request, pk):
 @require("operate")
 @require_http_methods(["GET", "POST"])
 def device_form(request, pk=None):
-    device = _device(request, pk) if pk else None
+    if pk:
+        device, early = _as_device(_device(request, pk))
+        if early:
+            return early
+    else:
+        device = None
     if device and not services.can_manage(request.user, "operate", device.site):
         raise PermissionDenied
     initial = {}
@@ -418,7 +459,9 @@ def device_form(request, pk=None):
 @require("admin")
 @require_POST
 def device_delete(request, pk):
-    device = _device(request, pk)
+    device, early = _as_device(_device(request, pk))
+    if early:
+        return early
     if not services.can_manage(request.user, "admin", device.site):
         return _deny(request)
     name, back = device.name, device.type_list_url
@@ -441,7 +484,9 @@ def _check_summary(device, result):
 @require("operate")
 @require_POST
 def check_now(request, pk):
-    device = _device(request, pk)
+    device, early = _as_device(_device(request, pk))
+    if early:
+        return early
     if not services.can_manage(request.user, "operate", device.site):
         return _deny(request)
     if not device.enabled:
@@ -661,7 +706,9 @@ def discovery_cancel(request, pk):
 
 @require("view")
 def interfaces_csv(request, pk):
-    device = _device(request, pk)
+    device, early = _as_device(_device(request, pk))
+    if early:
+        return early
     resp = HttpResponse(content_type="text/csv; charset=utf-8")
     safe = re.sub(r"[^A-Za-z0-9._-]+", "-", device.name).strip("-") or f"device-{device.pk}"
     resp["Content-Disposition"] = f'attachment; filename="{safe}-interfaces.csv"'

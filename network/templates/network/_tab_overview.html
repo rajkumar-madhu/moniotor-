@@ -60,7 +60,7 @@
       <tr><td>Description</td><td>{{ device.description|default:"–" }}</td></tr>
     </tbody></table></div></div>
 
-  <div class="panel" id="interfaces"><div class="panel-h"><h2>Interface Status (Top 10)</h2><a class="right view-all" href="?tab=interfaces">View All Interfaces {% icon "arrow-right" 14 %}</a></div>
+  <div class="panel nw-busy" id="interfaces"><div class="panel-h"><h2>Interface Status (Top 10)</h2><a class="right view-all" href="?tab=interfaces">View All Interfaces {% icon "arrow-right" 14 %}</a></div>
     {% if top_interfaces %}
     {% include "network/_iface_table.html" with rows=top_interfaces compact=True %}
     {% if metrics_msg %}<p class="nw-note">{{ metrics_msg }}</p>{% endif %}

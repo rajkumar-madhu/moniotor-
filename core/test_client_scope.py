@@ -55,3 +55,21 @@ class ClientScopeTests(TestCase):
         self.assertContains(r, "FS DR")
         self.assertNotContains(r, "Legacy Site")
         self.assertContains(r, "Devices: 0 healthy, 0 down, 1 degraded")
+
+    def test_device_detail_clears_client_when_site_outside_filter(self):
+        from django.urls import reverse
+
+        self.http.force_login(self.admin)
+        session = self.http.session
+        session["le_client"] = str(self.c1.pk)
+        session.save()
+        d2 = Device.objects.get(name="d2")
+        url = reverse("network:detail", args=[d2.pk]) + "?tab=configuration"
+        r = self.http.get(url)
+        self.assertEqual(r.status_code, 302)
+        self.assertIn("client=", r["Location"])
+        self.assertIn("tab=configuration", r["Location"])
+        r2 = self.http.get(r["Location"])
+        self.assertEqual(r2.status_code, 200)
+        self.assertContains(r2, "d2")
+        self.assertContains(r2, "outside the selected client")

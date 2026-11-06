@@ -114,17 +114,27 @@ def _best_match(candidates, hay_t):
     return best if overlap >= 2 else (best if overlap >= 1 and digit_tokens else "")
 
 
-def resolve_legacy_panel(device, stacked=False):
+def _wants_stack(device):
+    """Prefer *_stack.j2 when vendor/model/name mentions a stack chassis."""
+    blob = " ".join(filter(None, [device.model, device.vendor, device.name])).lower()
+    return "stack" in blob
+
+
+def resolve_legacy_panel(device, stacked=None):
     """Return legacy asset filenames for a device, or None when nothing matches."""
     if not (device.model or device.vendor or device.name):
         return None
     hay_t = _hay_tokens(device)
     if not hay_t:
         return None
+    if stacked is None:
+        stacked = _wants_stack(device)
     pool = iframe_stack_names() if stacked else iframe_panel_names()
     j2 = _best_match(pool, hay_t)
     if not j2 and not stacked:
         j2 = _best_match(iframe_stack_names(), hay_t)
+    if not j2 and stacked:
+        j2 = _best_match(iframe_panel_names(), hay_t)
     yaml = _best_match(direct_template_names(), hay_t)
     if not j2 and not yaml:
         return None

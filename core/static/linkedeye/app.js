@@ -65,6 +65,7 @@
   const moon = '<svg class="ic" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 0010 9.8z"/></svg>';
   const applyTheme = t => {
     document.documentElement.setAttribute('data-theme', t);
+    document.documentElement.style.backgroundColor = t === 'dark' ? '#0f1419' : '#f3f4f6';
     localStorage.setItem(THEME_KEY, t);
     if (themeBtn) {
       themeBtn.innerHTML = t === 'light' ? moon : sun;
