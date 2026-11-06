@@ -10,6 +10,23 @@ from core.events import emit, event_emitted
 from core.models import AuditEvent, Event, Membership, Site
 
 
+class B2BLandingTests(TestCase):
+    @override_settings(LINKEDEYE_LOGIN_OTP=False)
+    def test_welcome_page_public(self):
+        r = self.client.get("/welcome/")
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Sign in")
+
+    @override_settings(LINKEDEYE_LOGIN_OTP=False)
+    def test_welcome_page_authenticated_shows_sign_out(self):
+        u = User.objects.create_user("landing-tester", password="secret-for-test")
+        self.assertTrue(self.client.login(username="landing-tester", password="secret-for-test"))
+        r = self.client.get("/welcome/")
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Sign out")
+        self.assertNotContains(r, ">Sign in</a>")
+
+
 class AccessTests(TestCase):
     def setUp(self):
         self.mum = Site.objects.create(name="Mumbai (NSE)", code="mumbai-nse")

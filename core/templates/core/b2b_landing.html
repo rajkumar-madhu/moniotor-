@@ -1,0 +1,42 @@
+{% load static %}<!doctype html>
+<html lang="en" class="login-page landing-page"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LinkedEye for teams · IT operations & monitoring</title>
+<link rel="icon" href="{% static 'linkedeye/img/logo-favicon.png' %}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'linkedeye/app.css' %}?v=infra-theme-1">
+<link rel="stylesheet" href="{% static 'linkedeye/pages/login.css' %}?v=infra-theme-1">
+<link rel="stylesheet" href="{% static 'linkedeye/pages/landing.css' %}?v=infra-theme-1"></head>
+<body><div class="login landing">
+  <section class="showcase">
+    <img class="wordmark" src="{% static 'linkedeye/img/name-logo.png' %}" alt="LinkedEye" width="404" height="127" fetchpriority="high" decoding="async">
+    <figure>
+      <img src="{% static 'linkedeye/img/Monitors.png' %}" alt="" width="600" height="470" loading="lazy" decoding="async">
+      <figcaption>Built for operations teams</figcaption>
+    </figure>
+  </section>
+  <main class="entry">
+    <div class="landing-card">
+      <p class="eyebrow">LinkedEye</p>
+      <h1>Run network, telemetry, and service desk from one console</h1>
+      <p class="lead">LinkedEye ties together device health, Prometheus-backed metrics, and operational workflows so your team sees issues in context—not in silos.</p>
+      <ul class="landing-points">
+        <li><strong>Unified ops context</strong> — devices, checks, and alerts in one place</li>
+        <li><strong>Prometheus-first metrics</strong> — charts follow your scrape targets</li>
+        <li><strong>Team-ready</strong> — roles and sites for how B2B IT is actually organized</li>
+      </ul>
+      <div class="landing-actions">
+        {% if user.is_authenticated %}
+        <form class="landing-signout" method="post" action="{% url 'logout' %}">{% csrf_token %}
+          <button class="btn ghost" type="submit">Sign out</button>
+        </form>
+        {% else %}
+        <a class="btn primary" href="{% url 'login' %}">Sign in</a>
+        {% endif %}
+      </div>
+      <p class="landing-note">New to LinkedEye? Your organization&rsquo;s administrator creates accounts and assigns site access. If you need an account, contact your IT or ops lead.</p>
+    </div>
+    <footer class="copyright"><b>Copyright &copy;</b> <a href="https://linkedeye.in/" target="_blank" rel="noopener"><i>LinkedEye.in</i></a> <b>2025</b></footer>
+  </main>
+</div></body></html>

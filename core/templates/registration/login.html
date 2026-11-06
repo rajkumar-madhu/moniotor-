@@ -9,9 +9,9 @@
 <link rel="stylesheet" href="{% static 'linkedeye/pages/login.css' %}?v=infra-theme-1"></head>
 <body><div class="login">
   <section class="showcase">
-    <img class="wordmark" src="{% static 'linkedeye/img/name-logo.png' %}" alt="LinkedEye" width="404" height="127">
+    <img class="wordmark" src="{% static 'linkedeye/img/name-logo.png' %}" alt="LinkedEye" width="404" height="127" fetchpriority="high" decoding="async">
     <figure>
-      <img src="{% static 'linkedeye/img/Monitors.png' %}" alt="" width="600" height="470">
+      <img src="{% static 'linkedeye/img/Monitors.png' %}" alt="" width="600" height="470" loading="lazy" decoding="async">
       <figcaption>Monitoring</figcaption>
     </figure>
   </section>
@@ -25,6 +25,7 @@
       <div class="field"><label for="id_password">Password</label><input type="password" name="password" id="id_password" autocomplete="current-password" required></div>
       <input type="hidden" name="next" value="{{ next }}">
       <button class="btn primary" type="submit">Sign in</button>
+      <p class="login-aux"><a href="{% url 'b2b_landing' %}">About LinkedEye</a></p>
     </form>
     <footer class="copyright"><b>Copyright &copy;</b> <a href="https://linkedeye.in/" target="_blank" rel="noopener"><i>LinkedEye.in</i></a> <b>2025</b></footer>
   </main>

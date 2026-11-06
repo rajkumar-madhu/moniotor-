@@ -1,0 +1,117 @@
+/* B2B product landing: reuses login.css tokens; marketing column only. */
+.landing-page.landing .landing-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 440px;
+  padding: 36px 32px;
+  background: var(--panel);
+  border: 1px solid #ddd6c8;
+  border-radius: 14px;
+  box-shadow: var(--card-shadow);
+}
+
+.landing-page.landing .landing-card .eyebrow {
+  margin: 0;
+  color: var(--brand);
+  font: 600 11px/1.2 var(--font);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+.landing-page.landing .landing-card h1 {
+  margin: 0;
+  color: var(--ink);
+  font: 700 26px/1.2 var(--display);
+  letter-spacing: -.02em;
+}
+
+.landing-page.landing .landing-card .lead {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.landing-page.landing .landing-points {
+  margin: 0;
+  padding-left: 1.15rem;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.landing-page.landing .landing-points li { margin-bottom: 8px; }
+.landing-page.landing .landing-points strong { color: var(--ink); }
+
+.landing-page.landing .landing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.landing-page.landing .landing-actions .landing-signout {
+  margin: 0;
+}
+
+.landing-page.landing .landing-actions .btn.ghost {
+  min-height: 42px;
+  padding: 0 20px;
+  font: 600 14px/1 var(--font);
+  background: transparent;
+  border: 1px solid var(--input-line);
+  border-radius: 8px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.landing-page.landing .landing-actions .btn.ghost:hover {
+  border-color: var(--line-strong);
+  background: rgba(14, 17, 22, .04);
+}
+
+.landing-page.landing .landing-actions .btn.ghost:active {
+  border-color: var(--ink-2);
+}
+
+.landing-page.landing .landing-actions .btn.primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 20px;
+  text-decoration: none;
+  background: var(--btn-primary);
+  border: 1px solid var(--btn-primary);
+  border-radius: 8px;
+  color: var(--btn-primary-ink);
+  font: 600 14px/1 var(--font);
+}
+
+.landing-page.landing .landing-actions .btn.primary:hover {
+  background: var(--btn-primary-hover);
+  border-color: var(--btn-primary-hover);
+}
+
+.landing-page.landing .landing-actions .btn.primary:active {
+  background: var(--btn-primary-active);
+  border-color: var(--btn-primary-active);
+}
+
+.landing-page.landing .landing-note {
+  margin: 0;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-2);
+  background: rgba(15, 122, 85, .06);
+  border: 1px solid rgba(15, 122, 85, .2);
+  border-radius: 8px;
+}
+
+@media (max-width: 960px) {
+  .landing-page.landing .landing-card { max-width: none; }
+}

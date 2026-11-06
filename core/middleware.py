@@ -2,7 +2,7 @@ from django.conf import settings
 from django.shortcuts import redirect
 from django.urls import reverse
 
-PUBLIC_PREFIXES = ("/accounts/login/", "/accounts/verify-otp/", "/accounts/resend-otp/", "/static/", "/healthz",
+PUBLIC_PREFIXES = ("/welcome/", "/accounts/login/", "/accounts/verify-otp/", "/accounts/resend-otp/", "/static/", "/healthz",
                    # machine-to-machine endpoints; they authenticate with their own bearer token
                    "/api/v1/alertmanager/", "/api/v1/logs/")
 
