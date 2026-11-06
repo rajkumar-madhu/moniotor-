@@ -14,6 +14,7 @@ from .samples import exporters as s_exporters, firewall as s_firewall, heatmap a
 from .nav import NAV
 
 
+
 def dashboard(request):
     from . import overview
     user = request.user
