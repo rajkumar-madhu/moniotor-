@@ -1,7 +1,9 @@
 import csv
 import ipaddress
+import os
 import re
 from collections import Counter
+from pathlib import Path
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -335,18 +337,25 @@ def detail(request, pk):
     port_index = port.if_index if port else None
     traffic_range = request.GET.get("range", "24h") if request.GET.get("range") in ("24h", "7d") else "24h"
     traffic, traffic_msg = (None, "")
+    traffic_24h, traffic_24h_msg = (None, "")
     errors_chart, errors_msg = (None, "")
-    # Network devices still use IF-MIB traffic/errors on overview; VMs use guest metrics instead.
-    if not is_vm and tab in ("overview", "traffic"):
-        traffic, traffic_msg = metrics.traffic_range(device, 86400 if traffic_range == "24h" else 7 * 86400, port_index)
-    if not is_vm and tab == "overview":
+    # 24h series always feed the top "Netdata-style" strip; tab Traffic can request 7d.
+    if not is_vm:
+        traffic_24h, traffic_24h_msg = metrics.traffic_range(device, 86400, port_index)
         errors_chart, errors_msg = metrics.errors_range(device, 86400, port_index)
+        if tab in ("overview", "traffic"):
+            if traffic_range == "24h":
+                traffic, traffic_msg = traffic_24h, traffic_24h_msg
+            else:
+                traffic, traffic_msg = metrics.traffic_range(device, 7 * 86400, port_index)
     if_filter = request.GET.get("state") if request.GET.get("state") in dict(IF_FILTERS) else "all"
     if_q = request.GET.get("q", "").strip()[:100]
     if_counts = {"all": len(interfaces), "up": if_up, "busy": tones["busy"], "down": tones["down"], "unused": tones["unused"]}
     can_op = services.can_manage(request.user, "operate", device.site)
-    if not prometheus.configured() or not device.prometheus_instance:
-        metrics_msg = "No metrics source: set LINKEDEYE_PROMETHEUS_URL and the device Prometheus instance."
+    if not prometheus.configured():
+        metrics_msg = "No metrics source: set LINKEDEYE_PROMETHEUS_URL (or Administration → Integrations → Prometheus)."
+    elif not device.prometheus_instance:
+        metrics_msg = "Set this device’s Prometheus instance to the scrape target’s instance label (e.g. IP:9100)."
     elif device.metrics_error:
         metrics_msg = device.metrics_error
     elif not device.metrics_updated_at:
@@ -374,6 +383,7 @@ def detail(request, pk):
         "avg_latency": services.avg_latency(device), "spark": services.latency_spark(device),
         "avail_chart": services.availability_chart(device), "latency_chart": services.latency_chart(device),
         "traffic": traffic, "traffic_msg": traffic_msg, "traffic_range": traffic_range,
+        "traffic_24h": traffic_24h, "traffic_24h_msg": traffic_24h_msg,
         "prometheus_on": prometheus.configured(), "metrics_msg": metrics_msg,
         "metrics_ok": bool(prometheus.configured() and device.prometheus_instance and device.metrics_updated_at
                            and not device.metrics_error),
@@ -388,17 +398,12 @@ def detail(request, pk):
     }
     if is_vm:
         force_sample = request.GET.get("sample") in ("1", "true", "yes")
-        need_metrics = tab in ("overview", "performance")
-        guest, used_sample = (None, False)
+        guest, used_sample = vm_metrics.resolve_vm_metrics(device, force_sample=force_sample)
         vm_perf, perf_sample = None, False
         perf_range_key = request.GET.get("perf_range", "24h")
         if perf_range_key not in vm_metrics.PERF_RANGE_SECONDS:
             perf_range_key = "24h"
         perf_seconds = vm_metrics.PERF_RANGE_SECONDS[perf_range_key]
-        if need_metrics:
-            guest, used_sample = vm_metrics.resolve_vm_metrics(device, force_sample=force_sample)
-        elif force_sample:
-            used_sample = True
         if tab == "performance":
             vm_perf, perf_sample = vm_metrics.resolve_vm_performance(
                 device, force_sample=force_sample, seconds=perf_seconds
