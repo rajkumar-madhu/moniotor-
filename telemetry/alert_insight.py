@@ -1,6 +1,9 @@
 """Group EDR/SIEM-style alert fields and build a short narrative summary for the detail page."""
 from __future__ import annotations
 
+import json
+import re
+
 # (section key, title, key prefixes — first match wins; longer prefixes checked first via sort)
 _SECTION_RULES = (
     ("endpoint", "Endpoint details", ("account.", "agent.", "endpoint.")),
@@ -113,12 +116,91 @@ def build_insight_summary(alert, flat: dict[str, str]) -> str:
     return " ".join(parts)
 
 
+_INDICATOR_COUNTS = (
+    ("src.process.indicatorEvasionCount", "Evasion"),
+    ("src.process.indicatorExploitationCount", "Exploitation"),
+    ("src.process.indicatorGeneralCount", "General"),
+    ("src.process.indicatorPersistenceCount", "Persistence"),
+    ("src.process.indicatorPostExploitationCount", "Post-exploitation"),
+    ("src.process.indicatorReconnaissanceCount", "Reconnaissance"),
+    ("src.process.indicatorConfigurationUpdateCount", "Configuration update"),
+)
+
+
+def extract_indicators(flat: dict[str, str], annotations: dict | None) -> list[dict]:
+    """Behavioral indicator rows for the Indicators tab."""
+    items: list[dict] = []
+    seen: set[str] = set()
+    for key, label in _INDICATOR_COUNTS:
+        raw = flat.get(key, "")
+        if str(raw).isdigit() and int(raw) > 0:
+            items.append({"label": label, "count": int(raw), "detail": key})
+            seen.add(label)
+    ann = annotations or {}
+    for blob_key in ("indicators_json", "indicators"):
+        blob = ann.get(blob_key, "")
+        if not blob:
+            continue
+        try:
+            parsed = json.loads(blob)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(parsed, list):
+            for row in parsed[:50]:
+                if isinstance(row, dict):
+                    name = str(row.get("name") or row.get("category") or row.get("type") or "Indicator")[:120]
+                    if name in seen:
+                        continue
+                    seen.add(name)
+                    items.append({
+                        "label": name,
+                        "count": row.get("count") or 1,
+                        "detail": str(row.get("description") or row.get("id") or "")[:500],
+                    })
+                elif isinstance(row, str) and row not in seen:
+                    seen.add(row)
+                    items.append({"label": row, "count": 1, "detail": ""})
+    mitre = _first(flat, "mitre.technique", "threat.mitreTechnique", "mitreTechniques")
+    if mitre:
+        for part in re.split(r"[,;|]", mitre):
+            part = part.strip()
+            if part and part not in seen:
+                seen.add(part)
+                items.append({"label": f"MITRE {part}", "count": 1, "detail": "ATT&CK technique"})
+    return items
+
+
+def attack_graph(flat: dict[str, str]) -> dict:
+    """Nodes for the Graph tab (endpoint → parent → process → target)."""
+    endpoint = _first(flat, "endpoint.name", "agent.uuid", "instance")
+    parent = _first(flat, "src.process.parent.displayName", "src.process.parent.name")
+    process = _first(flat, "src.process.displayName", "src.process.name")
+    target = _first(flat, "tgt.file.path", "task.path", "tgt.file.name")
+    if target and "/" in target and not flat.get("tgt.file.name"):
+        target_name = target.rsplit("/", 1)[-1]
+    else:
+        target_name = _first(flat, "tgt.file.name") or (target.rsplit("/", 1)[-1] if target and "/" in target else target)
+    return {
+        "endpoint": endpoint,
+        "parent": parent,
+        "process": process,
+        "target": target,
+        "target_short": target_name,
+        "has_graph": bool(endpoint or process or target),
+    }
+
+
 def alert_detail_context(alert) -> dict:
     flat = flatten_fields(alert.labels, alert.annotations)
+    indicators = extract_indicators(flat, alert.annotations)
+    graph = attack_graph(flat)
     return {
         "context_path": context_path(alert, flat),
         "analyst_verdict": analyst_verdict(alert, flat),
         "insight_summary": build_insight_summary(alert, flat),
         "detail_sections": group_fields(flat),
         "has_structured_fields": bool(flat),
+        "indicators": indicators,
+        "indicator_count": len(indicators),
+        "attack_graph": graph,
     }

@@ -18,4 +18,5 @@ urlpatterns = [
     path("monitoring/metrics-explorer/save/", views.save_query, name="query_save"),
     path("monitoring/metrics-explorer/<int:pk>/delete/", views.delete_query, name="query_delete"),
     path("api/v1/alertmanager/", views.alertmanager_webhook, name="alertmanager_webhook"),
+    path("api/v1/sentinelone/", views.sentinelone_webhook, name="sentinelone_webhook"),
 ]

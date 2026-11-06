@@ -13,6 +13,7 @@ from django.views.decorators.csrf import csrf_exempt
 from core.audit import audit
 
 from .. import alerts as svc
+from .. import s1_mapper
 
 log = logging.getLogger("linkedeye.telemetry")
 
@@ -70,3 +71,35 @@ def alertmanager_webhook(request):
     audit(request, "ingest", object_type="telemetry.alert", receiver=str(payload.get("receiver", ""))[:200],
           group_key=str(payload.get("groupKey", ""))[:200], status=str(payload.get("status", ""))[:20], **stats)
     return JsonResponse({"status": "ok", **stats})
+
+
+def _webhook_token(setting_name: str, fallback_setting: str) -> str:
+    primary = getattr(settings, setting_name, "") or ""
+    if primary:
+        return primary
+    return getattr(settings, fallback_setting, "") or ""
+
+
+@csrf_exempt
+def sentinelone_webhook(request):
+    """POST /api/v1/sentinelone/ — map SentinelOne webhook JSON into stored alerts."""
+    if request.method != "POST":
+        resp = _deny(405, "method not allowed")
+        resp["Allow"] = "POST"
+        return resp
+    token = _webhook_token("SENTINELONE_WEBHOOK_TOKEN", "ALERTMANAGER_WEBHOOK_TOKEN")
+    if not token:
+        return _deny(503, "webhook disabled: set LINKEDEYE_SENTINELONE_WEBHOOK_TOKEN or LINKEDEYE_ALERTMANAGER_WEBHOOK_TOKEN")
+    if not _authorized(request, token):
+        log.warning("sentinelone webhook: rejected request from %s", request.META.get("REMOTE_ADDR"))
+        return _deny(401, "invalid or missing bearer token")
+    raw = _read_body(request)
+    if raw is None:
+        return _deny(413, f"payload larger than {svc.MAX_BODY_BYTES // 1024} KB")
+    try:
+        payload, alerts = s1_mapper.parse_sentinelone_payload(raw)
+    except svc.PayloadError as e:
+        return _deny(400, str(e))
+    stats = svc.ingest(payload, alerts)
+    audit(request, "ingest", object_type="telemetry.alert", receiver="sentinelone", **stats)
+    return JsonResponse({"status": "ok", "mapped": len(alerts), **stats})

@@ -151,6 +151,14 @@
 .pg-telemetry .tm-field-pairs dt { margin: 0; padding: 8px 12px 8px 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; border-top: 1px solid var(--line-soft); }
 .pg-telemetry .tm-field-pairs dd { margin: 0; padding: 8px 0; overflow-wrap: anywhere; border-top: 1px solid var(--line-soft); }
 .pg-telemetry .tm-raw-json { margin: 0; padding: 12px 16px; font: 12px/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; background: var(--panel-2); border-radius: 0 0 10px 10px; }
+.pg-telemetry .tm-attack-graph { padding: 16px 16px 20px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.pg-telemetry .tm-graph-chain { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; }
+.pg-telemetry .tm-graph-node { min-width: 120px; max-width: 220px; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); text-align: center; }
+.pg-telemetry .tm-graph-node .lbl { display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 4px; }
+.pg-telemetry .tm-graph-node strong { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-telemetry .tm-graph-node.host { border-color: var(--info-line); background: var(--info-bg); }
+.pg-telemetry .tm-graph-node.file { border-color: var(--warn-line); background: var(--warn-bg); }
+.pg-telemetry .tm-graph-arrow { color: var(--muted); font-size: 18px; font-weight: 700; }
 
 @media (max-width: 1080px) {
   .pg-telemetry .tm-kv-grid { grid-template-columns: minmax(0, 1fr); }

@@ -38,6 +38,8 @@
 
 <nav class="tm-alert-tabs" aria-label="Alert sections">
   <a href="#overview" class="on">Overview</a>
+  <a href="#indicators">Indicators <span class="n">{{ indicator_count }}</span></a>
+  <a href="#graph">Graph</a>
   <a href="#timeline">Timeline <span class="n">{{ events|length }}</span></a>
   <a href="#raw">Raw data</a>
 </nav>
@@ -72,6 +74,29 @@
         {% empty %}<tr><td class="empty">No annotations.</td></tr>{% endfor %}</tbody></table></div></div>
     </div>
     {% endif %}
+
+    <div class="panel" id="indicators"><div class="panel-h"><h2>Indicators</h2></div>
+      {% if indicators %}
+      <div class="table-wrap dense tm-table"><table>
+        <thead><tr><th>Indicator</th><th>Count</th><th>Detail</th></tr></thead>
+        <tbody>{% for row in indicators %}
+          <tr><td>{{ row.label }}</td><td>{{ row.count }}</td><td class="wrap t-mute">{{ row.detail }}</td></tr>
+        {% endfor %}</tbody></table></div>
+      {% else %}<p class="t-mute" style="margin:0;padding:0 16px 14px">No behavioral indicators in this payload. SentinelOne-style counts (e.g. <code>src.process.indicatorEvasionCount</code>) or annotation <code>indicators_json</code> populate this tab.</p>{% endif %}
+    </div>
+
+    <div class="panel" id="graph"><div class="panel-h"><h2>Attack graph</h2></div>
+      {% if attack_graph.has_graph %}
+      <div class="tm-attack-graph" role="img" aria-label="Process and file relationship">
+        {% if attack_graph.endpoint %}<div class="tm-graph-node host"><span class="lbl">Endpoint</span><strong>{{ attack_graph.endpoint }}</strong></div>{% endif %}
+        {% if attack_graph.parent or attack_graph.process %}<div class="tm-graph-chain">
+          {% if attack_graph.parent %}<div class="tm-graph-node proc"><span class="lbl">Parent</span><strong>{{ attack_graph.parent }}</strong></div><span class="tm-graph-arrow" aria-hidden="true">→</span>{% endif %}
+          {% if attack_graph.process %}<div class="tm-graph-node proc"><span class="lbl">Process</span><strong>{{ attack_graph.process }}</strong></div>{% endif %}
+          {% if attack_graph.target %}<span class="tm-graph-arrow" aria-hidden="true">→</span><div class="tm-graph-node file"><span class="lbl">Target</span><strong title="{{ attack_graph.target }}">{{ attack_graph.target_short }}</strong></div>{% endif %}
+        </div>{% endif %}
+      </div>
+      {% else %}<p class="t-mute" style="margin:0;padding:0 16px 14px">Not enough structured fields to draw a graph.</p>{% endif %}
+    </div>
 
     <div class="panel" id="timeline"><div class="panel-h"><h2>Timeline</h2></div>
       <div class="table-wrap dense tm-table"><table>

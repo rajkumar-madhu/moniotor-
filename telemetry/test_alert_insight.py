@@ -35,6 +35,11 @@ class AlertInsightTests(TestCase):
         self.assertIn("containerd", ctx["insight_summary"])
         self.assertIn("rbl-mum-le", ctx["insight_summary"])
         self.assertIn("Religare", ctx["context_path"])
+        labels["src.process.indicatorEvasionCount"] = "2"
+        a.labels = labels
+        ctx2 = alert_detail_context(a)
+        self.assertTrue(any(i["label"] == "Evasion" for i in ctx2["indicators"]))
+        self.assertTrue(ctx2["attack_graph"]["has_graph"])
 
     def test_purple_annotation_preferred(self):
         a = Alert.objects.create(

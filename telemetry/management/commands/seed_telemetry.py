@@ -32,6 +32,7 @@ EDR_LABELS = {
     "account.name": "Example Corp", "endpoint.name": "demo-host-01", "agent.uuid": "demo-agent",
     "src.process.displayName": "containerd", "src.process.cmdline": "/usr/bin/containerd",
     "src.process.parent.displayName": "systemd", "src.process.parent.pid": "1",
+    "src.process.indicatorEvasionCount": "1", "src.process.indicatorGeneralCount": "0",
     "tgt.file.path": "/var/lib/containerd/tmpmounts/mount123/etc/logrotate.d/alternatives",
     "task.path": "/var/lib/containerd/tmpmounts/mount123/etc/logrotate.d/alternatives",
 }
