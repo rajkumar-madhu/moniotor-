@@ -82,7 +82,7 @@
         <tbody>{% for row in indicators %}
           <tr><td>{{ row.label }}</td><td>{{ row.count }}</td><td class="wrap t-mute">{{ row.detail }}</td></tr>
         {% endfor %}</tbody></table></div>
-      {% else %}<p class="t-mute" style="margin:0;padding:0 16px 14px">No behavioral indicators in this payload. SentinelOne-style counts (e.g. <code>src.process.indicatorEvasionCount</code>) or annotation <code>indicators_json</code> populate this tab.</p>{% endif %}
+      {% else %}<p class="t-mute" style="margin:0;padding:0 16px 14px">No behavioral indicators in this payload. Add label counts (e.g. <code>src.process.indicatorEvasionCount</code>) or annotation <code>indicators_json</code> via Alertmanager.</p>{% endif %}
     </div>
 
     <div class="panel" id="graph"><div class="panel-h"><h2>Attack graph</h2></div>

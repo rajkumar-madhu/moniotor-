@@ -128,7 +128,7 @@
   font-size: 12px; text-align: center; }
 .pg-telemetry .tabs a.on .n { background: var(--primary-soft); color: var(--primary); }
 
-/* alert detail — SentinelOne-style overview */
+/* alert detail — EDR-style overview */
 .pg-telemetry .tm-alert-path { margin: 4px 0 0; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
 .pg-telemetry .tm-alert-meta { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px 16px;
   margin: 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }

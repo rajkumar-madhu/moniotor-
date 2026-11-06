@@ -4,7 +4,7 @@ from django.urls import reverse
 
 PUBLIC_PREFIXES = ("/accounts/login/", "/accounts/verify-otp/", "/accounts/resend-otp/", "/static/", "/healthz",
                    # machine-to-machine endpoints; they authenticate with their own bearer token
-                   "/api/v1/alertmanager/", "/api/v1/sentinelone/", "/api/v1/logs/")
+                   "/api/v1/alertmanager/", "/api/v1/logs/")
 
 
 class LoginRequiredMiddleware:

@@ -200,7 +200,6 @@ SCHEDULER_CRITICAL_JOBS = env_list("SCHEDULER_CRITICAL_JOBS", "tcpcheck.run_due,
 PROMETHEUS_URL = env("PROMETHEUS_URL", "")                    # e.g. http://prometheus.fs-linkedeye:9090
 PROMETHEUS_TIMEOUT = float(env("PROMETHEUS_TIMEOUT", "8"))
 ALERTMANAGER_WEBHOOK_TOKEN = env("ALERTMANAGER_WEBHOOK_TOKEN", "")   # required bearer token for /api/v1/alertmanager/
-SENTINELONE_WEBHOOK_TOKEN = env("SENTINELONE_WEBHOOK_TOKEN", "")     # optional; falls back to ALERTMANAGER token
 LOG_INGEST_TOKEN = env("LOG_INGEST_TOKEN", "")               # required bearer token for /api/v1/logs/
 STACKSTORM_URL = env("STACKSTORM_URL", "")                    # e.g. https://st2.fs-linkedeye/api/v1/webhooks/
 STACKSTORM_API_KEY = env("STACKSTORM_API_KEY", "")

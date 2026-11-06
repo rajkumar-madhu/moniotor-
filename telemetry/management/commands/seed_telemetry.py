@@ -26,7 +26,7 @@ ALERTS = [
      "HTTP probe failing", "The blackbox exporter could not reach the portal.", 600, 560),
 ]
 
-# Structured EDR-style labels for the SentinelOne-like alert detail layout (example00000006).
+# Structured EDR-style labels for the alert detail layout (example00000006).
 EDR_LABELS = {
     "alertname": "LogRotationConfigTampering", "severity": "medium", "example": "true",
     "account.name": "Example Corp", "endpoint.name": "demo-host-01", "agent.uuid": "demo-agent",
