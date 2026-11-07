@@ -20,7 +20,7 @@ metadata:
     # cert-manager.io/cluster-issuer: "<REPLACE: issuer name>"
     # ingress-nginx style examples:
     # nginx.ingress.kubernetes.io/proxy-read-timeout: "90"
-    # nginx.ingress.kubernetes.io/proxy-body-size: "2m"
+    # nginx.ingress.kubernetes.io/proxy-body-size: "3m"   # device photo uploads are up to 2 MB
 spec:
   ingressClassName: nginx   # REPLACE with your IngressClass (kubectl get ingressclass)
   tls:

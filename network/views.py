@@ -24,9 +24,9 @@ from core.audit import audit
 from core.client_scope import SESSION_KEY as CLIENT_SESSION_KEY
 from core.client_scope import active_client
 
-from . import discovery, jobs, legacy_panels, metrics, services, vm_metrics
-from .forms import ApproveForm, DeviceForm, DiscoveryForm
-from .live import FRONT_PANEL_MAX, LIVE_INTERVAL, apply_guest_uptime, device_snapshot, panel_ports, port_data
+from . import discovery, images, jobs, legacy_panels, metrics, services, vm_metrics
+from .forms import ApproveForm, DeviceForm, DiscoveryForm, FieldImageError
+from .live import FRONT_PANEL_MAX, LIVE_INTERVAL, apply_guest_uptime, card_data, device_snapshot, panel_ports, port_data
 from .models import TYPE_PAGES, Device, DeviceStatus, DeviceType, DiscoveredHost, DiscoveryRun, Environment
 
 TYPE_INTRO = {
@@ -92,6 +92,14 @@ def _query(request, *drop):
     for k in ("page",) + drop:
         q.pop(k, None)
     return q
+
+
+def _view_links(request):
+    """Table / Cards layout links that keep the filters."""
+    base = _query(request, "view")
+    cards = base.copy()
+    cards["view"] = "cards"
+    return {"table": "?" + base.urlencode(), "cards": "?" + cards.urlencode()}
 
 
 def _wants_json(request):
@@ -205,11 +213,13 @@ def device_list(request, device_type=None):
     guest_metrics = {}
     if prometheus.configured():
         guest_metrics = vm_metrics.batch_guest_instants(list(page))
+    cards = card_data(list(page), guest=guest_metrics if prometheus.configured() else None)
     list_colspan = (11 if device_type is None else 10) + (4 if prometheus.configured() else 0)
     for d in page:
         d.avail24 = avail.get(d.pk)
         d.ifs = ifs.get(d.pk)
         d.guest_live = guest_metrics.get(d.pk) if prometheus.configured() else None
+        d.card = cards[d.pk]
     total = counts["total"]
     pct = {s: (100.0 * counts[s] / total if total else 0) for s in DeviceStatus.values}
     if device_type:
@@ -252,6 +262,9 @@ def device_list(request, device_type=None):
         "last_poll": base.exclude(last_checked_at=None).order_by("-last_checked_at").values_list("last_checked_at", flat=True).first(),
         "guest_metrics": guest_metrics,
         "list_colspan": list_colspan,
+        "view_mode": "cards" if request.GET.get("view") == "cards" else "table",
+        "view_links": _view_links(request),
+        "cards_url": reverse("network:cards_live"), "live_interval": LIVE_INTERVAL,
         **_perms(request),
     }
     return render(request, "network/list.html", ctx)
@@ -381,9 +394,11 @@ def detail(request, pk):
         "legacy_onboard": legacy_panels.resolve_legacy_panel(device),
         "live_url": f"{reverse('network:live', args=[device.pk])}?{urlencode(live_q)}",
         "live_interval": LIVE_INTERVAL,
+        "card": None,
         "vm_metrics": None, "vm_meta": {}, "vm_info_rows": [],
         "vm_actions": vm_metrics.VM_ACTIONS, "vm_power": "", "vm_stub": None,
     }
+    guest = None
     if is_vm:
         guest = vm_metrics.fetch_guest_metrics(device)
         apply_guest_uptime(device, guest)
@@ -411,6 +426,7 @@ def detail(request, pk):
         if tab in vm_metrics.STUB_COPY:
             title, blurb = vm_metrics.STUB_COPY[tab]
             ctx["vm_stub"] = {"title": title, "blurb": blurb}
+    ctx["card"] = card_data([device], guest={device.pk: guest} if guest else None)[device.pk]
     if tab == "configuration":
         from core.models import AuditEvent
         ctx["audit_rows"] = AuditEvent.objects.filter(object_type="network.device", object_id=str(device.pk))[:25]
@@ -427,6 +443,24 @@ def live(request, pk):
     port = request.GET.get("port", "")
     data = device_snapshot(device, metrics.range_key(request.GET.get("range")), int(port) if port.isdigit() else None)
     resp = JsonResponse(data)
+    resp["Cache-Control"] = "no-store"
+    return resp
+
+
+@require("view")
+@require_GET
+def cards_live(request):
+    """JSON for the device cards on a list page (network/device-card.js): ?ids=1,2,3 (at most 60). Only devices the user
+    may see are answered; the figures come from the same card_data() that rendered the cards."""
+    # ASCII digits only and a sane length: "²" passes str.isdigit() but not int(), and a 20-digit id overflows the database
+    ids = [int(i) for i in (p.strip() for p in request.GET.get("ids", "")[:2000].split(",")[:200])
+           if i.isascii() and i.isdigit() and len(i) <= 12][:60]
+    devices = list(services.devices_for(request.user, request).filter(pk__in=ids))
+    cards = card_data(devices)
+    resp = JsonResponse({"generated_at": timezone.now().isoformat(),
+                         "cards": {str(pk): {"status": c["status"], "tone": c["tones"]["status"], "label": c["values"]["status"],
+                                             "values": c["values"], "tones": c["tones"], "figures": c["figures"]}
+                                   for pk, c in cards.items()}})
     resp["Cache-Control"] = "no-store"
     return resp
 
@@ -472,14 +506,28 @@ def device_form(request, pk=None):
             initial["device_type"] = request.GET["type"]
         if request.GET.get("site"):
             initial["site"] = request.GET["site"]
-    form = DeviceForm(request.POST or None, instance=device, initial=initial)
+    form = DeviceForm(request.POST or None, request.FILES or None, instance=device, initial=initial)
     if request.method == "POST" and form.is_valid():
         site = form.cleaned_data.get("site", "")
+        photo = ("keep", None)
         if not services.can_manage(request.user, "operate", site):
             form.add_error("site", "You cannot manage devices on this site.")
         else:
+            # the upload / download happens only here, after the site permission check, and is validated byte by byte
+            try:
+                photo = form.resolve_image(request.user)
+            except FieldImageError as e:
+                form.add_error(e.field, str(e))
+        if not form.errors:
             changed = list(form.changed_data)
+            old_image = device.image if device else None
             obj = form.save(commit=False)
+            if photo[0] == "set":
+                obj.image = photo[1]
+                changed.append("image")
+            elif photo[0] == "clear":
+                obj.image = None
+                changed.append("image")
             obj.tenant_key = settings.LINKEDEYE_TENANT
             if device and {"mgmt_ip", "check_port"} & set(changed):
                 obj.consecutive_failures = 0
@@ -493,6 +541,8 @@ def device_form(request, pk=None):
             if device and "enabled" in changed and obj.enabled and obj.last_error == "Monitoring disabled":
                 obj.last_error = ""
             obj.save()
+            if photo[0] != "keep" and old_image is not None and old_image.pk != obj.image_id:
+                images.release(old_image)
             if device:
                 audit(request, "update", obj, changed=changed)
                 if obj.enabled and {"enabled", "mgmt_ip", "check_port"} & set(changed):
@@ -514,7 +564,8 @@ def device_form(request, pk=None):
             return redirect(obj.get_absolute_url())
     vendors = sorted({v for v in Device.objects.filter(tenant_key=settings.LINKEDEYE_TENANT).values_list("vendor", flat=True) if v}
                      | {"Cisco", "Juniper", "Arista", "Fortinet", "Palo Alto Networks", "F5", "Aruba", "Dell", "HPE", "VMware"})
-    return render(request, "network/form.html", {"form": form, "device": device, "vendors": vendors})
+    return render(request, "network/form.html", {"form": form, "device": device, "vendors": vendors,
+                                                 "can_admin": can_on(request.user, "admin", None)})
 
 
 @require("admin")

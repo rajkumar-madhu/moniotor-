@@ -1,6 +1,6 @@
-{% extends "core/base.html" %}{% load le static %}
+{% extends "core/base.html" %}{% load le static network_tags %}
 {% block title %}{% if device %}Edit {{ device.name }}{% else %}Add Device{% endif %}{% endblock %}
-{% block page_css %}<link rel="stylesheet" href="{% static 'network/page.css' %}">{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'network/page.css' %}"><link rel="stylesheet" href="{% static 'network/device-card.css' %}">{% endblock %}
 {% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'network:all' %}">Network Devices</a>{% icon "chevron-right" 14 %}{% if device %}<a href="{{ device.type_list_url }}">{{ device.type_plural }}</a>{% icon "chevron-right" 14 %}<a href="{{ device.get_absolute_url }}">{{ device.name }}</a>{% icon "chevron-right" 14 %}<span>Edit</span>{% else %}<span>Add Device</span>{% endif %}</nav>{% endblock %}
 {% block content %}
 <div class="pg-network nw-formpage">
@@ -8,7 +8,7 @@
   <div class="glyph bg-info">{% icon "network" 30 %}</div>
   <div><h1>{% if device %}Edit {{ device.name }}{% else %}Add Device{% endif %}</h1><p>The device is checked every minute with a TCP connect to its management address. Interface data comes from Prometheus when an snmp_exporter instance is set.</p></div>
 </div>
-<form method="post" class="panel nw-form" novalidate>{% csrf_token %}
+<form method="post" class="panel nw-form"{% if device %} data-editing="1"{% endif %}{% if device and device.image_id %} data-has-photo="1"{% endif %} enctype="multipart/form-data" novalidate>{% csrf_token %}
   {% if form.product_catalog %}{{ form.product_catalog|json_script:"nw-product-catalog" }}{% endif %}
   {% for e in form.non_field_errors %}<p class="err">{{ e }}</p>{% endfor %}
   {% for title, fields in form.groups %}
@@ -18,9 +18,8 @@
       {% if f.name == "enabled" %}
       <div class="field nw-check"><label class="inline-check"><span class="switch">{{ f }}<span></span></span>{{ f.label }}</label>{% for e in f.errors %}<span class="err">{{ e }}</span>{% endfor %}</div>
       {% else %}
-      <div class="field{% if f.name == 'description' %} full{% endif %}{% if f.name == 'product_image_url' %} nw-prod-field{% endif %}">
+      <div class="field{% if f.name == 'description' %} full{% endif %}">
         <label for="{{ f.id_for_label }}">{{ f.label }}{% if f.field.required %} <span class="req">*</span>{% endif %}</label>{{ f }}
-        {% if f.name == 'product_image_url' %}<div data-prod-preview aria-live="polite"></div>{% endif %}
         {% if f.help_text %}<span class="hint">{{ f.help_text }}</span>{% endif %}
         {% for e in f.errors %}<span class="err">{{ e }}</span>{% endfor %}
       </div>
@@ -29,6 +28,25 @@
     </div>
   </fieldset>
   {% endfor %}
+  <fieldset class="nw-photo-set"><legend>Photo</legend>
+    <div class="nw-photo-row">
+      <div class="nw-photo-now">
+        <div class="dc dc-thumb">{% if device %}<div class="dc-photo {% if device.image_id %}has-photo{% else %}is-art{% endif %}"><span class="dc-zoom">{% if device.image_id %}<img src="{{ device.image.url }}" alt="Current photo of {{ device.photo_label }}" width="{{ device.image.width }}" height="{{ device.image.height }}">{% else %}{% device_art device %}{% endif %}</span></div>{% else %}<div class="dc-photo is-art" data-prod-now><span class="dc-zoom">{% icon "image" 26 %}</span></div>{% endif %}</div>
+        <p class="hint">{% if device and device.image_id %}Stored photo, {{ device.image.get_source_display|lower }}, {{ device.image.width }}×{{ device.image.height }} px.{% elif device and device.product_image_url %}Only a linked picture so far; upload or fetch one to keep your own copy.{% else %}No photo yet: a generic illustration is shown until you add one.{% endif %}</p>
+        <div data-prod-preview aria-live="polite"></div>
+      </div>
+      <div class="form-grid nw-grid nw-photo-fields">
+        {% for f in form.photo_fields %}
+        <div class="field{% if forloop.first %} full{% endif %}"><label for="{{ f.id_for_label }}">{{ f.label }}</label>{{ f }}{% if f.help_text %}<span class="hint">{{ f.help_text }}</span>{% endif %}{% for e in f.errors %}<span class="err">{{ e }}</span>{% endfor %}</div>
+        {% endfor %}
+        {% if device and device.image_id %}<div class="field nw-check"><label class="inline-check"><span class="switch">{{ form.clear_image }}<span></span></span>{{ form.clear_image.label }}</label></div>{% endif %}
+      </div>
+    </div>
+    <p class="hint nw-photo-note">Photos are stored by LinkedEye and served only to signed-in users who can see this device; nothing is loaded from another site. LinkedEye does not bundle vendor photos{% if can_admin %}: <a href="{% url 'network:catalog' %}">add yours to the product catalog</a> and matching devices pick them up{% endif %}.</p>
+    <details class="nw-legacy"><summary>Linked image URL (legacy)</summary>
+      <div class="field">{{ form.product_image_url }}<span class="hint">{{ form.product_image_url.help_text }}</span>{% for e in form.product_image_url.errors %}<span class="err">{{ e }}</span>{% endfor %}</div>
+    </details>
+  </fieldset>
   <datalist id="net-vendors">{% for v in vendors %}<option value="{{ v }}">{% endfor %}</datalist>
   <div class="nw-form-foot">
     <a class="btn" href="{% if device %}{{ device.get_absolute_url }}{% else %}{% url 'network:all' %}{% endif %}">Cancel</a>
@@ -36,5 +54,5 @@
   </div>
 </form>
 </div>
-{% if form.product_catalog %}<script src="{% static 'network/device-form.js' %}"></script>{% endif %}
+<script src="{% static 'network/device-form.js' %}"></script>
 {% endblock %}

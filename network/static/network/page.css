@@ -1878,3 +1878,21 @@
 .pg-network .nw-strip-bar .seg {
   margin-left: auto;
 }
+
+/* ---------- photo section of the device form, product catalog ---------- */
+.pg-network .nw-photo-row { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 18px; align-items: start; }
+.pg-network .nw-photo-now .dc-photo { width: 100%; aspect-ratio: 16 / 10; }
+.pg-network .nw-photo-now [data-prod-preview] img { display: block; width: 100%; max-height: 130px; object-fit: contain; margin-top: 8px;
+  padding: 6px; box-sizing: border-box; border-radius: 8px; border: 1px solid var(--line-soft); background: #f6f4ef; }
+.pg-network .nw-photo-note { margin: 10px 0 0; }
+.pg-network .nw-legacy { margin-top: 12px; }
+.pg-network .nw-legacy summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+.pg-network .nw-catalog .nw-form-pad { padding: 4px 16px 16px; display: grid; gap: 12px; }
+.pg-network .nw-catalog .nw-form-pad textarea { width: 100%; }
+.pg-network .nw-catalog .nw-import-counts { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 16px 12px; }
+.pg-network .nw-catalog .nw-catalog-tools { margin-top: 14px; }
+.pg-network .nw-catalog .nw-list-plain { margin: 0; padding: 4px 18px 16px 34px; display: grid; gap: 8px; font-size: 13.5px; color: var(--ink-2); }
+.pg-network .nw-catalog .nw-catalog-list { margin-top: 14px; }
+@media (max-width: 700px) {
+  .pg-network .nw-photo-row { grid-template-columns: minmax(0, 1fr); }
+}

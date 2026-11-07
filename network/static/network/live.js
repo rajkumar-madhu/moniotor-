@@ -4,6 +4,8 @@
  *   [data-live-tone=key]  status tone classes (t-ok / t-warn / t-crit / t-mute)
  *   json_script ids       chart data, redrawn in place by LinkedEyeCharts
  *   #front-panel ports    port colours and the drawer data (front-panel.js listens for nw:ports-updated)
+ *   device card           the card's texts use the same data-live / data-live-tone keys (card_cpu, card_in ...);
+ *                         device-card.js listens for nw:snapshot to draw its sparklines
  * A status change or a new alert raises a notice with a reload link. Server data is only ever written with
  * textContent (names and alert titles are device-reported). Failures back off up to 5 minutes. */
 (function () {
@@ -81,10 +83,11 @@
   }
   function applyBadge(tone, label) {
     // header status pill: new tone and text; the icon is dropped rather than left showing the old state
-    const b = document.querySelector('.nw-live-badge .badge');
-    if (!b || typeof tone !== 'string' || typeof label !== 'string') return;
-    b.className = 'badge ' + (tone || 'mute');
-    b.textContent = label;
+    if (typeof tone !== 'string' || typeof label !== 'string') return;
+    document.querySelectorAll('.nw-live-badge .badge').forEach(function (b) {   // the title and the device card
+      b.className = 'badge ' + (tone || 'mute');
+      b.textContent = label;
+    });
   }
   function notify(msg) {
     if (!notice) return;
@@ -98,6 +101,7 @@
     applyTones(data.tones || {});
     applyCharts(data.charts || {});
     applyPorts(data.ports);
+    document.dispatchEvent(new CustomEvent('nw:snapshot', { detail: data }));   // device-card.js: sparklines
     if (data.status !== root.dataset.status) {
       applyBadge((data.tones || {}).status, (data.values || {}).status);
       notify('Status changed to ' + (data.values || {}).status + '.');

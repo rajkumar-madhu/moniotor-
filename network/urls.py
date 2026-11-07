@@ -1,6 +1,6 @@
-from django.urls import path
+from django.urls import path, re_path
 
-from . import views
+from . import image_views, views
 
 app_name = "network"
 urlpatterns = [
@@ -21,7 +21,16 @@ urlpatterns = [
     path("network/devices/<int:pk>/delete/", views.device_delete, name="delete"),
     path("network/devices/<int:pk>/check/", views.check_now, name="check"),
     path("network/devices/<int:pk>/live/", views.live, name="live"),
+    path("network/devices/cards-live/", views.cards_live, name="cards_live"),
     path("network/devices/<int:pk>/interfaces.csv", views.interfaces_csv, name="interfaces_export"),
+    re_path(r"^network/images/(?P<sha>[0-9a-f]{64})\.(?P<ext>png|jpg|webp)$", image_views.image, name="image"),
+    path("network/catalog/", image_views.catalog, name="catalog"),
+    path("network/catalog/new/", image_views.catalog_edit, name="catalog_create"),
+    path("network/catalog/import/", image_views.catalog_import, name="catalog_import"),
+    path("network/catalog/export.csv", image_views.catalog_export, name="catalog_export"),
+    path("network/catalog/<int:pk>/edit/", image_views.catalog_edit, name="catalog_edit"),
+    path("network/catalog/<int:pk>/delete/", image_views.catalog_delete, name="catalog_delete"),
+    path("network/catalog/<int:pk>/store-copy/", image_views.catalog_store_copy, name="catalog_store_copy"),
     path("network/discovery/", views.discovery_view, name="discovery"),
     path("network/discovery/<int:pk>/", views.discovery_run, name="discovery_run"),
     path("network/discovery/<int:pk>/approve/", views.discovery_approve, name="discovery_approve"),

@@ -138,7 +138,7 @@ server {
     ssl_certificate     /etc/ssl/linkedeye/fullchain.pem;
     ssl_certificate_key /etc/ssl/linkedeye/privkey.pem;
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    client_max_body_size 2m;
+    client_max_body_size 3m;   # device photos are up to 2 MB plus form overhead
     location / {
         proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host $host;

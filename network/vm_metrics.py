@@ -163,6 +163,40 @@ def batch_guest_instants(devices):
     return out
 
 
+def batch_guest_extras(devices):
+    """Inbound and outbound throughput and temperature for a page of devices, three batched queries in all.
+
+    Maps device pk -> {"rx_mbps", "tx_mbps", "temp"} with None for missing series (or when Prometheus is unreachable)."""
+    out = {d.pk: {"rx_mbps": None, "tx_mbps": None, "temp": None} for d in devices}
+    inst_to_pks = {}
+    for d in devices:
+        inst = (d.prometheus_instance or "").strip()
+        if inst:
+            inst_to_pks.setdefault(inst, []).append(d.pk)
+    if not inst_to_pks or not prometheus.configured():
+        return out
+    regex = regex_alternation(list(inst_to_pks))
+    nic = 'device!~"lo|veth.*|docker.*|br.*"'
+    queries = {
+        "rx_mbps": f'sum by (instance) (rate(node_network_receive_bytes_total{{{nic},instance=~"{regex}"}}[5m])) * 8 / 1e6',
+        "tx_mbps": f'sum by (instance) (rate(node_network_transmit_bytes_total{{{nic},instance=~"{regex}"}}[5m])) * 8 / 1e6',
+        "temp": (f'max by (instance) (node_hwmon_temp_celsius{{instance=~"{regex}"}})'
+                 f' or max by (instance) (node_thermal_zone_temp{{instance=~"{regex}"}})'),
+    }
+    for key, promql in queries.items():
+        try:
+            rows = prometheus.query(promql)
+        except prometheus.PrometheusError:
+            continue
+        for r in rows:
+            inst, v = (r.get("metric") or {}).get("instance", ""), r.get("value")
+            if v is None or v != v:
+                continue
+            for pk in inst_to_pks.get(inst, []):
+                out[pk][key] = v
+    return out
+
+
 def _perf_step(seconds):
     return max(15, int(seconds / 120))
 

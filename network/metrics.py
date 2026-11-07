@@ -5,6 +5,11 @@ Standard snmp_exporter `if_mib` series are used:
   ifOperStatus, ifAdminStatus, ifHighSpeed (falls back to ifSpeed), ifType_info / ifType,
   ifInErrors / ifOutErrors, ifInDiscards / ifOutDiscards (per-second rates over 5 min),
   changes(ifOperStatus[24h]) as the flap count, sysUpTime (TimeTicks, hundredths of a second).
+Device-level CPU, memory and temperature (the device card) are read from whichever of these the snmp_exporter module
+exposes, in this order: CPU hrProcessorLoad, cpmCPUTotal5minRev (Cisco), jnxOperatingCPU (Juniper), fgSysCpuUsage
+(Fortinet); memory hrStorageUsed/hrStorageSize for RAM, ciscoMemoryPoolUsed/Free, jnxOperatingBuffer, fgSysMemUsage;
+temperature entPhySensorValue (celsius sensors), jnxOperatingTemp, ciscoEnvMonTemperatureStatusValue. A device whose
+module has none of them simply has no figure: it is shown as "No data", never as 0.
 Interfaces are identified by the `ifIndex` label; `ifName` / `ifDescr` / `ifAlias`
 lookups give the names. Missing series are tolerated: whatever is present is stored.
 """
@@ -73,6 +78,22 @@ def queries(selector):
         # max over the state-set series (one per state) so both exporter styles count each transition once
         "flaps": f"max by (instance, ifIndex) (changes(ifOperStatus{{{s}}}[24h]))",
         "uptime": f"sysUpTime{{{s}}} / 100",
+        **device_queries(s),
+    }
+
+
+# series that are not listed here are not guessed at; add a vendor's by appending to the `or` chains
+def device_queries(s):
+    ram = r'hrStorageType=~".*(hrStorageRam|1\\.3\\.6\\.1\\.2\\.1\\.25\\.2\\.1\\.2)$"'
+    return {
+        "cpu": (f"avg by (instance) (hrProcessorLoad{{{s}}}) or avg by (instance) (cpmCPUTotal5minRev{{{s}}})"
+                f" or max by (instance) (jnxOperatingCPU{{{s}}}) or max by (instance) (fgSysCpuUsage{{{s}}})"),
+        "memory": (f"100 * sum by (instance) (hrStorageUsed{{{s},{ram}}}) / sum by (instance) (hrStorageSize{{{s},{ram}}})"
+                   f" or 100 * sum by (instance) (ciscoMemoryPoolUsed{{{s}}})"
+                   f" / (sum by (instance) (ciscoMemoryPoolUsed{{{s}}}) + sum by (instance) (ciscoMemoryPoolFree{{{s}}}))"
+                   f" or max by (instance) (jnxOperatingBuffer{{{s}}}) or max by (instance) (fgSysMemUsage{{{s}}})"),
+        "temp": (f'max by (instance) (entPhySensorValue{{{s},entPhySensorType=~"celsius|8"}})'
+                 f" or max by (instance) (jnxOperatingTemp{{{s}}}) or max by (instance) (ciscoEnvMonTemperatureStatusValue{{{s}}})"),
     }
 
 
@@ -98,7 +119,7 @@ def _if_type(metric, value):
 def fetch(instances):
     """Query Prometheus for the given instance labels.
     Returns ({instance: {"interfaces": {ifIndex: {...}}, "uptime": seconds|None}}, [errors])."""
-    data = {i: {"interfaces": {}, "uptime": None} for i in instances}
+    data = {i: {"interfaces": {}, "uptime": None, "cpu": None, "memory": None, "temp": None} for i in instances}
     errors = []
     selector = f'instance=~"{regex_alternation(instances)}"'
     for key, promql in queries(selector).items():
@@ -112,8 +133,8 @@ def fetch(instances):
             inst = m.get("instance")
             if inst not in data:
                 continue
-            if key == "uptime":
-                data[inst]["uptime"] = v
+            if key in ("uptime", "cpu", "memory", "temp"):
+                data[inst][key] = v
                 continue
             idx = m.get("ifIndex", "")
             if not str(idx).isdigit():
@@ -140,22 +161,32 @@ def _rate(v):
     return None if v is None else round(max(0.0, v), 3)
 
 
+def _bounded(v, lo, hi):
+    """A reading inside its physical range, else None (a bogus sensor value is no data, not a number to show)."""
+    if v is None or isinstance(v, bool) or v != v or not lo <= v <= hi:
+        return None
+    return round(float(v), 1)
+
+
 def apply(device, result, errors, now=None):
     """Store one device's metrics. Returns the list of (interface, old_oper, new_oper) transitions."""
     from .models import Interface
     now = now or timezone.now()
     interfaces = result.get("interfaces", {}) if result else {}
     uptime = result.get("uptime") if result else None
+    cpu = _bounded(result.get("cpu") if result else None, 0, 100)
+    memory = _bounded(result.get("memory") if result else None, 0, 100)
+    temp = _bounded(result.get("temp") if result else None, -50, 250)
     transitions = []
-    if not interfaces and uptime is None:
+    if not interfaces and uptime is None and cpu is None and memory is None and temp is None:
         # nothing for this instance: keep the inventory but stop showing stale traffic numbers
         Interface.objects.filter(device=device).update(**STALE_RATES)
         msg = f'No snmp_exporter series in Prometheus for instance "{device.prometheus_instance}"'
         if errors:
             msg += " (" + "; ".join(errors) + ")"
         device.metrics_error = msg[:300]
-        device.uptime_seconds = None
-        device.save(update_fields=["metrics_error", "uptime_seconds"])
+        device.uptime_seconds = device.cpu_pct = device.memory_pct = device.temperature_c = None
+        device.save(update_fields=["metrics_error", "uptime_seconds", "cpu_pct", "memory_pct", "temperature_c"])
         return transitions
 
     existing = {i.if_index: i for i in Interface.objects.filter(device=device)}
@@ -190,9 +221,10 @@ def apply(device, result, errors, now=None):
         Interface.objects.filter(pk__in=[i.pk for i in existing.values()]).update(**STALE_RATES)
         errors = list(errors) + ["no IF-MIB interface series"]
     device.uptime_seconds = int(uptime) if uptime is not None else None
+    device.cpu_pct, device.memory_pct, device.temperature_c = cpu, memory, temp
     device.metrics_updated_at = now
     device.metrics_error = ("Partial data: " + "; ".join(errors))[:300] if errors else ""
-    device.save(update_fields=["uptime_seconds", "metrics_updated_at", "metrics_error"])
+    device.save(update_fields=["uptime_seconds", "cpu_pct", "memory_pct", "temperature_c", "metrics_updated_at", "metrics_error"])
     return transitions
 
 
