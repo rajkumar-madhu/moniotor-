@@ -8,15 +8,22 @@
   <div class="glyph">{% icon "server" 30 %}</div>
   <div style="min-width:0"><h1>{{ ci.name|default:instance }}</h1>
     <div class="meta">
-      {% if host %}<span class="badge {{ host.health|health_tone }}">{{ host.health|health_label }}</span>{% endif %}
+      {% if host %}<span class="badge {{ host.health|health_tone }}" data-kpi="health" data-badge>{{ host.health|health_label }}</span>{% endif %}
       <span class="chip mute mono">{{ instance }}</span>
       {% if host.job %}<span class="chip">job: {{ host.job }}</span>{% endif %}
       {% if ci_url %}<a class="chip teal" href="{{ ci_url }}">CMDB: {{ ci.name }}</a>{% endif %}
       {% if site %}<span class="chip purple">{{ site }}</span>{% endif %}
       {% if full %}<span class="tm-meta">node_exporter via Prometheus · {{ full.query_count }} queries · step {{ full.step }}s</span>{% endif %}
-    </div></div>
+    </div>
+    {% if full %}<p class="hm-help">Hover for values · drag to zoom · click a series to hide it · shift-click to isolate</p>{% endif %}
+  </div>
   <div class="actions">
     <nav class="seg" aria-label="Time range">{% for k, l in ranges %}<a href="?range={{ k }}" class="{% if k == range_key %}on{% endif %}" title="{{ l }}">{{ k }}</a>{% endfor %}</nav>
+    {% if full %}<div class="hm-live">
+      <button type="button" class="btn" id="hm-live" aria-pressed="false" data-live-url="{{ live_url }}" title="Refresh the charts and values in place every {{ cache_seconds }} s">{% icon "activity" 17 %}Live</button>
+      <span class="hm-updated" id="hm-updated" aria-live="polite"></span>
+      <span class="hm-live-err" id="hm-live-err" role="alert" hidden></span>
+    </div>{% endif %}
     <a class="btn" href="{% url 'telemetry:host_detail' instance %}?range={{ range_key }}">{% icon "chevron-left" 17 %}Overview</a>
     {% if prom_configured %}<a class="btn" href="?range={{ range_key }}&amp;refresh=1">{% icon "refresh" 17 %}Refresh</a>{% endif %}
   </div>
@@ -30,20 +37,32 @@
   <div class="panel tm-nc" role="status"><div class="tile">{% icon "help" 22 %}</div>
     <div><h2>Host not found in Prometheus</h2><p>No node_exporter target has <code>instance="{{ instance }}"</code> in a job matching <code>.*node.*</code>. It may have been removed from the scrape configuration. <a href="{% url 'telemetry:infrastructure' %}">Back to Infrastructure</a></p></div></div>
 {% else %}
-{% grade "cpu" host.cpu as gc %}{% grade "memory" host.memory as gm %}{% grade "disk" host.disk as gd %}{% grade "load" host.load_per_core as gl %}
+{% with S=full.summary %}
 <div class="hm-layout">
 <div class="hm-main">
 
 <section id="summary" class="hm-section" aria-labelledby="h-summary">
-  <div class="hm-sec-h"><span class="eyebrow">Now</span><h2 id="h-summary">Summary</h2><span class="right">Instant values · charts cover {{ full.seconds|hduration }}</span></div>
+  <div class="hm-sec-h"><span class="eyebrow">Now</span><h2 id="h-summary">Summary</h2><span class="right">Instant values · gauges show the change over {{ full.seconds|hduration }}</span></div>
   <div class="kpis tm-kpis">
-    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "cpu" 22 %}</div><div class="kpi-body"><div class="label">CPU</div><div class="value t-{{ gc }}">{{ host.cpu|pct1 }}</div></div></div><div class="sub">{% if host.cores %}{{ host.cores|floatformat:0 }} cores{% else %}cores unknown{% endif %}</div></div>
-    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-purple">{% icon "memory" 22 %}</div><div class="kpi-body"><div class="label">Used RAM</div><div class="value t-{{ gm }}">{{ host.memory|pct1 }}</div></div></div><div class="sub">of {{ host.mem_total|hbytes }}</div></div>
-    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-warn">{% icon "hdd" 22 %}</div><div class="kpi-body"><div class="label">Root disk</div><div class="value t-{{ gd }}">{{ host.disk|pct1 }}</div></div></div><div class="sub">used on /</div></div>
-    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-mute">{% icon "gauge" 22 %}</div><div class="kpi-body"><div class="label">Load 1m</div><div class="value t-{{ gl }}">{{ host.load1|hnum }}</div></div></div><div class="sub">{{ host.load5|hnum }} · {{ host.load15|hnum }} (5m · 15m)</div></div>
-    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-ok">{% icon "network" 22 %}</div><div class="kpi-body"><div class="label">Network</div><div class="value">{{ host.rx|hrate|unit_small }}</div></div></div><div class="sub tm-wrap">in · out {{ host.tx|hrate }}</div></div>
-    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "activity" 22 %}</div><div class="kpi-body"><div class="label">Disk I/O</div><div class="value">{{ full.disk_read|hrate|unit_small }}</div></div></div><div class="sub tm-wrap">read · write {{ full.disk_write|hrate }}</div></div>
-    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-ok">{% icon "clock" 22 %}</div><div class="kpi-body"><div class="label">Uptime</div><div class="value">{{ host.uptime|hduration }}</div></div></div><div class="sub">{% if host.up == 0 %}<span class="t-crit">scrape down</span>{% else %}scrape up{% endif %}</div></div>
+    <div class="kpi stacked hm-kpi-gauge"><div class="label">{% icon "cpu" 14 %}CPU</div>
+      <div class="chart hm-gauge" data-chart="gauge" data-src="hm-g-cpu"></div>
+      <span class="hm-vh t-{{ S.tones.cpu }}" data-kpi="cpu" data-tone>{{ S.kpis.cpu }}</span>
+      <div class="sub" data-kpi="cpu_sub">{{ S.kpis.cpu_sub }}</div></div>
+    <div class="kpi stacked hm-kpi-gauge"><div class="label">{% icon "memory" 14 %}Used RAM</div>
+      <div class="chart hm-gauge" data-chart="gauge" data-src="hm-g-memory"></div>
+      <span class="hm-vh t-{{ S.tones.memory }}" data-kpi="memory" data-tone>{{ S.kpis.memory }}</span>
+      <div class="sub" data-kpi="memory_sub">{{ S.kpis.memory_sub }}</div></div>
+    <div class="kpi stacked hm-kpi-gauge"><div class="label">{% icon "hdd" 14 %}Root disk</div>
+      <div class="chart hm-gauge" data-chart="gauge" data-src="hm-g-disk"></div>
+      <span class="hm-vh t-{{ S.tones.disk }}" data-kpi="disk" data-tone>{{ S.kpis.disk }}</span>
+      <div class="sub" data-kpi="disk_sub">{{ S.kpis.disk_sub }}</div></div>
+    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-mute">{% icon "gauge" 22 %}</div><div class="kpi-body"><div class="label">Load 1m</div><div class="value t-{{ S.tones.load1 }}" data-kpi="load1" data-tone>{{ S.kpis.load1 }}</div></div></div><div class="sub" data-kpi="load_sub">{{ S.kpis.load_sub }}</div>
+      {% if S.sparks.load %}<div class="chart hm-spark" data-chart="spark" data-src="hm-s-load" aria-hidden="true"></div>{% endif %}</div>
+    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-ok">{% icon "network" 22 %}</div><div class="kpi-body"><div class="label">Network</div><div class="value" data-kpi="net" data-unit-small>{{ S.kpis.net|unit_small }}</div></div></div><div class="sub tm-wrap" data-kpi="net_sub">{{ S.kpis.net_sub }}</div>
+      {% if S.sparks.net %}<div class="chart hm-spark" data-chart="spark" data-src="hm-s-net" aria-hidden="true"></div>{% endif %}</div>
+    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "activity" 22 %}</div><div class="kpi-body"><div class="label">Disk I/O</div><div class="value" data-kpi="diskio" data-unit-small>{{ S.kpis.diskio|unit_small }}</div></div></div><div class="sub tm-wrap" data-kpi="diskio_sub">{{ S.kpis.diskio_sub }}</div>
+      {% if S.sparks.diskio %}<div class="chart hm-spark" data-chart="spark" data-src="hm-s-diskio" aria-hidden="true"></div>{% endif %}</div>
+    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-ok">{% icon "clock" 22 %}</div><div class="kpi-body"><div class="label">Uptime</div><div class="value" data-kpi="uptime">{{ S.kpis.uptime }}</div></div></div><div class="sub t-{{ S.tones.uptime_sub }}" data-kpi="uptime_sub" data-tone>{{ S.kpis.uptime_sub }}</div></div>
   </div>
 </section>
 
@@ -58,10 +77,10 @@
         <div class="right">{% if c.unit %}<span class="hm-unit">{{ c.unit }}</span>{% endif %}
           <a class="hm-explore" href="{% url 'telemetry:explorer' %}?expr={{ c.explore_q|urlencode }}&amp;range={{ range_key }}" title="Open this query in the Metrics Explorer">{% icon "analytics" 14 %}Explore</a></div></div>
       {% if c.has %}
-        <div class="chart tm-chart" data-chart="{{ c.kind }}" data-src="{{ c.dom_id }}"></div>
-        <div class="table-wrap dense hm-legend"><table>
+        <div class="chart tm-chart" data-chart="{{ c.kind }}" data-src="{{ c.dom_id }}" data-sync="host" data-kinds="line,area,bars"></div>
+        <div class="table-wrap dense hm-legend" data-chart-legend="{{ c.dom_id }}"><table>
           <thead><tr><th>Series</th><th class="num">Last</th><th class="num">Mean</th><th class="num">Min</th><th class="num">Max</th></tr></thead>
-          <tbody>{% for s in c.legend %}<tr><td class="name"><i style="background:{{ s.color }}"></i>{{ s.name }}</td><td class="num">{{ s.last }}</td><td class="num">{{ s.mean }}</td><td class="num">{{ s.min }}</td><td class="num">{{ s.max }}</td></tr>{% endfor %}</tbody>
+          <tbody>{% for s in c.legend %}<tr data-series="{{ s.name }}"><td class="name"><i style="background:{{ s.color }}"></i>{{ s.name }}</td><td class="num" data-col="last">{{ s.last }}</td><td class="num" data-col="mean">{{ s.mean }}</td><td class="num" data-col="min">{{ s.min }}</td><td class="num" data-col="max">{{ s.max }}</td></tr>{% endfor %}</tbody>
         </table></div>
         {% if c.truncated %}<p class="hm-more">Showing the {{ c.legend|length }} busiest of {{ c.total }} series; open Explore for all of them.</p>{% endif %}
         {% if c.groups|length > 1 %}<div class="hm-groups">{% for g in c.groups %}<a class="chip" href="{% url 'telemetry:explorer' %}?expr={{ g.q|urlencode }}&amp;range={{ range_key }}" title="{{ g.q }}">{{ g.name }}</a>{% endfor %}</div>{% endif %}
@@ -74,8 +93,8 @@
 
   {% if sec.id == "compute" %}
   <div class="panel"><div class="panel-h"><h2>Per-core utilisation</h2><div class="right tm-meta">busiest first · 5 min rate</div></div>
-    {% if full.cores %}<div class="hm-cores">{% for c in full.cores %}{% grade "cpu" c.busy as g %}
-      <div class="core"><span class="lbl">cpu{{ c.cpu }}</span><span class="track"><i class="fill-{{ g }}" style="width:{{ c.busy|clamp100 }}%"></i></span><span class="val t-{{ g }}">{{ c.busy|pct1 }}</span></div>{% endfor %}</div>
+    {% if full.cores %}<div class="hm-cores">{% for c in full.cores %}
+      <div class="core" data-cpu="{{ c.cpu }}"><span class="lbl">cpu{{ c.cpu }}</span><span class="track"><i class="fill-{{ c.grade }}" style="width:{{ c.busy|clamp100 }}%"></i></span><span class="val t-{{ c.grade }}">{{ c.text }}</span></div>{% endfor %}</div>
     {% else %}<div class="hm-missing">{% icon "info" 16 %}<span>No per-CPU <code>node_cpu_seconds_total</code> samples for this host.</span></div>{% endif %}</div>
   {% elif sec.id == "storage" %}
   <div class="panel"><div class="panel-h"><h2>Mount points ({{ full.mounts|length }})</h2><div class="right tm-meta">node_filesystem_* · pseudo filesystems hidden</div></div>
@@ -176,26 +195,10 @@
 </div>
 
 {% for sec in full.sections %}{% for c in sec.charts %}{% if c.has %}{{ c.data|json_script:c.dom_id }}{% endif %}{% endfor %}{% endfor %}
+{{ S.gauges.cpu|json_script:"hm-g-cpu" }}{{ S.gauges.memory|json_script:"hm-g-memory" }}{{ S.gauges.disk|json_script:"hm-g-disk" }}
+{% if S.sparks.load %}{{ S.sparks.load|json_script:"hm-s-load" }}{% endif %}{% if S.sparks.net %}{{ S.sparks.net|json_script:"hm-s-net" }}{% endif %}{% if S.sparks.diskio %}{{ S.sparks.diskio|json_script:"hm-s-diskio" }}{% endif %}
+{% endwith %}
 {% endif %}
 </div>
 {% endblock %}
-{% block scripts %}<script>
-(function () {
-  var sel = document.querySelector('[data-toc-select]');
-  if (sel) sel.addEventListener('change', function () { if (sel.value) { location.hash = sel.value; } });
-  var links = document.querySelectorAll('.hm-toc nav a[data-toc]');
-  if (!links.length || !('IntersectionObserver' in window)) return;
-  var current = null;
-  function mark(id) {
-    if (id === current) return;
-    current = id;
-    links.forEach(function (a) { a.classList.toggle('on', a.dataset.toc === id); });
-    if (sel && sel.value !== id) sel.value = id;
-  }
-  var io = new IntersectionObserver(function (entries) {
-    entries.forEach(function (e) { if (e.isIntersecting) mark(e.target.id); });
-  }, { rootMargin: '-80px 0px -60% 0px' });
-  document.querySelectorAll('.hm-section[id]').forEach(function (s) { io.observe(s); });
-  mark((location.hash || '#summary').slice(1));
-})();
-</script>{% endblock %}
+{% block scripts %}<script src="{% static 'telemetry/host_metrics.js' %}"></script>{% endblock %}
