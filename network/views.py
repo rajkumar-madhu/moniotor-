@@ -10,7 +10,9 @@ from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
+from django.db.models.functions import Trim
 from django.http import Http404, HttpResponse, HttpResponseBase, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -82,6 +84,20 @@ def _port_data(ports):
              "errors": per_s(p.errors_per_s), "discards": per_s(p.discards_per_s),
              "flaps": "–" if p.flaps_24h is None else str(p.flaps_24h)}
             for n, p in enumerate(ports, 1)]
+
+
+def _current_interfaces(device):
+    """The device's interfaces as they should be shown now.
+
+    Nothing is collected for a disabled device, so its last rates are not current traffic. Devices disabled
+    before device_form started clearing them — or through the Django admin, where `enabled` is editable —
+    still carry them, so every reader blanks them (in memory only: the inventory and states stay)."""
+    interfaces = list(device.interfaces.all())
+    if not device.enabled:
+        for i in interfaces:
+            for field, value in metrics.STALE_RATES.items():
+                setattr(i, field, value)
+    return interfaces
 
 
 def _iface_matches(i, state, q):
@@ -301,7 +317,8 @@ def export_csv(request):
                     d.environment, d.status, d.last_seen.isoformat() if d.last_seen else "",
                     d.last_checked_at.isoformat() if d.last_checked_at else "",
                     "" if d.last_latency_ms is None else d.last_latency_ms, d.last_error, d.prometheus_instance,
-                    "" if d.uptime_seconds is None else d.uptime_seconds, "yes" if d.enabled else "no", d.tags, d.contact]])
+                    "" if d.uptime_seconds is None or not d.enabled else d.uptime_seconds,
+                    "yes" if d.enabled else "no", d.tags, d.contact]])
     return resp
 
 
@@ -316,7 +333,9 @@ def detail(request, pk):
     tab = request.GET.get("tab", "overview")
     if tab not in dict(tabs):
         tab = "overview"
-    interfaces = list(device.interfaces.all())
+    interfaces = _current_interfaces(device)
+    if not device.enabled:
+        device.uptime_seconds = None   # in memory only (detail never saves it): not current either
     if_up = sum(1 for i in interfaces if i.oper_status == "up")
     if_down = sum(1 for i in interfaces if i.oper_status in ("down", "lowerLayerDown") and i.admin_status == "up")
     if_admin_down = sum(1 for i in interfaces if i.admin_status == "down")
@@ -352,7 +371,9 @@ def detail(request, pk):
     if_q = request.GET.get("q", "").strip()[:100]
     if_counts = {"all": len(interfaces), "up": if_up, "busy": tones["busy"], "down": tones["down"], "unused": tones["unused"]}
     can_op = services.can_manage(request.user, "operate", device.site)
-    if not prometheus.configured():
+    if not device.enabled:
+        metrics_msg = "Monitoring is disabled for this device, so no checks or metrics are collected."
+    elif not prometheus.configured():
         metrics_msg = "No metrics source: set LINKEDEYE_PROMETHEUS_URL (or Administration → Integrations → Prometheus)."
     elif not device.prometheus_instance:
         metrics_msg = "Set this device’s Prometheus instance to the scrape target’s instance label (e.g. IP:9100)."
@@ -489,6 +510,9 @@ def device_form(request, pk=None):
             if device and "enabled" in changed and not obj.enabled:
                 # a device that is no longer checked must not keep counting as up or down
                 obj.status, obj.last_error, obj.status_changed_at = DeviceStatus.UNKNOWN, "Monitoring disabled", timezone.now()
+                # ...nor keep showing the last collected rates as current traffic (the inventory is kept)
+                obj.uptime_seconds, obj.metrics_updated_at = None, None
+                device.interfaces.all().update(**metrics.STALE_RATES)
             if device and "prometheus_instance" in changed:
                 # interfaces and uptime belonged to the previous snmp_exporter target
                 obj.uptime_seconds, obj.metrics_updated_at, obj.metrics_error = None, None, ""
@@ -665,6 +689,12 @@ def discovery_run(request, pk):
     counts = {s: 0 for s, _ in DiscoveredHost.STATUS}
     for s in run.hosts.values_list("status", flat=True):
         counts[s] += 1
+    # a scanned address can already be a device on a site this user may not see: the page then shows the
+    # address and the "Already a device" badge, but not the device's name or a link to it
+    linked = [h.device_id for h in hosts if h.device_id]
+    visible = set(services.devices_for(request.user, request).filter(pk__in=linked).values_list("pk", flat=True)) if linked else set()
+    for h in hosts:
+        h.show_device = h.device_id in visible
     return render(request, "network/discovery_run.html", {
         "run": run, "hosts": hosts, "counts": counts, "show": show,
         "approve_form": ApproveForm(initial={"site": run.site, "device_type": "switch"}),
@@ -686,6 +716,23 @@ def _unique_name(base):
     return name
 
 
+NAME_ATTEMPTS = 3
+
+
+def _create_device(base, **fields):
+    """Create a device named after `base`, re-picking the name when another request claims it between
+    the uniqueness check and the INSERT (tenant_key + name is a unique constraint). Each attempt is its
+    own atomic block so a failed INSERT does not poison the surrounding transaction.
+    Returns the device, or None when no free name could be claimed."""
+    for _attempt in range(NAME_ATTEMPTS):
+        try:
+            with transaction.atomic():
+                return Device.objects.create(name=_unique_name(base), **fields)
+        except IntegrityError:
+            continue
+    return None
+
+
 @require("operate")
 @require_POST
 def discovery_approve(request, pk):
@@ -703,28 +750,35 @@ def discovery_approve(request, pk):
         messages.warning(request, "Select at least one new host to approve.")
         return redirect(back)
     now = timezone.now()
-    created, existing = [], []
-    known = {}
-    for d in Device.objects.filter(tenant_key=settings.LINKEDEYE_TENANT, mgmt_ip__in=[h.ip for h in hosts]):
-        known.setdefault(d.mgmt_ip.strip(), d)
+    who = request.user.get_username()
+    created, existing, decided, unnamed = [], [], [], []
     for h in hosts:
-        dev = known.get(h.ip)
+        # Claim the host first (new -> approved in one statement): a double-click, or a second operator
+        # approving the same run, must not create the device twice.
+        if not run.hosts.filter(pk=h.pk, status="new").update(status="approved", decided_by_name=who, decided_at=now):
+            decided.append(h.ip)
+            continue
+        # re-read after the claim: the address may have become a device since the scan, or just now
+        dev = Device.objects.annotate(_ip=Trim("mgmt_ip")).filter(tenant_key=settings.LINKEDEYE_TENANT, _ip=h.ip).first()
         if dev is not None:
             # approved from another run (or added by hand) since this scan: link it, never duplicate it
-            h.status, h.device, h.decided_by_name, h.decided_at = "existing", dev, request.user.get_username(), now
-            h.save(update_fields=["status", "device", "decided_by_name", "decided_at"])
+            run.hosts.filter(pk=h.pk).update(status="existing", device=dev)
             existing.append(h.ip)
             continue
         port = 22 if 22 in h.open_ports else (h.open_ports[0] if h.open_ports else 22)
-        dev = Device.objects.create(
-            tenant_key=settings.LINKEDEYE_TENANT, name=_unique_name(f"{prefix}{h.ip}"), device_type=dtype, mgmt_ip=h.ip,
+        dev = _create_device(
+            f"{prefix}{h.ip}",
+            tenant_key=settings.LINKEDEYE_TENANT, device_type=dtype, mgmt_ip=h.ip,
             check_port=port, site=site, environment="", tags="discovered",
             description=f"Discovered by run #{run.pk} ({run.cidr}) on {timezone.localtime(run.created_at):%Y-%m-%d}; "
                         f"open ports {h.ports_display}.")
-        h.status, h.device, h.decided_by_name, h.decided_at = "approved", dev, request.user.get_username(), now
-        h.save(update_fields=["status", "device", "decided_by_name", "decided_at"])
+        if dev is None:
+            # every candidate name was taken while we were inserting: leave the host for another try
+            run.hosts.filter(pk=h.pk).update(status="new", decided_by_name="", decided_at=None)
+            unnamed.append(h.ip)
+            continue
+        run.hosts.filter(pk=h.pk).update(device=dev)
         audit(request, "create", dev, via="discovery", run=run.pk, mgmt_ip=h.ip, device_type=dtype, site=site)
-        known[h.ip] = dev
         created.append(dev)
     audit(request, "approve", run, hosts=[d.mgmt_ip for d in created], already_devices=existing, device_type=dtype, site=site)
     text = f"Added {len(created)} device(s) as {dict(DeviceType.choices)[dtype]}."
@@ -732,6 +786,10 @@ def discovery_approve(request, pk):
         text += " They are checked within a minute."
     if existing:
         text += f" Skipped {len(existing)} address(es) that are already devices: {', '.join(existing)}."
+    if decided:
+        text += f" Skipped {len(decided)} host(s) someone else had already decided: {', '.join(decided)}."
+    if unnamed:
+        text += f" Could not pick a free device name for {', '.join(unnamed)}; try again."
     (messages.success if created else messages.warning)(request, text)
     return redirect(back)
 
@@ -779,7 +837,7 @@ def interfaces_csv(request, pk):
     w = csv.writer(resp)
     w.writerow(["if_index", "name", "alias", "type", "admin_status", "oper_status", "speed_mbps", "in_mbps", "out_mbps",
                 "utilization_pct", "errors_per_s", "discards_per_s", "flaps_24h", "updated_at"])
-    for i in device.interfaces.all():
+    for i in _current_interfaces(device):
         w.writerow([_cell(v) for v in [i.if_index, i.name, i.alias, i.if_type, i.admin_status, i.oper_status, _blank(i.speed_mbps),
                     _blank(i.in_mbps), _blank(i.out_mbps), _blank(i.utilization), _blank(i.errors_per_s),
                     _blank(i.discards_per_s), _blank(i.flaps_24h), i.updated_at.isoformat()]])

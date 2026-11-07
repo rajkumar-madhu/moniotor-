@@ -102,7 +102,10 @@ def software(request):
             qs = qs.filter(**{f"{param}__iexact": v})
     if request.GET.get("licensed") == "no":
         qs = qs.filter(licenses__isnull=True)
-    qs = qs.annotate(n_installs=_visible_install_count(request), n_licenses=Count("licenses", distinct=True))
+    # n_installs is what this user may see; all_installs is tenant-wide, because licence compliance is
+    # (see software_detail, the licences page and License.over_allocated).
+    qs = qs.annotate(n_installs=_visible_install_count(request), all_installs=Count("installs", distinct=True),
+                     n_licenses=Count("licenses", distinct=True))
     page = paginate(request, qs.order_by("name", "version"))
     lic = {}
     for l in License.objects.filter(software__in=[s.pk for s in page]).select_related("software"):
@@ -110,7 +113,7 @@ def software(request):
     for s in page:
         s.license_list = lic.get(s.pk, [])
         s.seats = sum(x.seats for x in s.license_list)
-        s.over = bool(s.license_list) and s.n_installs > s.seats
+        s.over = bool(s.license_list) and s.all_installs > s.seats
     installs_total = ConfigurationItem.software.through.objects.filter(
         software__in=base, configurationitem__in=services.ci_queryset(request.user)).count()
     cats = Counter(c for c in base.values_list("category", flat=True) if c)
