@@ -101,7 +101,15 @@ def _apply_result(exp, res, now):
 
     The previous *health* is taken from the exporter's last health event, not only from `status`: an edit
     of the metrics URL (or an import) resets the status to "waiting for the first scrape", and the
-    failure raised before must still be resolved (or not raised twice) when that scrape comes in."""
+    failure raised before must still be resolved (or not raised twice) when that scrape comes in.
+
+    Returns None and keeps the row untouched when the exporter was deleted, disabled or re-pointed at
+    another URL while the scrape was in flight: the result describes a configuration that is gone, and
+    writing it would both fail (no row to update) and leave a stale status or event behind."""
+    if not Exporter.objects.filter(pk=exp.pk, enabled=True, metrics_url=exp.metrics_url).exists():
+        log.info("dropping the scrape result of exporter %s (%s): it was deleted, disabled or re-pointed "
+                 "while the scrape was running", exp.pk, exp.metrics_url)
+        return None
     before = exp.status
     exp.last_checked_at = now
     exp.last_scrape_ms = res.response_ms
@@ -159,7 +167,10 @@ def check_exporters(exporters):
             results = list(pool.map(_scrape_in_worker, todo))
     now = timezone.now()
     for exp, res in zip(todo, results):
-        _apply_result(exp, res, now)
+        try:
+            _apply_result(exp, res, now)
+        except Exception:   # one exporter must never cost the rest of the batch its results
+            log.exception("storing the scrape result of exporter %s failed", exp.pk)
     return list(zip(todo, results))
 
 
@@ -204,6 +215,9 @@ def parse_payload(body, content_type=""):
             data = None
             if stripped[0] != "{":
                 raise IngestError("Invalid JSON array")
+        except ValueError as e:
+            # well-formed JSON the decoder still refuses, e.g. an integer literal over the digit limit
+            raise IngestError(f"Invalid JSON: {e}")
         if isinstance(data, dict):
             data = [data]
         if data is not None:
@@ -225,6 +239,8 @@ def parse_payload(body, content_type=""):
             raise IngestError(f"Line {no} is nested too deeply")
         except json.JSONDecodeError as e:
             raise IngestError(f"Line {no} is not valid JSON: {e.msg}")
+        except ValueError as e:
+            raise IngestError(f"Line {no} is not valid JSON: {e}")
     return entries
 
 
@@ -256,16 +272,20 @@ def _parse_ts(value, now):
 
 
 MAX_NESTING = 32   # JSON objects/arrays nested deeper than this in one log entry are rejected
+# JSON may carry a lone UTF-16 surrogate ("\ud800"); it cannot be encoded to UTF-8, so the driver would
+# raise UnicodeEncodeError on the whole batch. Replace it with U+FFFD, like every other unusable character.
+_SURROGATES = re.compile(r"[\ud800-\udfff]")
 
 
 def _no_nul(value, max_depth=MAX_NESTING):
-    """NUL characters cannot be stored in PostgreSQL text/jsonb columns (the whole batch would fail).
+    """NUL characters cannot be stored in PostgreSQL text/jsonb columns (the whole batch would fail), and lone
+    UTF-16 surrogates cannot be encoded to UTF-8 at all.
 
     Iterative (an explicit stack, no recursion), so a hostile entry nested a thousand levels deep cannot raise
     RecursionError; containers nested more than `max_depth` levels deep raise ValueError instead (the caller rejects
     that one entry)."""
     def clean(v):
-        return v.replace("\x00", "") if isinstance(v, str) else v
+        return _SURROGATES.sub("\ufffd", v.replace("\x00", "")) if isinstance(v, str) else v
 
     if not isinstance(value, (dict, list)):
         return clean(value)
@@ -329,9 +349,11 @@ def validate_entry(entry, now):
     except ValueError as e:
         raise ValueError(f"'attributes' {e}") from None
     try:
-        size = len(json.dumps(attributes, default=str))
+        # allow_nan=False: NaN / Infinity are not JSON, and the column would refuse them (the whole batch
+        # would fail), so this entry is rejected on its own here instead
+        size = len(json.dumps(attributes, default=str, allow_nan=False))
     except (RecursionError, ValueError):
-        raise ValueError("'attributes' cannot be serialised")
+        raise ValueError("'attributes' contains NaN, Infinity or a value JSON cannot hold")
     if size > 16000:
         raise ValueError("'attributes' is larger than 16 KB")
     return LogEntry(

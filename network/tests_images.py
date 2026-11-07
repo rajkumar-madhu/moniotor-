@@ -1140,6 +1140,28 @@ class CardAndFallbackTests(TestCase):
         plain = dev("tab-02", device_type="router", mgmt_ip="192.0.2.12")
         self.assertIn("No photo: showing a router illustration", self.c.get(plain.get_absolute_url()).content.decode())
 
+    def test_a_disabled_device_card_shows_no_data_and_is_never_queried(self):
+        """Nothing is collected for a disabled device: its stored rates, readings and uptime are not current, and
+        its guest metrics must not be fetched. Status stays visible."""
+        d = dev("off-01", device_type="server", prometheus_instance="srv1", uptime_seconds=86400, cpu_pct=55.0,
+                memory_pct=60.0, temperature_c=40.0, metrics_updated_at=timezone.now())
+        Interface.objects.create(device=d, if_index=1, name="eth0", oper_status="up", admin_status="up",
+                                 speed_mbps=1000, in_mbps=800.0, out_mbps=300.0, utilization=80.0)
+        on = live.card_data([d])[d.pk]
+        self.assertEqual(on["figures"]["cpu"], 55.0)
+        self.assertEqual(on["values"]["in"], "800 Mbps")
+        Device.objects.filter(pk=d.pk).update(enabled=False)
+        d.refresh_from_db()
+        with mock.patch("network.live.vm_metrics.batch_guest_instants") as guest, \
+                mock.patch("network.live.vm_metrics.batch_guest_extras") as extras:
+            off = live.card_data([d])[d.pk]
+        guest.assert_not_called()
+        extras.assert_not_called()
+        self.assertTrue(all(v is None for v in off["figures"].values()), off["figures"])
+        for key in ("uptime", "cpu", "memory", "temp", "in", "out"):
+            self.assertEqual(off["values"][key], live.NO_DATA, key)
+        self.assertEqual(off["values"]["status"], d.get_status_display())
+
     def test_snapshot_carries_the_card_keys(self):
         d = dev("snap-01", cpu_pct=10.0, metrics_updated_at=timezone.now())
         data = self.c.get(reverse("network:live", args=[d.pk])).json()

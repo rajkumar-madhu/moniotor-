@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ("network", "0003_product_catalog_and_device_images"),
+        ("network", "0004_device_last_alert_status"),
     ]
 
     operations = [

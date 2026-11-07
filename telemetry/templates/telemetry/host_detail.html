@@ -41,13 +41,13 @@
 
 <section class="grid g-2">
   <div class="panel"><div class="panel-h"><h2>CPU Busy</h2><div class="right tm-meta">step {{ host.charts.step }}s</div></div>
-    {% if host.charts.has.cpu %}<div class="chart tm-chart" data-chart="line" data-src="c-cpu"></div>{% else %}<div class="no-data">No CPU samples in this range</div>{% endif %}</div>
+    {% if host.charts.has.cpu %}<div class="chart tm-chart" data-chart="line" data-src="c-cpu" data-sync="host" data-kinds="line,area,bars"></div>{% else %}<div class="no-data">No CPU samples in this range</div>{% endif %}</div>
   <div class="panel"><div class="panel-h"><h2>Memory Used</h2></div>
-    {% if host.charts.has.memory %}<div class="chart tm-chart" data-chart="line" data-src="c-mem"></div>{% else %}<div class="no-data">No memory samples in this range</div>{% endif %}</div>
+    {% if host.charts.has.memory %}<div class="chart tm-chart" data-chart="line" data-src="c-mem" data-sync="host" data-kinds="line,area,bars"></div>{% else %}<div class="no-data">No memory samples in this range</div>{% endif %}</div>
   <div class="panel"><div class="panel-h"><h2>Load Average</h2><div class="right legend">{% for s in host.charts.load.series %}<span><i style="background:{{ s.color }}"></i>{{ s.name }}</span>{% endfor %}</div></div>
-    {% if host.charts.has.load %}<div class="chart tm-chart" data-chart="line" data-src="c-load"></div>{% else %}<div class="no-data">No load samples in this range</div>{% endif %}</div>
+    {% if host.charts.has.load %}<div class="chart tm-chart" data-chart="line" data-src="c-load" data-sync="host" data-kinds="line,area,bars"></div>{% else %}<div class="no-data">No load samples in this range</div>{% endif %}</div>
   <div class="panel"><div class="panel-h"><h2>Network Throughput</h2><div class="right legend">{% for s in host.charts.net.series %}<span><i style="background:{{ s.color }}"></i>{{ s.name }}</span>{% endfor %}</div></div>
-    {% if host.charts.has.net %}<div class="chart tm-chart" data-chart="line" data-src="c-net"></div>{% else %}<div class="no-data">No network samples in this range</div>{% endif %}</div>
+    {% if host.charts.has.net %}<div class="chart tm-chart" data-chart="line" data-src="c-net" data-sync="host" data-kinds="line,area,bars"></div>{% else %}<div class="no-data">No network samples in this range</div>{% endif %}</div>
 </section>
 
 <section class="grid g-main">

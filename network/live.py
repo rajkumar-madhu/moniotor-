@@ -63,7 +63,8 @@ def card_data(devices, guest=None, now=None):
     has."""
     devices = list(devices)
     now = now or timezone.now()
-    servers = [d for d in devices if d.device_type in SERVER_TYPES and (d.prometheus_instance or "").strip()]
+    # nothing is collected for a disabled device, so it is neither queried nor shown with figures
+    servers = [d for d in devices if d.enabled and d.device_type in SERVER_TYPES and (d.prometheus_instance or "").strip()]
     if guest is None:
         guest = vm_metrics.batch_guest_instants(servers) if servers else {}
     extras = vm_metrics.batch_guest_extras(servers) if servers else {}
@@ -75,7 +76,7 @@ def card_data(devices, guest=None, now=None):
         t = traffic.get(d.pk) or {}
         t_fresh = bool(t.get("at") and (now - t["at"]).total_seconds() <= CARD_STALE)
         stored = (lambda v: _num(v) if fresh else None)
-        fig = {
+        fig = {k: None for k in ("cpu", "memory", "temp", "in", "out", "uptime")} if not d.enabled else {
             "cpu": _num(g.get("cpu")) if _num(g.get("cpu")) is not None else stored(d.cpu_pct),
             "memory": _num(g.get("memory")) if _num(g.get("memory")) is not None else stored(d.memory_pct),
             "temp": _num(x.get("temp")) if _num(x.get("temp")) is not None else stored(d.temperature_c),
@@ -125,7 +126,9 @@ def device_snapshot(device, range_key=metrics.DEFAULT_RANGE, port_index=None):
     None), `ports` (front panel), `notes` (why a chart is missing) and the latest alert."""
     is_vm = device.device_type == DeviceType.VIRTUAL_MACHINE
     seconds = metrics.RANGES[metrics.range_key(range_key)]
-    interfaces = list(device.interfaces.all())
+    interfaces = metrics.current_interfaces(device)
+    if not device.enabled:
+        device.uptime_seconds = None   # in memory only: nothing is collected for a disabled device
     summary = services.interface_summary(interfaces)
     avail24 = services.availability([device.pk], 24).get(device.pk)
     avail7 = services.availability([device.pk], 24 * 7).get(device.pk)

@@ -45,6 +45,21 @@ RANGE_LABELS = {"1h": "Last hour", "6h": "Last 6 hours", "24h": "Last 24 hours",
 DEFAULT_RANGE = "24h"
 
 
+
+def current_interfaces(device):
+    """The device's interfaces as they should be shown now.
+
+    Nothing is collected for a disabled device, so its last rates are not current traffic. Devices disabled
+    before device_form started clearing them, or through the Django admin where `enabled` is editable, still
+    carry them, so every reader blanks them (in memory only: the inventory and states stay)."""
+    interfaces = list(device.interfaces.all())
+    if not device.enabled:
+        for i in interfaces:
+            for field, value in STALE_RATES.items():
+                setattr(i, field, value)
+    return interfaces
+
+
 def range_key(value):
     """A valid ?range= key (unknown values fall back to the default)."""
     return value if value in RANGES else DEFAULT_RANGE
@@ -168,6 +183,25 @@ def _bounded(v, lo, hi):
     return round(float(v), 1)
 
 
+def failed_keys(errors):
+    """The query keys fetch() could not read, taken back out of its "<key>: <message>" strings.
+
+    Only real query keys count, so a generic note such as "no IF-MIB interface series" is ignored."""
+    reported = {str(e).split(":", 1)[0] for e in (errors or ())}
+    return reported & set(queries(""))
+
+
+def _kept_state(obj, field, query_failed):
+    """What to store for an admin/oper status the data does not carry.
+
+    A query that failed says nothing about the interface, so the stored state is kept: overwriting it
+    with "unknown" would also swallow the next up/down transition. A series that is simply absent
+    (no error) still becomes "unknown"."""
+    if query_failed and obj is not None:
+        return getattr(obj, field) or "unknown"
+    return "unknown"
+
+
 def apply(device, result, errors, now=None):
     """Store one device's metrics. Returns the list of (interface, old_oper, new_oper) transitions."""
     from .models import Interface
@@ -190,6 +224,7 @@ def apply(device, result, errors, now=None):
         return transitions
 
     existing = {i.if_index: i for i in Interface.objects.filter(device=device)}
+    failed = failed_keys(errors)
     for idx, row in interfaces.items():
         speed = row.get("speed")
         speed = round(speed, 3) if speed else (0.0 if speed == 0 else None)
@@ -201,7 +236,8 @@ def apply(device, result, errors, now=None):
         fields = {
             "name": (row.get("name") or f"if{idx}")[:150], "alias": (row.get("alias") or "")[:200],
             "if_type": row.get("type") or (obj.if_type if obj else ""),
-            "admin_status": row.get("admin") or "unknown", "oper_status": row.get("oper") or "unknown",
+            "admin_status": row.get("admin") or _kept_state(obj, "admin_status", "admin" in failed),
+            "oper_status": row.get("oper") or _kept_state(obj, "oper_status", "oper" in failed),
             "speed_mbps": speed, "in_mbps": i_in, "out_mbps": i_out, "utilization": util,
             "errors_per_s": _rate(row.get("errors")), "discards_per_s": _rate(row.get("discards")),
             "flaps_24h": None if row.get("flaps") is None else max(0, int(row["flaps"])), "updated_at": now,

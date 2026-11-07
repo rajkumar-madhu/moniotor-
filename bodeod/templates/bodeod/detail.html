@@ -58,6 +58,7 @@
         <dt>Trading date</dt><dd>{{ run.trading_date|date:"D d M Y" }}</dd>
         <dt>Started</dt><dd>{{ run.started_at|ist:"%d %b %Y %H:%M:%S IST" }}</dd>
         <dt>Finished</dt><dd>{{ run.finished_at|ist:"%d %b %Y %H:%M:%S IST" }}</dd>
+        {% if run.revalidated_at %}<dt>Re-validated</dt><dd>{{ run.revalidated_at|ist:"%d %b %Y %H:%M:%S IST" }}</dd>{% endif %}
         <dt>Duration</dt><dd>{{ duration }}</dd>
         <dt>Triggered by</dt><dd>{% if run.trigger == "scheduler" %}<span class="chip purple">scheduler</span>{% else %}{{ run.by_label }}{% endif %}</dd>
         <dt>Checks re-run</dt><dd>{% if run.refreshed %}Yes, before validating{% else %}No, stored results used{% endif %}</dd>

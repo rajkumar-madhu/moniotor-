@@ -76,6 +76,8 @@ class Run(models.Model):
     trading_date = models.DateField(db_index=True)
     started_at = models.DateTimeField(default=timezone.now, db_index=True)
     finished_at = models.DateTimeField(null=True, blank=True)
+    revalidated_at = models.DateTimeField(null=True, blank=True,
+                                          help_text="Last time the finished run was re-validated (keeps finished_at intact).")
     trigger = models.CharField(max_length=10, choices=TRIGGERS, default="manual")
     triggered_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                      related_name="bodeod_runs")

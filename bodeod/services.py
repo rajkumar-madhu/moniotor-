@@ -16,10 +16,10 @@ from django.db import DatabaseError, IntegrityError, transaction
 from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
-from core.access import can_on
+from core.access import can_on, is_global_site
 from core.events import emit
 
-from .models import ChecklistItem, Holiday, Mode, Run, RunItem
+from .models import GLOBAL_SITES, ChecklistItem, Holiday, Mode, Run, RunItem
 
 log = logging.getLogger("linkedeye.bodeod")
 
@@ -126,8 +126,15 @@ def _model(app_label, name):
         return None
 
 
-REF_MODELS = {"url_check": ("urlchecker", "UrlCheck", "name"), "domain": ("domainmonitor", "Domain", "hostname"),
-              "tcp_check": ("tcpcheck", "TcpCheck", "name")}
+# kind -> (app_label, model, name field, site field)
+REF_MODELS = {"url_check": ("urlchecker", "UrlCheck", "name", "site"),
+              "domain": ("domainmonitor", "Domain", "hostname", "site_key"),
+              "tcp_check": ("tcpcheck", "TcpCheck", "name", "site")}
+
+
+def ref_sites(site):
+    """Sites whose checks a mode may reference: its own site only, or None (every site) for a global mode."""
+    return None if is_global_site(site) else [site]
 
 
 def _ref_url(kind, obj):
@@ -143,14 +150,17 @@ def _ref_url(kind, obj):
     return ""
 
 
-def query_refs(M, field_name, names=None):
+def query_refs(M, field_name, names=None, sites=None, site_field=None):
     """{name: obj} for the tenant's records of model M (all of them when names is None, capped at 500).
-    Returns None when the model's table is not available."""
+    `sites` scopes the lookup to those sites plus the global ones ("All Sites" / ""), so a site's checklist
+    never reads another site's check; None means every site. Returns None when the table is not available."""
     try:
         with transaction.atomic():  # savepoint: a missing table must not poison an outer transaction
             qs = M.objects.all()
             if names is not None:
                 qs = qs.filter(**{f"{field_name}__in": list(names)})
+            if sites is not None and site_field:
+                qs = qs.filter(**{f"{site_field}__in": list(sites) + list(GLOBAL_SITES)})
             if any(f.name == "tenant_key" for f in M._meta.get_fields()):
                 qs = qs.filter(tenant_key=tenant())
             return {getattr(o, field_name): o for o in qs.order_by(field_name)[:500]}
@@ -160,12 +170,17 @@ def query_refs(M, field_name, names=None):
 
 
 class Resolver:
-    """Looks up referenced checks by name in one query per kind (lazy, cached)."""
+    """Looks up referenced checks by name in one query per kind (lazy, cached).
 
-    def __init__(self, items=()):
+    `sites` is the list of sites whose checks may be resolved (None = every site); build it with ref_sites()
+    from the mode's own site so a site mode cannot read another site's check.
+    """
+
+    def __init__(self, items=(), sites=None):
         self._cache = {}
         self._wanted = {}
         self._broken = set()
+        self._sites = None if sites is None else list(sites)
         for it in items:
             if it.kind in REF_MODELS and it.ref_name:
                 self._wanted.setdefault(it.kind, set()).add(it.ref_name.strip())
@@ -181,13 +196,13 @@ class Resolver:
     def _load(self, kind):
         if kind in self._cache:
             return self._cache[kind]
-        app_label, model_name, field_name = REF_MODELS[kind]
+        app_label, model_name, field_name, site_field = REF_MODELS[kind]
         M = _model(app_label, model_name)
         found = {}
         if M is not None:
             names = self._wanted.get(kind, set())
             if names:
-                found = query_refs(M, field_name, names)
+                found = query_refs(M, field_name, names, sites=self._sites, site_field=site_field)
                 if found is None:  # table missing (module installed but not migrated)
                     self._broken.add(kind)
                     found = {}
@@ -219,6 +234,9 @@ def status_of(kind, obj):
             return "unknown", "Domain not found in Domain Monitor"
         if not obj.is_active:
             return "unknown", "Domain is inactive"
+        if not obj.monitor_enabled:
+            # monitoring is off, so the stored status/SSL state is frozen and proves nothing about today
+            return "unknown", "Domain monitoring is paused"
         if obj.last_checked_at is None or obj.status == "unknown":
             return "unknown", "Domain has not been checked yet"
         when = _when(obj.last_checked_at)
@@ -256,7 +274,7 @@ def live_status(item, resolver=None):
     """Current status of a checklist item from its referenced check's latest stored result (no network)."""
     if item.kind == "manual":
         return "pending", "Manual check: needs an operator sign-off"
-    resolver = resolver or Resolver([item])
+    resolver = resolver or Resolver([item], sites=ref_sites(item.mode.site))
     if not resolver.available(item.kind):
         return "unknown", f"{item.get_kind_display()} module is not available"
     if not item.ref_name:
@@ -264,8 +282,32 @@ def live_status(item, resolver=None):
     return status_of(item.kind, resolver.get(item.kind, item.ref_name))
 
 
+@dataclass
+class RefreshOutcome:
+    """What a re-run of the referenced checks actually achieved."""
+
+    ran: int = 0                                 # checks that were re-run
+    failed: set = field(default_factory=set)     # kinds whose re-run could not be done
+
+    @property
+    def ok(self):
+        """True only when something really was re-run and no kind failed."""
+        return self.ran > 0 and not self.failed
+
+    def _batch(self, kind, func, objs):
+        try:
+            func(objs)
+            self.ran += len(objs)
+        except Exception:
+            log.exception("bodeod: re-running the %s references failed", kind)
+            self.failed.add(kind)
+
+
 def refresh_references(items, resolver):
-    """Re-run every referenced check once, in parallel per kind. Errors are logged, never raised."""
+    """Re-run every referenced check once, in parallel per kind. Errors are recorded, never raised.
+
+    Returns a RefreshOutcome: the caller must not claim the checks were re-run unless `outcome.ok`.
+    """
     batches = {"url_check": [], "domain": [], "tcp_check": []}
     for it in items:
         obj = resolver.get(it.kind, it.ref_name) if it.kind in batches else None
@@ -274,28 +316,27 @@ def refresh_references(items, resolver):
         active = obj.is_active and obj.monitor_enabled if it.kind == "domain" else obj.enabled
         if active and obj not in batches[it.kind]:
             batches[it.kind].append(obj)
-    ran = 0
+    out = RefreshOutcome()
     if batches["url_check"] or batches["domain"]:
         try:
             from probes import runner
-            if batches["url_check"]:
-                runner.run_url_checks(batches["url_check"])
-                ran += len(batches["url_check"])
-            if batches["domain"]:
-                runner.run_domain_checks(batches["domain"])
-                ran += len(batches["domain"])
         except Exception:
-            log.exception("bodeod: re-running URL/domain checks failed")
+            log.exception("bodeod: the probes module is not available; using stored URL/domain results")
+            out.failed.update(k for k in ("url_check", "domain") if batches[k])
+        else:
+            if batches["url_check"]:
+                out._batch("url_check", runner.run_url_checks, batches["url_check"])
+            if batches["domain"]:
+                out._batch("domain", runner.run_domain_checks, batches["domain"])
     if batches["tcp_check"]:
         try:
             from tcpcheck import services as tcp_services
-            tcp_services.run_checks(batches["tcp_check"])
-            ran += len(batches["tcp_check"])
         except ImportError:
             log.info("bodeod: tcpcheck module not available; using stored TCP results")
-        except Exception:
-            log.exception("bodeod: re-running TCP checks failed")
-    return ran
+            out.failed.add("tcp_check")
+        else:
+            out._batch("tcp_check", tcp_services.run_checks, batches["tcp_check"])
+    return out
 
 
 # ------------------------------------------------------------------ run status
@@ -346,15 +387,25 @@ def _emit_run(run, previous=None):
 
 
 def finalize(run, previous=None, emit_event=True):
-    results = list(run.results.all())
-    for r in results:  # an automated item never left pending once the run finished
-        if r.status == "pending" and r.automated:
-            r.status, r.detail = "unknown", r.detail or "Not evaluated"
-            r.save(update_fields=["status", "detail"])
-    run.status = compute_status(results)
-    run.summary = summarize(results)[:300]
-    run.finished_at = run.finished_at or timezone.now()
-    run.save(update_fields=["status", "summary", "finished_at"])
+    """Write the run's status and summary from its items.
+
+    The read of the items, the computation and the write happen under a row lock on the run, and the items are
+    re-read from the database rather than from the caller's (possibly stale or prefetched) copy: two sign-offs
+    landing at the same moment, or a sign-off landing during a re-validation, must not leave a run 'warn' with
+    every item signed off. `finished_at` is taken from the locked row, so a re-validation never rewrites it.
+    """
+    with transaction.atomic():
+        locked = Run.objects.select_for_update().get(pk=run.pk)
+        results = list(locked.results.all())
+        for r in results:  # an automated item never left pending once the run finished
+            if r.status == "pending" and r.automated:
+                r.status, r.detail = "unknown", r.detail or "Not evaluated"
+                r.save(update_fields=["status", "detail"])
+        status = compute_status(results)
+        summary = summarize(results)[:300]
+        finished_at = locked.finished_at or timezone.now()
+        Run.objects.filter(pk=run.pk).update(status=status, summary=summary, finished_at=finished_at)
+    run.status, run.summary, run.finished_at = status, summary, finished_at
     if emit_event and run.status != previous:
         _emit_run(run, previous)
     return run
@@ -402,7 +453,7 @@ def start_run(mode, user=None, trigger="manual", refresh=None, trading_date=None
     with transaction.atomic():
         run = Run.objects.create(mode=mode, trading_date=trading_date, started_at=now, trigger=trigger,
                                  triggered_by=user if name else None, triggered_by_name=name or ("scheduler" if trigger == "scheduler" else ""),
-                                 refreshed=bool(refresh))
+                                 refreshed=False)  # only a re-run that really happened sets this (see evaluate)
         RunItem.objects.bulk_create([
             RunItem(run=run, item=it, order=it.order, name=it.name, kind=it.kind, ref_name=it.ref_name,
                     critical=it.critical, status="pending") for it in items])
@@ -413,14 +464,33 @@ def start_run(mode, user=None, trigger="manual", refresh=None, trading_date=None
     return finalize(run)
 
 
+RERUN_FAILED_NOTE = " [stored result; re-run failed]"
+
+
+def _write_pending(r, fields):
+    """Write `fields` to a still-pending manual row. Re-running the referenced checks takes seconds, so an
+    operator may have signed the row off in between: the update is conditional on the row still being pending
+    and, when it is not, the row read back from the database wins (the sign-off is never overwritten)."""
+    if RunItem.objects.filter(pk=r.pk, status="pending").update(**fields):
+        for name, value in fields.items():
+            setattr(r, name, value)
+    else:
+        r.refresh_from_db()
+
+
 def evaluate(run, refresh=False):
     """(Re-)evaluate the automated items of a run; manual items keep their sign-off."""
     results = list(run.results.select_related("item"))
-    resolver = Resolver(results)
+    sites = ref_sites(run.mode.site)
+    resolver = Resolver(results, sites=sites)
     automated = [r for r in results if r.automated]
+    outcome = RefreshOutcome()
     if refresh and automated:
-        refresh_references(automated, resolver)
-        resolver = Resolver(results)  # reload fresh statuses
+        outcome = refresh_references(automated, resolver)
+        resolver = Resolver(results, sites=sites)  # reload fresh statuses
+        if outcome.ok and not run.refreshed:
+            Run.objects.filter(pk=run.pk).update(refreshed=True)
+            run.refreshed = True
     carried = _carry_forward(run.mode, run.trading_date)
     now = timezone.now()
     for r in results:
@@ -431,32 +501,36 @@ def evaluate(run, refresh=False):
                 r.status, r.detail = "unknown", "No reference configured"
             else:
                 r.status, r.detail = status_of(r.kind, resolver.get(r.kind, r.ref_name))
+            if r.kind in outcome.failed:  # say so instead of passing a frozen result off as fresh
+                r.detail += RERUN_FAILED_NOTE
             r.detail = r.detail[:500]
             r.checked_at = now
             r.save(update_fields=["status", "detail", "checked_at"])
         elif r.status == "pending":
             prev = carried.get(r.item_id)
             if prev is not None and prev.run_id != run.pk:
-                r.status = "signed_off"
-                r.signed_off_by_id, r.signed_off_by_name = prev.signed_off_by_id, prev.signed_off_by_name
-                r.signed_off_at, r.note = prev.signed_off_at, prev.note
-                r.detail = f"Signed off earlier today (run #{prev.run_id})"
-                r.checked_at = now
+                _write_pending(r, {"status": "signed_off", "signed_off_by_id": prev.signed_off_by_id,
+                                   "signed_off_by_name": prev.signed_off_by_name, "signed_off_at": prev.signed_off_at,
+                                   "note": prev.note, "checked_at": now,
+                                   "detail": f"Signed off earlier today (run #{prev.run_id})"})
             else:
-                r.detail = "Awaiting operator sign-off"
-            r.save()
+                _write_pending(r, {"detail": "Awaiting operator sign-off"})
     return results
 
 
 def revalidate(run, refresh=True):
-    """Re-check the automated items of a finished run (sign-offs are kept)."""
+    """Re-check the automated items of a finished run (sign-offs are kept).
+
+    The re-validation is recorded in `revalidated_at`; `finished_at` keeps the moment the run itself ended, so
+    re-validating hours later does not inflate the run's duration or the history average.
+    """
     if run.status == "running":
         raise RunError("The run is still running.")
     previous = run.status
     evaluate(run, refresh=refresh)
-    run.finished_at = timezone.now()
-    run.refreshed = run.refreshed or refresh
-    run.save(update_fields=["finished_at", "refreshed"])
+    at = timezone.now()
+    Run.objects.filter(pk=run.pk).update(revalidated_at=at)
+    run.revalidated_at = at
     return finalize(run, previous=previous)
 
 
@@ -465,23 +539,28 @@ def sign_off(result, user, note):
     note = (note or "").strip()
     if result.automated:
         raise RunError("Only manual items need a sign-off.")
-    if result.status == "signed_off":
-        raise RunError("This item is already signed off.")
     if not note:
         raise RunError("Add a note describing what you verified.")
     run = result.run
     if not is_open_for_signoff(run):
         raise RunError("Sign-offs are only accepted on the latest run for today's trading date.")
-    previous = run.status
-    result.status = "signed_off"
-    result.signed_off_by = user
-    result.signed_off_by_name = user.get_username()
-    result.signed_off_at = timezone.now()
-    result.note = note[:500]
-    result.detail = "Signed off"
-    result.checked_at = result.signed_off_at
-    result.save()
-    finalize(run, previous=previous)
+    with transaction.atomic():
+        # the row lock on the run serialises concurrent sign-offs (and re-validations) of the same run, so the
+        # "already signed off" check, the item write and the run's new status cannot interleave; the run's status
+        # before this sign-off is read under the lock too, so the state-change event names the right transition
+        previous = Run.objects.select_for_update().get(pk=run.pk).status
+        fresh = RunItem.objects.get(pk=result.pk)
+        if fresh.status == "signed_off":
+            raise RunError("This item is already signed off.")
+        at = timezone.now()
+        fields = {"status": "signed_off", "signed_off_by": user, "signed_off_by_name": user.get_username(),
+                  "signed_off_at": at, "note": note[:500], "detail": "Signed off", "checked_at": at}
+        RunItem.objects.filter(pk=result.pk).update(**fields)
+        for name, value in fields.items():
+            setattr(result, name, value)
+        finalize(run, previous=previous, emit_event=False)
+    if run.status != previous:  # after the commit: listeners (automation, service desk) run outside the row lock
+        _emit_run(run, previous)
     return run
 
 
@@ -582,6 +661,17 @@ class CsvImport:
     errors: list = field(default_factory=list)    # ["line 3: ..."]
 
 
+def _clean(value):
+    """A parsed cell: NUL bytes removed (a PostgreSQL text column refuses them) and blanks stripped."""
+    return (value or "").replace("\x00", "").strip()
+
+
+def _csv_error(out, reader, exc):
+    """Record a malformed-CSV error (an over-long field, broken quoting…) and keep whatever parsed so far.
+    csv.Error messages describe the problem, never the field's content, so nothing is leaked here."""
+    out.errors.append(f"line {reader.line_num}: the file is not valid CSV ({exc})")
+
+
 def parse_holidays_csv(data, default_exchange="NSE"):
     """Parse an uploaded holiday CSV (bytes or str). Columns: date, description (or holiday/name), optional exchange."""
     out = CsvImport()
@@ -596,10 +686,14 @@ def parse_holidays_csv(data, default_exchange="NSE"):
             return out
     reader = csv.reader(io.StringIO(data))
     header = None
-    for row in reader:
-        if any(c.strip() for c in row):
-            header = [c.strip().lower() for c in row]
-            break
+    try:
+        for row in reader:
+            if any(c.strip() for c in row):
+                header = [_clean(c).lower() for c in row]
+                break
+    except csv.Error as e:  # e.g. a field longer than csv's field-size limit: an error, not a 500
+        _csv_error(out, reader, e)
+        return out
     if not header:
         out.errors.append("The file is empty.")
         return out
@@ -618,30 +712,33 @@ def parse_holidays_csv(data, default_exchange="NSE"):
         return out
     seen = set()
     processed = 0
-    for line_no, row in enumerate(reader, start=2):
-        if not any(c.strip() for c in row):
-            continue
-        processed += 1
-        if len(out.rows) >= MAX_CSV_ROWS or processed > MAX_CSV_ROWS * 2:
-            out.errors.append(f"Stopped at line {line_no}: at most {MAX_CSV_ROWS} holidays (and {MAX_CSV_ROWS * 2} rows) per file.")
-            break
-        get = lambda i: row[i].strip() if i is not None and i < len(row) else ""  # noqa: E731
-        d = parse_date(get(i_date))
-        desc = get(i_desc)
-        exch = (get(i_exch) or default_exchange).upper()
-        if d is None:
-            out.errors.append(f"line {line_no}: invalid date “{get(i_date)}” (use YYYY-MM-DD or DD-Mon-YYYY)")
-            continue
-        if not desc:
-            out.errors.append(f"line {line_no}: description is empty")
-            continue
-        if exch not in EXCHANGE_CODES:
-            out.errors.append(f"line {line_no}: unknown exchange “{exch}” (use ALL, NSE, BSE or MCX)")
-            continue
-        if (exch, d) in seen:
-            continue
-        seen.add((exch, d))
-        out.rows.append((exch, d, desc[:200]))
+    try:
+        for line_no, row in enumerate(reader, start=2):
+            if not any(c.strip() for c in row):
+                continue
+            processed += 1
+            if len(out.rows) >= MAX_CSV_ROWS or processed > MAX_CSV_ROWS * 2:
+                out.errors.append(f"Stopped at line {line_no}: at most {MAX_CSV_ROWS} holidays (and {MAX_CSV_ROWS * 2} rows) per file.")
+                break
+            get = lambda i: _clean(row[i]) if i is not None and i < len(row) else ""  # noqa: E731
+            d = parse_date(get(i_date))
+            desc = get(i_desc)
+            exch = (get(i_exch) or default_exchange).upper()
+            if d is None:
+                out.errors.append(f"line {line_no}: invalid date “{get(i_date)}” (use YYYY-MM-DD or DD-Mon-YYYY)")
+                continue
+            if not desc:
+                out.errors.append(f"line {line_no}: description is empty")
+                continue
+            if exch not in EXCHANGE_CODES:
+                out.errors.append(f"line {line_no}: unknown exchange “{exch}” (use ALL, NSE, BSE or MCX)")
+                continue
+            if (exch, d) in seen:
+                continue
+            seen.add((exch, d))
+            out.rows.append((exch, d, desc[:200]))
+    except csv.Error as e:  # the rows parsed before the break stay importable
+        _csv_error(out, reader, e)
     return out
 
 
