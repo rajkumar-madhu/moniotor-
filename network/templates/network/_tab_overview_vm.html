@@ -1,9 +1,7 @@
 {% load le network_tags %}
-{% if sample_mode %}<div class="nw-alert mute" role="status">{% icon "info" 16 %}<span>Showing <b>sample</b> guest metrics. Scrape <code>node_exporter</code> into Prometheus and set the device instance label{% if can_operate %}, or remove <code>?sample=1</code>{% endif %}.</span>
-  <a class="right" href="?tab=overview">Live only</a></div>
-{% elif not prometheus_on or not device.prometheus_instance %}
-<div class="nw-alert mute" role="status">{% icon "info" 16 %}<span>{{ metrics_msg }}</span>
-  <a class="right" href="?tab=overview&amp;sample=1">Show sample data</a></div>
+{% if metrics_msg %}
+<div class="nw-alert mute" role="status">{% icon "info" 16 %}<span><b>Guest metrics not connected.</b> {{ metrics_msg }} Scrape <code>node_exporter</code> into Prometheus and set the device’s Prometheus instance to its <code>instance</code> label.</span>
+  {% if can_operate %}<a class="right" href="{% url 'network:edit' device.pk %}#id_prometheus_instance">Set instance</a>{% endif %}</div>
 {% endif %}
 
 <section class="panel nw-vm-main" id="vm-info">
@@ -13,7 +11,7 @@
     <tr><td>{{ label }}</td><td{% if label == "Management IP" or label == "vCenter" %} class="mono"{% endif %}>{{ value }}</td></tr>
     {% endfor %}
   </tbody></table></div>
-  {% if vm_metrics %}<p class="nw-note">{{ vm_metrics.source }}{% if vm_metrics.sample %} · synced just now{% else %}{% if device.metrics_updated_at %} · synced {{ device.metrics_updated_at|ago }}{% endif %}{% endif %} — CPU, memory, disk, and network charts use Prometheus (guest exporter) above.</p>{% endif %}
+  {% if vm_metrics %}<p class="nw-note">{{ vm_metrics.source }} · refreshed live on this page — the CPU, memory, disk and network charts above use the same series. Inventory rows come from the device record and its <code>key:value</code> tags (cluster, host, datastore, vcpu, memory_gb, tools, vcenter).</p>{% endif %}
 </section>
 
 <section class="panel nw-vm-actions">

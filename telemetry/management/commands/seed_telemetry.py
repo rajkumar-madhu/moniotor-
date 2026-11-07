@@ -54,7 +54,7 @@ class Command(BaseCommand):
     def handle(self, *args, remove=False, **opts):
         tenant = settings.LINKEDEYE_TENANT
         if remove:
-            n1, _ = Alert.objects.filter(fingerprint__startswith="example", labels__example="true").delete()
+            n1, _ = Alert.objects.filter(tenant_key=tenant, fingerprint__startswith="example", labels__example="true").delete()
             n2, _ = SavedQuery.objects.filter(tenant_key=tenant, owner__isnull=True, name__startswith="Example: ").delete()
             self.stdout.write(self.style.SUCCESS(f"Removed {n1} example alert(s) and {n2} example query(ies)."))
             return
@@ -62,8 +62,8 @@ class Command(BaseCommand):
         created = 0
         for fp, status, name, sev, inst, job, summary, desc, start_min, end_min in ALERTS:
             labels = {"alertname": name, "severity": sev, "instance": inst, "job": job, "env": "example", "example": "true"}
-            _obj, was_created = Alert.objects.update_or_create(fingerprint=fp, defaults={
-                "tenant_key": tenant, "status": status, "alertname": name, "severity": sev, "instance": inst, "job": job,
+            _obj, was_created = Alert.objects.update_or_create(tenant_key=tenant, fingerprint=fp, defaults={
+                "status": status, "alertname": name, "severity": sev, "instance": inst, "job": job,
                 "summary": f"{summary} (example)", "description": f"{desc}\n\nExample alert created by manage.py seed_telemetry.",
                 "labels": labels, "annotations": {"summary": f"{summary} (example)", "description": desc},
                 "receiver": "linkedeye", "starts_at": now - timedelta(minutes=start_min),
@@ -72,9 +72,9 @@ class Command(BaseCommand):
             })
             created += was_created
         _obj, was_created = Alert.objects.update_or_create(
-            fingerprint="example00000006",
+            tenant_key=tenant, fingerprint="example00000006",
             defaults={
-                "tenant_key": tenant, "status": "firing", "alertname": "Log Rotation Config Tampering",
+                "status": "firing", "alertname": "Log Rotation Config Tampering",
                 "severity": "medium", "instance": "demo-host-01", "job": "edr",
                 "summary": "Tampering with log rotation configuration (example)",
                 "description": "",

@@ -21,14 +21,15 @@ from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
-from django.db.models import Count, Q
+from django.db.models import Count, Max, Q
 from django.utils import timezone
 
 from .models import Heartbeat, IntegrationTest, LoginThrottle
 
 log = logging.getLogger("linkedeye.administration")
 
-PROBE_STALE_SECONDS = 600          # probe results older than this are stale ("warn if > 10 min old")
+PROBE_STALE_SECONDS = 600          # probe results older than this are stale ("warn if > 10 min old") ...
+PROBE_STALE_GRACE_SECONDS = 300    # ... unless a longer check interval is configured: then interval + this grace
 HEARTBEAT_INTERVAL = 60            # administration.heartbeat job interval
 HEARTBEAT_STALE_SECONDS = 3 * HEARTBEAT_INTERVAL
 TEST_TIMEOUT = 5
@@ -697,30 +698,40 @@ def _fmt_age(seconds):
     return f"{seconds // 86400} d ago"
 
 
+def stale_after(longest_interval):
+    """Seconds after which the newest result counts as stale: a check only runs once per interval, so the
+    threshold follows the longest enabled interval (plus a grace period) and is never below PROBE_STALE_SECONDS."""
+    return max(PROBE_STALE_SECONDS, int(longest_interval or 0) + PROBE_STALE_GRACE_SECONDS)
+
+
 def probe_freshness():
     """Latest UrlResult / DomainCheck times. Returns a list of dicts with status ok/warn/mute."""
     from domainmonitor.models import Domain, DomainCheck
     from urlchecker.models import UrlCheck, UrlResult
     t = tenant()
     rows = []
+    urls = UrlCheck.objects.filter(tenant_key=t, enabled=True).aggregate(n=Count("id"), longest=Max("interval_seconds"))
+    domains = (Domain.objects.filter(tenant_key=t, is_active=True, monitor_enabled=True)
+               .aggregate(n=Count("id"), longest=Max("check_interval_seconds")))
     sources = [
-        ("url", "URL checks", UrlCheck.objects.filter(tenant_key=t, enabled=True).count(),
+        ("url", "URL checks", urls["n"], stale_after(urls["longest"]),
          UrlResult.objects.filter(url_check__tenant_key=t).order_by("-checked_at").values_list("checked_at", flat=True).first()),
-        ("domain", "Domain checks", Domain.objects.filter(tenant_key=t, is_active=True, monitor_enabled=True).count(),
+        ("domain", "Domain checks", domains["n"], stale_after(domains["longest"]),
          DomainCheck.objects.filter(domain__tenant_key=t).order_by("-checked_at").values_list("checked_at", flat=True).first()),
     ]
-    for key, label, enabled, latest in sources:
+    for key, label, enabled, threshold, latest in sources:
         age = _age(latest)
         if not enabled:
             status, note = "mute", "Nothing enabled to check"
         elif latest is None:
             status, note = "warn", "No result stored yet — is manage.py run_probes running?"
-        elif age > PROBE_STALE_SECONDS:
-            status, note = "warn", f"Older than {PROBE_STALE_SECONDS // 60} min — is manage.py run_probes running?"
+        elif age > threshold:
+            status, note = "warn", f"Older than {threshold // 60} min — is manage.py run_probes running?"
         else:
             status, note = "ok", "Fresh"
         rows.append({"key": key, "label": label, "enabled": enabled, "latest": latest, "age": age,
-                     "age_text": _fmt_age(age), "status": status, "note": note})
+                     "age_text": _fmt_age(age), "status": status, "note": note, "stale_after": threshold,
+                     "stale_minutes": threshold // 60})
     return rows
 
 
@@ -840,7 +851,7 @@ def health():
     platform_rows, app_rows = versions(pending)
     return {"checks": checks, "overall": overall, "pending": pending, "heartbeat": hb, "probes": probes,
             "events": event_counts(24), "jobs": registered_jobs(), "platform": platform_rows, "apps": app_rows,
-            "deployment": deployment_checks(), "stale_minutes": PROBE_STALE_SECONDS // 60}
+            "deployment": deployment_checks(), "stale_minutes": max(p["stale_minutes"] for p in probes)}
 
 
 def health_summary():

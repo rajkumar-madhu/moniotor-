@@ -171,7 +171,8 @@ class RuleTestForm(forms.Form):
     title = forms.CharField(max_length=200, initial="Example check is Down")
     message = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 2}))
     site = forms.CharField(max_length=100, required=False)
-    fingerprint = forms.CharField(max_length=200, required=False, help_text="Used for the cooldown check.")
+    fingerprint = forms.CharField(max_length=200, required=False,
+                                  help_text="Used for the cooldown check. A real run always uses a fresh test fingerprint.")
     run = forms.BooleanField(required=False, label="Run the action for real",
                              help_text="Records an execution and may call StackStorm, a webhook or open an incident.")
 

@@ -10,8 +10,8 @@ from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
-from django.db import IntegrityError
-from django.db.models import Count, F, Q
+from django.db import IntegrityError, transaction
+from django.db.models import Avg, Count, F, Max, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -25,6 +25,10 @@ from urlchecker.models import UrlCheck
 from . import analytics
 from .forms import DomainForm
 from .models import Domain, DomainCheck
+
+# what the probes measured for a host; reset when a domain is renamed, so nothing measured for the old host is shown
+RESULT_FIELDS = {"status": "unknown", "dns_status": "Unknown", "ssl_status": "Unknown", "ip_address": None,
+                 "http_status": None, "response_ms": None, "ssl_expires_at": None, "last_checked_at": None, "last_error": ""}
 
 HEALTHY_SSL = ("Valid",)
 SSL_STATES = ["Valid", "Expiring", "Expired", "Invalid", "Unreachable", "Unknown"]
@@ -110,6 +114,10 @@ def _mean(values):
     return sum(values) / len(values) if values else None
 
 
+def _is_healthy(d):
+    return d.status == "up" and d.dns_status == "Resolved" and d.ssl_status in HEALTHY_SSL
+
+
 def _change(cur, prev):
     """Relative change in percent, or None when there is nothing to compare with."""
     if cur is None or not prev:
@@ -187,7 +195,7 @@ def overview(request):
     down = [d for d in domains if d.status == "down"]
     expiring = [d for d in domains if d.ssl_status in ("Expiring", "Expired")]
     paused = [d for d in domains if not d.monitor_enabled]
-    healthy = [d for d in domains if d.status == "up" and d.dns_status == "Resolved" and d.ssl_status in HEALTHY_SSL]
+    healthy = [d for d in domains if _is_healthy(d)]
     ids = [d.pk for d in domains]
     now = timezone.now()
 
@@ -198,15 +206,17 @@ def overview(request):
     local = timezone.localtime(now).replace(minute=0, second=0, microsecond=0)
     end = local.replace(hour=0) + timedelta(days=1) if bucket >= 180 else local + timedelta(hours=1)
     start = end - timedelta(minutes=minutes)
-    acc = defaultdict(list)
-    for at, ms in DomainCheck.objects.filter(domain_id__in=ids, checked_at__gte=start, checked_at__lt=end,
-                                             response_ms__isnull=False).values_list("checked_at", "response_ms"):
-        acc[int((at - start).total_seconds() // (bucket * 60))].append(ms)
+    # averaged per bucket in the database (one row per bucket), never every check of the window
+    per_bucket = (DomainCheck.objects.filter(domain_id__in=ids, checked_at__gte=start, checked_at__lt=end,
+                                             response_ms__isnull=False)
+                  .annotate(b=analytics.bucket_index(start, timedelta(minutes=bucket), n))
+                  .values("b").annotate(avg=Avg("response_ms")).order_by())
+    avg = {r["b"]: r["avg"] for r in per_bucket}
     times = [timezone.localtime(start + timedelta(minutes=bucket * i)) for i in range(n)]
     resp = {"labels": [t.strftime(fmt) for t in times], "tipLabels": [t.strftime("%d %b %H:%M") for t in times],
             "unit": "ms", "xLabelEvery": every, "yTicks": 5,
             "series": [{"name": "Average Response Time", "color": "#ff5b2e", "area": True, "areaOpacity": 0.14, "width": 1.6,
-                        "values": [round(sum(acc[i]) / len(acc[i]), 1) if acc.get(i) else None for i in range(n)]}]}
+                        "values": [None if avg.get(i) is None else round(avg[i], 1) for i in range(n)]}]}
 
     # uptime per day
     up_key = request.GET.get("up_range") if request.GET.get("up_range") in UP_RANGES else "7"
@@ -221,16 +231,18 @@ def overview(request):
     # trends against the previous period, all from stored records
     week_ago = now - timedelta(days=7)
     total_before = sum(1 for d in domains if d.created_at <= week_ago)
-    resp_now = DomainCheck.objects.filter(domain_id__in=ids, checked_at__gte=now - timedelta(hours=24), response_ms__isnull=False)
+    resp_now = DomainCheck.objects.filter(domain_id__in=ids, checked_at__gte=now - timedelta(hours=24),
+                                          response_ms__isnull=False).aggregate(avg=Avg("response_ms"))["avg"]
     resp_prev = DomainCheck.objects.filter(domain_id__in=ids, checked_at__gte=now - timedelta(hours=48),
-                                           checked_at__lt=now - timedelta(hours=24), response_ms__isnull=False)
+                                           checked_at__lt=now - timedelta(hours=24),
+                                           response_ms__isnull=False).aggregate(avg=Avg("response_ms"))["avg"]
     overall = _uptime(ids, 24 * 7)
     overall_prev = _uptime(ids, 24 * 7, end=week_ago)
     uptime = _mean(overall.values())
     uptime_prev = _mean(overall_prev.values())
     trend = {
         "total": _change(total, total_before),
-        "resp": _change(_mean(resp_now.values_list("response_ms", flat=True)), _mean(resp_prev.values_list("response_ms", flat=True))),
+        "resp": _change(resp_now, resp_prev),
         "uptime": round(uptime - uptime_prev, 2) if uptime is not None and uptime_prev is not None else None,
     }
 
@@ -254,7 +266,7 @@ def overview(request):
             slices["down"] += 1
         elif d.ssl_status in ("Expiring", "Expired"):
             slices["expiring"] += 1
-        elif d in healthy:
+        elif _is_healthy(d):   # not `d in healthy`: a linear scan with Model.__eq__ for every domain
             slices["healthy"] += 1
         else:
             slices["other"] += 1
@@ -299,7 +311,7 @@ def domain_list(request):
     if selected:
         mark_operable(request.user, [selected])
 
-    editing = None
+    editing, old_hostname = None, None
     if request.GET.get("edit"):
         editing = get_object_or_404(scope, pk=edit_pk or 0)
         if not can_change_domain(request.user, editing.site_key):
@@ -317,6 +329,7 @@ def domain_list(request):
                                + (" (that needs operator rights on every site)." if editing.site_key in GLOBAL_SITES
                                   else "."))
                 return redirect(f"{request.path}?selected={editing.pk}")
+            old_hostname = editing.hostname   # before the form binds: validation writes the posted values to the instance
         form = DomainForm(request.POST, instance=editing)
         if form.is_valid() and not can_change_domain(request.user, form.cleaned_data["site_key"]):
             form.add_error("site_key", "You do not have operator rights on this site." if form.cleaned_data["site_key"]
@@ -324,13 +337,24 @@ def domain_list(request):
         if form.is_valid():
             obj = form.save(commit=False)
             obj.tenant_key = settings.LINKEDEYE_TENANT
+            renamed = editing is not None and obj.hostname != old_hostname
+            if renamed:
+                # another host now: its checks, security scans, certificate and status start from nothing, so the
+                # previous host's results (grade, expiry, uptime) are never shown for the new one
+                for field, value in RESULT_FIELDS.items():
+                    setattr(obj, field, value)
             try:
-                obj.save()
+                with transaction.atomic():
+                    obj.save()
+                    if renamed:
+                        obj.checks.all().delete()
+                        obj.security_scans.all().delete()
             except IntegrityError:
                 form.add_error("hostname", "This domain already exists.")
             else:
                 audit(request, "update" if editing else "create", obj, hostname=obj.hostname, site=obj.site_key,
-                      type=obj.domain_type, monitor_enabled=obj.monitor_enabled)
+                      type=obj.domain_type, monitor_enabled=obj.monitor_enabled,
+                      **({"renamed_from": old_hostname, "results_reset": True} if renamed else {}))
                 if obj.monitor_enabled and obj.is_active:
                     runner.run_domain_checks([obj])
                 messages.success(request, f"Saved {obj.hostname}.")
@@ -387,22 +411,21 @@ def dns_records(request):
     """Resolved addresses per domain, taken from the stored DomainCheck rows."""
     domains = list(_filter(_scope(request).filter(is_active=True), request))
     since = timezone.now() - timedelta(days=7)
+    window = DomainCheck.objects.filter(domain_id__in=[d.pk for d in domains], checked_at__gte=since)
+    # counted in the database: one row per domain, and one per (domain, address), never every check of the week
+    totals = {r["domain_id"]: r for r in window.values("domain_id")
+              .annotate(n=Count("id"), failed=Count("id", filter=Q(dns_status="Failed"))).order_by()}
     seen = defaultdict(dict)
-    fails = defaultdict(int)
-    checks_n = defaultdict(int)
-    for dom_id, ip, at, dns in (DomainCheck.objects.filter(domain_id__in=[d.pk for d in domains], checked_at__gte=since)
-                                .values_list("domain_id", "ip_address", "checked_at", "dns_status")):
-        checks_n[dom_id] += 1
-        if dns == "Failed":
-            fails[dom_id] += 1
-        if ip:
-            row = seen[dom_id].setdefault(ip, {"ip": ip, "type": "AAAA" if ":" in ip else "A", "last": at, "n": 0})
-            row["n"] += 1
-            row["last"] = max(row["last"], at)
+    for r in (window.filter(ip_address__isnull=False).values("domain_id", "ip_address")
+              .annotate(n=Count("id"), last=Max("checked_at")).order_by()):
+        ip = r["ip_address"]
+        seen[r["domain_id"]][ip] = {"ip": ip, "type": "AAAA" if ":" in ip else "A", "last": r["last"], "n": r["n"]}
+    fails = {pk: r["failed"] for pk, r in totals.items()}
+    checks_n = {pk: r["n"] for pk, r in totals.items()}
     for d in domains:
         d.records = sorted(seen[d.pk].values(), key=lambda r: r["last"], reverse=True)
-        d.fail_n = fails[d.pk]
-        d.checks_n = checks_n[d.pk]
+        d.fail_n = fails.get(d.pk, 0)
+        d.checks_n = checks_n.get(d.pk, 0)
     return _render(request, "domainmonitor/dns.html", {
         "tab": "dns", "crumb": "DNS Records", "rows": domains, "query": _query(request),
         "k": {"resolved": sum(1 for d in domains if d.dns_status == "Resolved"),

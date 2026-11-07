@@ -34,7 +34,9 @@ class Alert(models.Model):
     STATUSES = [(FIRING, "Firing"), (RESOLVED, "Resolved")]
 
     tenant_key = models.CharField(max_length=100, db_index=True, default=_tenant)
-    fingerprint = models.CharField(max_length=64, unique=True)
+    # Alertmanager fingerprints hash the label set, so the same rule in two tenants gives the same fingerprint:
+    # unique per tenant, like every other tenant-owned record
+    fingerprint = models.CharField(max_length=64, db_index=True)
     status = models.CharField(max_length=10, choices=STATUSES, default=FIRING, db_index=True)
     alertname = models.CharField(max_length=200, db_index=True)
     severity = models.CharField(max_length=40, blank=True, db_index=True)
@@ -63,6 +65,7 @@ class Alert(models.Model):
     class Meta:
         ordering = ["-last_received_at"]
         indexes = [models.Index(fields=["tenant_key", "status", "severity"])]
+        constraints = [models.UniqueConstraint(fields=["tenant_key", "fingerprint"], name="telemetry_alert_tenant_fingerprint")]
 
     def __str__(self):
         return f"{self.alertname} ({self.instance})" if self.instance else self.alertname
