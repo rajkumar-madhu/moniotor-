@@ -34,6 +34,30 @@ STALE_RATES = {"in_mbps": None, "out_mbps": None, "utilization": None,
                "errors_per_s": None, "discards_per_s": None, "flaps_24h": None}
 NOT_CONFIGURED = "No metrics source: set LINKEDEYE_PROMETHEUS_URL and the device Prometheus instance."
 NO_INSTANCE = "No metrics source: set the device's Prometheus instance (snmp_exporter target label)."
+# chart windows offered on the device detail page (?range=), shortest first
+RANGES = {"1h": 3600, "6h": 6 * 3600, "24h": 86400, "7d": 7 * 86400}
+RANGE_LABELS = {"1h": "Last hour", "6h": "Last 6 hours", "24h": "Last 24 hours", "7d": "Last 7 days"}
+DEFAULT_RANGE = "24h"
+
+
+
+def current_interfaces(device):
+    """The device's interfaces as they should be shown now.
+
+    Nothing is collected for a disabled device, so its last rates are not current traffic. Devices disabled
+    before device_form started clearing them, or through the Django admin where `enabled` is editable, still
+    carry them, so every reader blanks them (in memory only: the inventory and states stay)."""
+    interfaces = list(device.interfaces.all())
+    if not device.enabled:
+        for i in interfaces:
+            for field, value in STALE_RATES.items():
+                setattr(i, field, value)
+    return interfaces
+
+
+def range_key(value):
+    """A valid ?range= key (unknown values fall back to the default)."""
+    return value if value in RANGES else DEFAULT_RANGE
 
 
 def promql_string(value):
@@ -208,6 +232,24 @@ def apply(device, result, errors, now=None):
     return transitions
 
 
+def align_series(series, step):
+    """Snap every series onto the first one's step grid.
+
+    core.prometheus.query_range ends each query at its own time.time(), so the series of one chart come back with
+    timestamps a few milliseconds apart. Merged as-is, every series has a gap at every other x position and
+    charts.js draws isolated points instead of a line. Only timestamps within a few seconds of the grid move, so
+    points that are genuinely elsewhere are never merged."""
+    base = next((vals[0][0] for vals in series if vals), None)
+    if base is None or not step:
+        return series
+    tol = min(step / 4, 15.0)
+
+    def snap(t):
+        g = base + round((t - base) / step) * step
+        return g if abs(t - g) <= tol else t
+    return [[(snap(t), v) for t, v in vals] for vals in series]
+
+
 def _range_chart(device, seconds, if_index, unit, empty, build):
     """One line chart from `build(selector)` -> [(series style dict, promql)]. `if_index` narrows to one port.
     Returns (chart dict or None, message)."""
@@ -228,6 +270,7 @@ def _range_chart(device, seconds, if_index, unit, empty, build):
         return None, f"Prometheus query failed: {e}"
     if not any(series):
         return None, empty
+    series = align_series(series, step)
     stamps = sorted({t for vals in series for t, _v in vals})
     lookups = [dict(v) for v in series]
     fmt = "%H:%M" if seconds <= 86400 else "%d %b"
@@ -243,7 +286,7 @@ def _range_chart(device, seconds, if_index, unit, empty, build):
 def traffic_range(device, seconds=86400, if_index=None):
     """Inbound/outbound Mbps over time for the detail page chart: the whole device, or one port."""
     def build(sel):
-        return [({"name": name, "color": color, "area": True, "areaOpacity": opacity, "width": 1.4},
+        return [({"name": name, "color": color, "area": True, "areaOpacity": opacity, "width": 1.4, "endDot": True},
                  f"sum((rate(ifHC{metric}Octets{{{sel}}}[5m]) or rate(if{metric}Octets{{{sel}}}[5m]))) * 8 / 1e6")
                 for name, metric, color, opacity in (("Inbound", "In", "var(--chart-6)", 0.12), ("Outbound", "Out", "var(--brand)", 0.13))]
     return _range_chart(device, seconds, if_index, "Mbps",
@@ -260,3 +303,17 @@ def errors_range(device, seconds=86400, if_index=None):
     return _range_chart(device, seconds, if_index, "/s",
                         f'No error or discard counters in Prometheus for instance "{device.prometheus_instance}" in this period.',
                         build)
+
+
+def port_bars(interfaces, limit=10):
+    """Grouped bars of current inbound / outbound Mbps for the busiest ports (stored rates, no Prometheus call).
+    None when no interface has a rate yet."""
+    rated = [i for i in interfaces if i.in_mbps is not None or i.out_mbps is not None]
+    if not rated:
+        return None
+    top = sorted(rated, key=lambda i: (-max(i.in_mbps or 0, i.out_mbps or 0), i.if_index))[:limit]
+    return {"labels": [i.name for i in top],
+            "tipLabels": [f"{i.name} · {i.alias}" if i.alias else i.name for i in top],
+            "unit": "Mbps", "stacked": False,
+            "series": [{"name": "Inbound", "color": "var(--chart-6)", "values": [i.in_mbps for i in top]},
+                       {"name": "Outbound", "color": "var(--brand)", "values": [i.out_mbps for i in top]}]}

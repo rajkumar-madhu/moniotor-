@@ -28,6 +28,7 @@ from core.client_scope import active_client
 
 from . import discovery, jobs, legacy_panels, metrics, services, vm_metrics
 from .forms import ApproveForm, DeviceForm, DiscoveryForm
+from .live import FRONT_PANEL_MAX, LIVE_INTERVAL, apply_guest_uptime, device_snapshot, panel_ports, port_data
 from .models import TYPE_PAGES, Device, DeviceStatus, DeviceType, DiscoveredHost, DiscoveryRun, Environment
 
 TYPE_INTRO = {
@@ -49,7 +50,6 @@ VM_TABS = [
     ("events", "Alerts"), ("topology", "Topology"), ("configuration", "Configuration"),
 ]
 CHECK_ALL_LIMIT = 100
-FRONT_PANEL_MAX = 96   # ports drawn on the front panel; the Interfaces tab still lists every interface
 PANEL_CHUNK = 12       # ports per column group (two rows of six), as on most fixed-port switches
 IF_FILTERS = [("all", "All"), ("up", "Up"), ("busy", "Busy or errors"), ("down", "Down"), ("unused", "Unused or admin down")]
 
@@ -73,31 +73,9 @@ def _front_panel(ports):
     return blocks
 
 
-def _port_data(ports):
-    """What the port drawer shows, pre-formatted like the tables (device-reported names are rendered as text)."""
-    from .templatetags.network_tags import mbps, per_s, speed
-    return [{"n": n, "ifIndex": p.if_index, "name": p.name, "alias": p.alias, "type": p.if_type or "–",
-             "tone": p.port_tone, "toneLabel": p.port_tone_label,
-             "admin": p.get_admin_status_display(), "oper": p.get_oper_status_display(), "speed": speed(p.speed_mbps),
-             "in": mbps(p.in_mbps), "out": mbps(p.out_mbps),
-             "util": "–" if p.utilization is None else f"{p.utilization:.0f}%",
-             "errors": per_s(p.errors_per_s), "discards": per_s(p.discards_per_s),
-             "flaps": "–" if p.flaps_24h is None else str(p.flaps_24h)}
-            for n, p in enumerate(ports, 1)]
-
-
 def _current_interfaces(device):
-    """The device's interfaces as they should be shown now.
-
-    Nothing is collected for a disabled device, so its last rates are not current traffic. Devices disabled
-    before device_form started clearing them — or through the Django admin, where `enabled` is editable —
-    still carry them, so every reader blanks them (in memory only: the inventory and states stay)."""
-    interfaces = list(device.interfaces.all())
-    if not device.enabled:
-        for i in interfaces:
-            for field, value in metrics.STALE_RATES.items():
-                setattr(i, field, value)
-    return interfaces
+    """See metrics.current_interfaces: a disabled device's last rates are not current traffic."""
+    return metrics.current_interfaces(device)
 
 
 def _iface_matches(i, state, q):
@@ -271,9 +249,9 @@ def device_list(request, device_type=None):
         "list_url": reverse(url_name), "vendors": vendors, "sites": sites, "statuses": DeviceStatus.choices,
         "envs": Environment.choices, "types": DeviceType.choices, "groups": groups,
         "events": services.recent_events(request.user, 8, device_type),
-        "donut": {"segments": [{"label": "Up", "value": counts["up"], "color": "#0f7a55"},
-                               {"label": "Down", "value": counts["down"], "color": "#d92d20"},
-                               {"label": "Unknown", "value": counts["unknown"], "color": "#a8a398"}],
+        "donut": {"segments": [{"label": "Up", "value": counts["up"], "color": "var(--chart-ok)"},
+                               {"label": "Down", "value": counts["down"], "color": "var(--chart-crit)"},
+                               {"label": "Unknown", "value": counts["unknown"], "color": "var(--chart-unknown)"}],
                   "center": {"value": str(total), "label": "Devices"}},
         "query": _query(request), "export_query": export_q.urlencode(),
         "create_url": reverse("network:create") + (f"?type={device_type}" if device_type else ""),
@@ -323,6 +301,32 @@ def export_csv(request):
 
 
 # ------------------------------------------------------------------ detail
+def _metrics_msg(device):
+    """Why the device has no (or stale) metrics, or "" when Prometheus data is flowing."""
+    if not device.enabled:
+        return "Monitoring is disabled for this device, so no checks or metrics are collected."
+    if not prometheus.configured():
+        return "No metrics source: set LINKEDEYE_PROMETHEUS_URL (or Administration → Integrations → Prometheus)."
+    if not device.prometheus_instance:
+        return "Set this device’s Prometheus instance to the scrape target’s instance label (e.g. IP:9100)."
+    if device.metrics_error:
+        return device.metrics_error
+    if not device.metrics_updated_at:
+        return "Waiting for the first metrics collection (every 60 s while run_probes is running)."
+    return ""
+
+
+def _range_links(request, current):
+    """Segmented range control that keeps the other query parameters (tab, port)."""
+    links = []
+    for key in metrics.RANGES:
+        q = _query(request, "range")
+        q["range"] = key
+        links.append({"key": key, "label": key, "title": metrics.RANGE_LABELS[key], "url": f"?{q.urlencode()}",
+                      "on": key == current})
+    return links
+
+
 @require("view")
 def detail(request, pk):
     device, early = _as_device(_device(request, pk))
@@ -336,66 +340,37 @@ def detail(request, pk):
     interfaces = _current_interfaces(device)
     if not device.enabled:
         device.uptime_seconds = None   # in memory only (detail never saves it): not current either
-    if_up = sum(1 for i in interfaces if i.oper_status == "up")
-    if_down = sum(1 for i in interfaces if i.oper_status in ("down", "lowerLayerDown") and i.admin_status == "up")
-    if_admin_down = sum(1 for i in interfaces if i.admin_status == "down")
+    summary = services.interface_summary(interfaces)
     ranked = sorted(interfaces, key=lambda i: (i.utilization is None, -(i.utilization or 0), i.if_index))
-    has_rates = any(i.utilization is not None or i.in_mbps is not None for i in interfaces)
-    top = ranked[:10] if has_rates else interfaces[:10]
-    total_in = sum(i.in_mbps or 0 for i in interfaces) if any(i.in_mbps is not None for i in interfaces) else None
-    total_out = sum(i.out_mbps or 0 for i in interfaces) if any(i.out_mbps is not None for i in interfaces) else None
-    errs = [i.errors_per_s for i in interfaces if i.errors_per_s is not None]
-    discs = [i.discards_per_s for i in interfaces if i.discards_per_s is not None]
-    physical = [i for i in interfaces if i.is_physical]
-    ports = physical[:FRONT_PANEL_MAX]
+    top = ranked[:10] if summary["has_rates"] else interfaces[:10]
+    ports = [] if is_vm else panel_ports(interfaces)
     tones = Counter(i.port_tone for i in interfaces)
-    # ?port=<ifIndex> narrows the overview charts to one interface of this device
+    # ?port=<ifIndex> narrows the charts to one interface of this device
     port = None
-    if request.GET.get("port", "").isdigit():
+    if not is_vm and request.GET.get("port", "").isdigit():
         port = next((i for i in interfaces if i.if_index == int(request.GET["port"])), None)
-    port_index = port.if_index if port else None
-    traffic_range = request.GET.get("range", "24h") if request.GET.get("range") in ("24h", "7d") else "24h"
-    traffic, traffic_msg = (None, "")
-    traffic_24h, traffic_24h_msg = (None, "")
-    errors_chart, errors_msg = (None, "")
-    # 24h series always feed the top "Netdata-style" strip; tab Traffic can request 7d.
-    if not is_vm:
-        traffic_24h, traffic_24h_msg = metrics.traffic_range(device, 86400, port_index)
-        errors_chart, errors_msg = metrics.errors_range(device, 86400, port_index)
-        if tab in ("overview", "traffic"):
-            if traffic_range == "24h":
-                traffic, traffic_msg = traffic_24h, traffic_24h_msg
-            else:
-                traffic, traffic_msg = metrics.traffic_range(device, 7 * 86400, port_index)
+    range_key = metrics.range_key(request.GET.get("range"))
+    traffic, traffic_msg, errors_chart, errors_msg = None, "", None, ""
+    if not is_vm:   # the chart strip sits above the tabs, so every tab needs it
+        seconds = metrics.RANGES[range_key]
+        traffic, traffic_msg = metrics.traffic_range(device, seconds, port.if_index if port else None)
+        errors_chart, errors_msg = metrics.errors_range(device, seconds, port.if_index if port else None)
     if_filter = request.GET.get("state") if request.GET.get("state") in dict(IF_FILTERS) else "all"
     if_q = request.GET.get("q", "").strip()[:100]
-    if_counts = {"all": len(interfaces), "up": if_up, "busy": tones["busy"], "down": tones["down"], "unused": tones["unused"]}
+    if_counts = {"all": len(interfaces), "up": summary["if_up"], "busy": tones["busy"], "down": tones["down"],
+                 "unused": tones["unused"]}
     can_op = services.can_manage(request.user, "operate", device.site)
-    if not device.enabled:
-        metrics_msg = "Monitoring is disabled for this device, so no checks or metrics are collected."
-    elif not prometheus.configured():
-        metrics_msg = "No metrics source: set LINKEDEYE_PROMETHEUS_URL (or Administration → Integrations → Prometheus)."
-    elif not device.prometheus_instance:
-        metrics_msg = "Set this device’s Prometheus instance to the scrape target’s instance label (e.g. IP:9100)."
-    elif device.metrics_error:
-        metrics_msg = device.metrics_error
-    elif not device.metrics_updated_at:
-        metrics_msg = "Waiting for the first metrics collection (every 60 s while run_probes is running)."
-    else:
-        metrics_msg = ""
+    metrics_msg = _metrics_msg(device)
+    latest = services.events_for(device, 1)
+    live_q = {"range": range_key}
+    if port:
+        live_q["port"] = port.if_index
     ctx = {
         "device": device, "tab": tab, "tabs": tabs, "is_vm": is_vm,
-        "interfaces": interfaces, "top_interfaces": top,
-        "if_up": if_up, "if_down": if_down, "if_admin_down": if_admin_down, "if_total": len(interfaces), "has_rates": has_rates, "total_in": total_in, "total_out": total_out,
-        "total_errors": round(sum(errs), 3) if errs else None, "total_discards": round(sum(discs), 3) if discs else None,
-        "ports_with_errors": sum(1 for e in errs if e > 0),
-        "ports": ports if not is_vm else [], "panel_blocks": _front_panel(ports) if not is_vm else [],
-        "port_data": _port_data(ports) if not is_vm else [],
-        "ports_total": len(physical), "ports_up": sum(1 for i in physical if i.oper_status == "up"),
-        "ports_down": sum(1 for i in physical if i.port_tone == "down"),
-        "ports_unused": sum(1 for i in physical if i.port_tone == "unused"), "panel_truncated": len(physical) > FRONT_PANEL_MAX,
-        "port": port if not is_vm else None,
-        "port_pos": next((n for n, p in enumerate(ports) if port and p.pk == port.pk), None) if not is_vm else None,
+        "interfaces": interfaces, "top_interfaces": top, **summary,
+        "ports": ports, "panel_blocks": _front_panel(ports) if ports else [], "port_data": port_data(ports),
+        "panel_truncated": summary["ports_total"] > FRONT_PANEL_MAX,
+        "port": port, "port_pos": next((n for n, p in enumerate(ports) if port and p.pk == port.pk), None),
         "errors_chart": errors_chart, "errors_msg": errors_msg,
         "if_filters": [(key, label, if_counts[key]) for key, label in IF_FILTERS], "if_filter": if_filter, "if_q": if_q,
         "if_rows": [i for i in interfaces if _iface_matches(i, if_filter, if_q.lower())],
@@ -403,48 +378,47 @@ def detail(request, pk):
         "avail7": services.availability([device.pk], 24 * 7).get(device.pk),
         "avg_latency": services.avg_latency(device), "spark": services.latency_spark(device),
         "avail_chart": services.availability_chart(device), "latency_chart": services.latency_chart(device),
-        "traffic": traffic, "traffic_msg": traffic_msg, "traffic_range": traffic_range,
-        "traffic_24h": traffic_24h, "traffic_24h_msg": traffic_24h_msg,
+        "traffic": traffic, "traffic_msg": traffic_msg, "traffic_range": range_key,
+        "range_label": metrics.RANGE_LABELS[range_key], "range_links": _range_links(request, range_key),
+        "port_bars": None if is_vm else metrics.port_bars(interfaces),
         "prometheus_on": prometheus.configured(), "metrics_msg": metrics_msg,
         "metrics_ok": bool(prometheus.configured() and device.prometheus_instance and device.metrics_updated_at
                            and not device.metrics_error),
         "events": services.events_for(device, 50 if tab == "events" else 6),
+        "latest_event_id": latest[0].pk if latest else "",
         "polls": device.polls.all()[:50] if tab == "events" else [],
         "topology_url": services.topology_url(device), "discovery_url": services.discovery_url(device),
         "can_operate": can_op, "can_admin": services.can_manage(request.user, "admin", device.site),
         "discovered": device.discovered_as.select_related("run").first(),
         "legacy_onboard": legacy_panels.resolve_legacy_panel(device),
-        "vm_metrics": None, "sample_mode": False, "vm_meta": {}, "vm_info_rows": [],
+        "live_url": f"{reverse('network:live', args=[device.pk])}?{urlencode(live_q)}",
+        "live_interval": LIVE_INTERVAL,
+        "vm_metrics": None, "vm_meta": {}, "vm_info_rows": [],
         "vm_actions": vm_metrics.VM_ACTIONS, "vm_power": "", "vm_stub": None,
     }
     if is_vm:
-        force_sample = request.GET.get("sample") in ("1", "true", "yes")
-        guest, used_sample = vm_metrics.resolve_vm_metrics(device, force_sample=force_sample)
-        vm_perf, perf_sample = None, False
+        guest = vm_metrics.fetch_guest_metrics(device)
+        apply_guest_uptime(device, guest)
         perf_range_key = request.GET.get("perf_range", "24h")
         if perf_range_key not in vm_metrics.PERF_RANGE_SECONDS:
             perf_range_key = "24h"
         perf_seconds = vm_metrics.PERF_RANGE_SECONDS[perf_range_key]
-        if tab == "performance":
-            vm_perf, perf_sample = vm_metrics.resolve_vm_performance(
-                device, force_sample=force_sample, seconds=perf_seconds
-            )
+        vm_perf = vm_metrics.fetch_guest_performance(device, seconds=perf_seconds) if tab == "performance" else None
         meta, _extra = vm_metrics.parse_vm_meta(device)
-        if guest and guest.get("info"):
-            for key, val in guest["info"].items():
-                if key in meta and not meta[key] and val:
-                    meta[key] = val
+        if guest is not None:   # guest series are flowing: an SNMP note from the metrics job does not apply
+            metrics_msg = ""
+        elif prometheus.configured() and device.prometheus_instance:
+            metrics_msg = f'No node_exporter series in Prometheus for instance "{device.prometheus_instance}".'
         ctx.update({
             "vm_metrics": guest,
-            "sample_mode": used_sample or force_sample,
+            "metrics_msg": metrics_msg,
             "vm_meta": meta,
-            "vm_info_rows": vm_metrics.vm_info_rows(device, meta, guest),
+            "vm_info_rows": vm_metrics.vm_info_rows(device, meta),
             "vm_power": vm_metrics.guest_power_label(device),
             "vm_performance": vm_perf,
-            "vm_perf_sample": perf_sample,
             "perf_range": perf_range_key,
             "perf_seconds": perf_seconds,
-            "perf_range_choices": [(k, v) for k, v in vm_metrics.PERF_RANGE_SECONDS.items()],
+            "perf_range_choices": list(vm_metrics.PERF_RANGE_SECONDS.items()),
         })
         if tab in vm_metrics.STUB_COPY:
             title, blurb = vm_metrics.STUB_COPY[tab]
@@ -453,6 +427,20 @@ def detail(request, pk):
         from core.models import AuditEvent
         ctx["audit_rows"] = AuditEvent.objects.filter(object_type="network.device", object_id=str(device.pk))[:25]
     return render(request, "network/detail.html", ctx)
+
+
+@require("view")
+@require_GET
+def live(request, pk):
+    """JSON snapshot polled by the detail page (network/live.js) for live KPIs, charts and port states."""
+    device = services.devices_for(request.user, request).filter(pk=pk).first()
+    if device is None:
+        return JsonResponse({"error": "Device not found, or outside the selected client or your sites."}, status=404)
+    port = request.GET.get("port", "")
+    data = device_snapshot(device, metrics.range_key(request.GET.get("range")), int(port) if port.isdigit() else None)
+    resp = JsonResponse(data)
+    resp["Cache-Control"] = "no-store"
+    return resp
 
 
 @require("view")

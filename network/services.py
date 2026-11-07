@@ -73,6 +73,34 @@ def interface_counts(device_ids):
     return {r["device_id"]: (r["up"], r["total"]) for r in rows}
 
 
+def _sum_or_none(values):
+    vals = [v for v in values if v is not None]
+    return round(sum(vals), 3) if vals else None
+
+
+def interface_summary(interfaces):
+    """Totals over a device's stored interfaces, shared by the detail page and its live endpoint.
+    Rates are None (not 0) when no interface reported one, so the page can say "not collected"."""
+    physical = [i for i in interfaces if i.is_physical]
+    errors = [i.errors_per_s for i in interfaces if i.errors_per_s is not None]
+    return {
+        "if_total": len(interfaces),
+        "if_up": sum(1 for i in interfaces if i.oper_status == "up"),
+        "if_down": sum(1 for i in interfaces if i.oper_status in ("down", "lowerLayerDown") and i.admin_status == "up"),
+        "if_admin_down": sum(1 for i in interfaces if i.admin_status == "down"),
+        "has_rates": any(i.utilization is not None or i.in_mbps is not None for i in interfaces),
+        "total_in": _sum_or_none(i.in_mbps for i in interfaces),
+        "total_out": _sum_or_none(i.out_mbps for i in interfaces),
+        "total_errors": _sum_or_none(errors),
+        "total_discards": _sum_or_none(i.discards_per_s for i in interfaces),
+        "ports_with_errors": sum(1 for e in errors if e > 0),
+        "ports_total": len(physical),
+        "ports_up": sum(1 for i in physical if i.oper_status == "up"),
+        "ports_down": sum(1 for i in physical if i.port_tone == "down"),
+        "ports_unused": sum(1 for i in physical if i.port_tone == "unused"),
+    }
+
+
 def _hour_buckets(hours):
     now = timezone.localtime().replace(minute=0, second=0, microsecond=0)
     starts = [now - timedelta(hours=hours - 1 - i) for i in range(hours)]
@@ -92,9 +120,9 @@ def availability_chart(device, hours=24):
         return None
     labels = [s.strftime("%H:%M") for s in starts]
     return {"labels": labels, "tipLabels": [s.strftime("%d %b %H:00") for s in starts], "xLabelEvery": max(1, hours // 6), "yTicks": 2,
-            "series": [{"name": "Up", "color": "#0f7a55", "values": up},
-                       {"name": "Down", "color": "#d92d20", "values": down},
-                       {"name": "Not checked (policy)", "color": "#d6cfc1", "values": unk}]}
+            "series": [{"name": "Up", "color": "var(--chart-ok)", "values": up},
+                       {"name": "Down", "color": "var(--chart-crit)", "values": down},
+                       {"name": "Not checked (policy)", "color": "var(--stone-2)", "values": unk}]}
 
 
 def latency_chart(device, hours=24):
@@ -111,14 +139,14 @@ def latency_chart(device, hours=24):
     vals = [round(sums[i] / counts[i], 1) if counts[i] else None for i in range(hours)]
     return {"labels": [s.strftime("%H:%M") for s in starts], "tipLabels": [s.strftime("%d %b %H:00") for s in starts],
             "unit": "ms", "xLabelEvery": max(1, hours // 6),
-            "series": [{"name": "Latency", "color": "#7a4fd6", "area": True, "areaOpacity": 0.1, "width": 1.6, "values": vals, "endDot": True}]}
+            "series": [{"name": "Latency", "color": "var(--chart-7)", "area": True, "areaOpacity": 0.1, "width": 1.6, "values": vals, "endDot": True}]}
 
 
 def latency_spark(device, n=40):
     vals = list(DevicePoll.objects.filter(device=device, latency_ms__isnull=False).values_list("latency_ms", flat=True)[:n])
     if len(vals) < 2:
         return None
-    return {"values": list(reversed(vals)), "color": "#7a4fd6"}
+    return {"values": list(reversed(vals)), "color": "var(--chart-7)"}
 
 
 def avg_latency(device, hours=24):

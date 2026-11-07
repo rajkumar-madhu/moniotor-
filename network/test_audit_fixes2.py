@@ -307,6 +307,21 @@ class DisabledDeviceMetricsTests(TestCase):
         self.assertIsNone(r.context["device"].uptime_seconds)
         self.assertEqual(Device.objects.get(pk=self.d.pk).uptime_seconds, 86400)   # stored row untouched
 
+    def test_live_snapshot_of_a_disabled_device_carries_no_rates_or_uptime(self):
+        """The live poll feeds the same detail page, so it must not resurrect the frozen traffic."""
+        live = reverse("network:live", args=[self.d.pk])
+        on = self.c.get(live).json()["values"]
+        self.assertEqual((on["traffic_in"], on["traffic_out"]), ("800 Mbps", "300 Mbps"))
+        self.assertEqual(on["uptime_short"], "1 day")
+        Device.objects.filter(pk=self.d.pk).update(enabled=False, status=DeviceStatus.UNKNOWN)
+        off = self.c.get(live).json()["values"]
+        for key in ("traffic_in", "traffic_out", "legend_in", "legend_out", "uptime_short"):
+            self.assertEqual(off[key], "–", key)
+        self.assertEqual(off["uptime_display"], "")
+        # nothing is written back
+        self.assertEqual(Interface.objects.get(device=self.d).in_mbps, 800.0)
+        self.assertEqual(Device.objects.get(pk=self.d.pk).uptime_seconds, 86400)
+
     def test_enabled_device_keeps_its_rates(self):
         data = {"name": "sw-stale", "device_type": "switch", "mgmt_ip": "192.0.2.10", "check_port": 22, "site": "",
                 "prometheus_instance": "sw1", "enabled": "on"}

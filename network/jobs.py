@@ -16,8 +16,8 @@ from django.utils import timezone
 from core import prometheus
 from core.events import emit
 
-from . import discovery, metrics, probe
-from .models import Device, DevicePoll, DeviceStatus
+from . import discovery, metrics, probe, vm_metrics
+from .models import Device, DevicePoll, DeviceStatus, DeviceType
 
 log = logging.getLogger("linkedeye.network")
 
@@ -153,21 +153,46 @@ def update_metrics(devices):
         by_instance.setdefault(d.prometheus_instance.strip(), []).append(d)
     names = list(by_instance)
     updated = 0
+    guests = []   # VMs with no SNMP data: try node_exporter next
     now = timezone.now()
     for i in range(0, len(names), metrics.CHUNK):
         chunk = names[i:i + metrics.CHUNK]
         data, errors = metrics.fetch(chunk)
         for inst in chunk:
+            result = data.get(inst)
+            snmp_empty = not result or (not result.get("interfaces") and result.get("uptime") is None)
             for d in by_instance[inst]:
                 try:
-                    transitions = metrics.apply(d, data.get(inst), errors, now)
+                    transitions = metrics.apply(d, result, errors, now)
                 except Exception:  # noqa: BLE001
                     log.exception("could not store metrics for device %s", d.pk)
                     continue
                 updated += 1
                 for iface, old, new in transitions:
                     _interface_event(d, iface, old, new)
+                if snmp_empty and d.device_type == DeviceType.VIRTUAL_MACHINE:
+                    guests.append(d)
+    _guest_uptimes(guests, now)
     return f"metrics for {updated} device(s)"
+
+
+def _guest_uptimes(devices, now):
+    """Virtual machines are usually scraped by node_exporter, not snmp_exporter: take their uptime from
+    node_boot_time_seconds so they show a real uptime and no SNMP error."""
+    names = sorted({d.prometheus_instance.strip() for d in devices})
+    uptimes = {}
+    for i in range(0, len(names), metrics.CHUNK):
+        try:
+            uptimes.update(vm_metrics.guest_uptimes(names[i:i + metrics.CHUNK]))
+        except prometheus.PrometheusError as e:
+            log.warning("node_exporter uptime query failed: %s", e)
+            break
+    for d in devices:
+        up = uptimes.get(d.prometheus_instance.strip())
+        if up is None:
+            continue
+        d.uptime_seconds, d.metrics_updated_at, d.metrics_error = up, now, ""
+        d.save(update_fields=["uptime_seconds", "metrics_updated_at", "metrics_error"])
 
 
 def _interface_event(device, iface, old, new):
