@@ -2,7 +2,8 @@
 from collections import defaultdict
 from datetime import datetime, time, timedelta
 
-from django.db.models import Avg, Count, Q
+from django.db.models import Avg, Count, Max, Min, Q
+from django.db.models.functions import TruncDate
 from django.utils import timezone
 
 from urlchecker.stats import axis_scale
@@ -49,23 +50,29 @@ def avg_response(checks, hours=24, offset_hours=0):
 
 
 def response_trend(checks, hours=24, buckets=48):
-    """Average / minimum / maximum connect time per time bucket. Empty buckets are None (gaps, not zero)."""
+    """Average / minimum / maximum connect time per time bucket. Empty buckets are None (gaps, not zero).
+
+    One aggregate query: avg/min/max per bucket [start + i*size, start + (i+1)*size) are computed by the database
+    (as in urlchecker.stats.response_trend); the last bucket is open-ended, like before."""
     now = timezone.now()
     size = hours * 3600 / buckets
     start = now - timedelta(hours=hours)
-    acc = defaultdict(list)
-    rows = _results(checks).filter(checked_at__gte=start, response_ms__isnull=False).values_list("checked_at", "response_ms")
-    for at, v in rows:
-        acc[min(buckets - 1, int((at - start).total_seconds() // size))].append(v)
+    edges = [start + timedelta(seconds=size * i) for i in range(buckets)]
+    aggs = {}
+    for i in range(buckets):
+        q = Q(checked_at__gte=edges[i]) if i == buckets - 1 else Q(checked_at__gte=edges[i], checked_at__lt=edges[i + 1])
+        aggs.update({f"a{i}": Avg("response_ms", filter=q), f"n{i}": Min("response_ms", filter=q),
+                     f"x{i}": Max("response_ms", filter=q)})
+    agg = _results(checks).filter(checked_at__gte=start, response_ms__isnull=False).aggregate(**aggs)
     labels, tips, avg, mn, mx = [], [], [], [], []
     for i in range(buckets):
-        t = timezone.localtime(start + timedelta(seconds=size * i))
+        t = timezone.localtime(edges[i])
         labels.append(t.strftime("%H:%M"))
         tips.append(t.strftime("%d %b %H:%M"))
-        v = acc.get(i)
-        avg.append(round(sum(v) / len(v), 1) if v else None)
-        mn.append(min(v) if v else None)
-        mx.append(max(v) if v else None)
+        a = agg[f"a{i}"]
+        avg.append(round(a, 1) if a is not None else None)
+        mn.append(agg[f"n{i}"])
+        mx.append(agg[f"x{i}"])
     data = {"labels": labels, "tipLabels": tips, "unit": "ms", "series": [
         {"name": "Average", "color": "#2b4cff", "values": avg, "width": 2},
         {"name": "Minimum", "color": COLORS["online"], "values": mn},
@@ -77,22 +84,29 @@ def response_trend(checks, hours=24, buckets=48):
 
 def daily_history(checks, days=7):
     """Per day, how many checks were Online / Degraded / Down.
-    A check counts as Down for a day if >5% of its results were down, Degraded if >5% were degraded."""
+    A check counts as Down for a day if >5% of its results were down, Degraded if >5% were degraded.
+
+    Counts per (check, local day) are aggregated by the database (TruncDate in the current time zone, as in
+    urlchecker.stats.daily_history); only those few rows reach Python."""
     today = timezone.localdate()
     start = today - timedelta(days=days - 1)
     since = timezone.make_aware(datetime.combine(start, time.min))
-    per = defaultdict(lambda: defaultdict(lambda: [0, 0, 0]))  # day -> check -> [total, down, degraded]
-    for cid, at, st in _results(checks).filter(checked_at__gte=since).values_list("tcp_check_id", "checked_at", "status"):
-        c = per[timezone.localtime(at).date()][cid]
-        c[0] += 1
-        c[1] += st == Status.DOWN
-        c[2] += st == Status.DEGRADED
+    rows = (_results(checks).filter(checked_at__gte=since)
+            .annotate(day=TruncDate("checked_at", tzinfo=timezone.get_current_timezone()))
+            .values("tcp_check_id", "day").order_by()
+            .annotate(total=Count("id"), dn=Count("id", filter=Q(status=Status.DOWN)),
+                      dg=Count("id", filter=Q(status=Status.DEGRADED))))
+    per = defaultdict(list)  # day -> [(total, down, degraded) per check]
+    for r in rows:
+        per[r["day"]].append((r["total"], r["dn"], r["dg"]))
     labels, online, degraded, down = [], [], [], []
     for i in range(days):
         d = start + timedelta(days=i)
         labels.append(d.strftime("%b %d"))
         o = g = x = 0
-        for total, dn, dg in per[d].values():
+        for total, dn, dg in per.get(d, ()):
+            if not total:
+                continue
             if dn / total > 0.05:
                 x += 1
             elif dg / total > 0.05:

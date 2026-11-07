@@ -41,7 +41,7 @@ EXAMPLES = [
          environment="prod", tags="example, vmware"),
     dict(name="oms-app-vm-01", device_type="virtual_machine", vendor="VMware", model="Virtual Machine", serial="",
          firmware="RHEL 9.3", mgmt_ip="203.0.113.21", site="Mumbai (NSE)", role="OMS application server", environment="prod",
-         tags="example"),
+         tags="example, cluster:Compute-01, host:esxi-host-01, datastore:DS01, vcpu:4, memory_gb:16"),
 ]
 
 

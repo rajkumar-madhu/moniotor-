@@ -1,0 +1,27 @@
+{% load le network_tags %}
+<section class="nw-vm-strip-extra" aria-label="Guest metrics (24h)">
+  <div class="panel"><div class="panel-h nowrap"><h2>Resource mix</h2><span class="right t-mute small">Last 1 hour</span></div>
+    {% if vm_metrics.util_1h %}
+    <div class="chart" data-chart="line" data-src="nw-vm-util" style="height:120px"></div>
+    <div class="legend nw-legend"><span><i class="sw-in"></i>CPU</span><span><i class="sw-out"></i>Memory</span><span><i class="sw-disc" style="background:var(--teal)"></i>Disk</span></div>
+    {% else %}<div class="nw-empty sm">{% icon "activity" 24 %}<p>No guest utilization series yet.</p></div>{% endif %}
+  </div>
+</section>
+<section class="grid nw-charts nw-vm-charts nw-strip-charts" aria-label="Guest time series">
+  <div class="panel"><div class="panel-h nowrap"><h2>CPU utilization</h2><span class="right t-mute small">Last 24 hours</span></div>
+    {% if vm_metrics.cpu_24h %}<div class="chart" data-chart="line" data-src="nw-vm-cpu" style="height:100px"></div>
+    {% else %}<div class="nw-empty sm">{% icon "cpu" 24 %}<p>No CPU series.</p></div>{% endif %}
+  </div>
+  <div class="panel"><div class="panel-h nowrap"><h2>Memory usage</h2><span class="right t-mute small">Last 24 hours</span></div>
+    {% if vm_metrics.memory_24h %}<div class="chart" data-chart="line" data-src="nw-vm-mem" style="height:100px"></div>
+    {% else %}<div class="nw-empty sm">{% icon "layers" 24 %}<p>No memory series.</p></div>{% endif %}
+  </div>
+  <div class="panel"><div class="panel-h nowrap"><h2>Network traffic</h2><span class="right t-mute small">Last 24 hours</span></div>
+    {% if vm_metrics.network_24h %}<div class="chart" data-chart="line" data-src="nw-vm-net" style="height:100px"></div>
+    {% else %}<div class="nw-empty sm">{% icon "activity" 24 %}<p>No network series.</p></div>{% endif %}
+  </div>
+</section>
+<section class="panel nw-strip-latency"><div class="panel-h nowrap"><h2>Check Latency</h2><span class="right t-mute small">Hourly average, last 24 hours</span></div>
+  {% if latency_chart %}<div class="chart" data-chart="line" data-src="nw-latency" style="height:110px"></div>
+  {% else %}<div class="nw-empty sm">{% icon "zap" 24 %}<p>No successful checks in the last 24 hours.</p></div>{% endif %}
+</section>

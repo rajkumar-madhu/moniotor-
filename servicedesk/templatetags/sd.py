@@ -2,6 +2,7 @@
 from django import template
 from django.utils import timezone
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 
 from core.templatetags.le import icon
 
@@ -15,7 +16,7 @@ register = template.Library()
 @register.simple_tag
 def prio_pill(priority, short=False):
     tone = wf.PRIORITY_TONE.get(priority, "mute")
-    dot = format_html("<i></i>") if wf.PRIORITY_DOT.get(priority) else ""
+    dot = mark_safe("<i></i>") if wf.PRIORITY_DOT.get(priority) else ""
     label = priority if short else wf.PRIORITY_LABELS.get(priority, priority)
     return format_html('<span class="ip {}" title="{} · {}">{}{}</span>', tone, priority,
                        wf.PRIORITY_LABELS.get(priority, ""), dot, label)
@@ -24,7 +25,7 @@ def prio_pill(priority, short=False):
 @register.simple_tag
 def status_pill(status, large=False):
     tone = wf.STATUS_TONE.get(status, "mute")
-    dot = format_html("<i></i>") if tone in ("warn", "ok", "mute", "purple", "info") else ""
+    dot = mark_safe("<i></i>") if tone in ("warn", "ok", "mute", "purple", "info") else ""
     return format_html('<span class="ip {}{}">{}{}</span>', tone, " lg" if large else "", dot,
                        wf.STATUS_LABELS.get(status, status))
 
@@ -42,7 +43,7 @@ def who(user, empty="Unassigned"):
 def sla_cell(ticket):
     """Resolution countdown for open tickets, a check for tickets resolved in time, a dash when no SLA."""
     if ticket.resolution_due is None and ticket.response_due is None:
-        return format_html('<span class="t-mute" title="No SLA for this ticket kind">–</span>')
+        return mark_safe('<span class="t-mute" title="No SLA for this ticket kind">–</span>')
     c = sla_mod.resolution_clock(ticket) if ticket.resolution_due else sla_mod.response_clock(ticket)
     if c["state"] == "met" and not ticket.breached:
         return format_html('<span class="tn-ok" title="Resolved within SLA">{} <span class="t-mute">—</span></span>', icon("check-circle", 15))

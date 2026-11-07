@@ -1,0 +1,12 @@
+{% load le %}
+<section class="panel nw-vm-stub">
+  <div class="panel-h"><h2>{{ vm_stub.title }}</h2><span class="right t-mute small">Not connected</span></div>
+  <div class="nw-empty">{% icon "cloud" 28 %}
+    <p>{{ vm_stub.blurb }}</p>
+    {% if tab == "topology" and topology_url %}
+    <a class="btn sm" href="{{ topology_url }}">{% icon "share" 15 %}Open in Topology</a>
+    {% elif sample_mode %}
+    <p class="t-mute">Overview can show sample guest metrics with <code>?sample=1</code>.</p>
+    {% endif %}
+  </div>
+</section>

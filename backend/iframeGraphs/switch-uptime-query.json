@@ -1,0 +1,4 @@
+{
+  "cisco-huawei-arista-dell-aruba--Switch-uptime-in-days": "round (sysUpTime {instance = '__FILTER__'} /8640000)",
+  "firewall--uptime-in-days": "(round((time() - fortigate_last_reboot_seconds{instance = '__FILTER__'}))/86400)"
+}

@@ -1,0 +1,12 @@
+{% load le %}
+{% for m in chat_messages %}
+<article class="ag-msg ag-{{ m.role }}" data-role="{{ m.role }}">
+  <div class="ag-who">{% if m.role == 'user' %}You{% else %}Ops Agent{% endif %}</div>
+  <div class="ag-body">{{ m.content|linebreaksbr }}</div>
+  {% if m.citations %}
+  <ul class="ag-cites">{% for c in m.citations %}<li><a href="{{ c.href }}">{{ c.title }}</a>{% if c.site %} <span class="t-mute">{{ c.site }}</span>{% endif %}</li>{% endfor %}</ul>
+  {% endif %}
+</article>
+{% empty %}
+<p class="empty ag-empty">Ask about outages, alerts, tickets or runbooks. Answers use live records from your sites{% if not llm_configured %}; without a model key the agent retrieves those records directly{% endif %}.</p>
+{% endfor %}

@@ -48,7 +48,7 @@ def items(request):
     qs = filter_items(request, base).annotate(n_out=Count("outgoing", filter=out_f, distinct=True),
                                               n_in=Count("incoming", filter=in_f, distinct=True))
     page = paginate(request, qs.order_by("name"))
-    health = services.link_health(page.object_list)
+    health = services.link_health(page.object_list, request.user)
     for c in page:
         c.health = health.get(c.pk, "unknown")
     mark_row_perms(request, page)
@@ -86,9 +86,9 @@ def item_detail(request, pk):
     outgoing, incoming = list(outgoing), list(incoming)
     impact = services.impacted(ci, edges=edges)
     deps = services.dependencies(ci, edges=edges)
-    checks = services.check_rows(ci)
+    checks = services.check_rows(ci, request.user)
     related = [r.target for r in outgoing] + [r.source for r in incoming] + [r["ci"] for r in impact] + [d for d, _ in deps]
-    health = services.link_health([ci] + related)
+    health = services.link_health([ci] + related, request.user)
     for r in impact:
         r["health"] = health.get(r["ci"].pk, "unknown")
     for r in outgoing:
@@ -193,7 +193,7 @@ def items_export(request, hardware=False):
     if hardware:
         qs = qs.filter(ci_type__in=HARDWARE_TYPES)
     resp, _w = csv_response("it-assets.csv" if hardware else "configuration-items.csv")
-    csvio.write_cis(resp, qs.order_by("name").prefetch_related("url_checks", "domains"))
+    csvio.write_cis(resp, qs.order_by("name").prefetch_related("url_checks", "domains"), user=request.user)
     return resp
 
 

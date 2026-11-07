@@ -1,12 +1,15 @@
 import zoneinfo
 
+import django
 from django import forms
 from django.conf import settings
 from django.contrib.auth import get_user_model, password_validation
-from django.contrib.auth.forms import UsernameField
+from django.contrib.admin.forms import AdminAuthenticationForm
+from django.contrib.auth.forms import AuthenticationForm, UsernameField
+from django.core.exceptions import ValidationError
 from django.utils.text import slugify
 
-from core.models import Membership, Site
+from core.models import Client, Membership, Site, SiteLesiteProfile
 
 User = get_user_model()
 
@@ -148,12 +151,65 @@ def timezone_choices(current=None):
     return [(z, z.replace("_", " ")) for z in zones]
 
 
+def client_choices():
+    return Client.objects.filter(tenant_key=settings.LINKEDEYE_TENANT).order_by("name")
+
+
+class ClientForm(forms.ModelForm):
+    modules = forms.MultipleChoiceField(required=False, choices=Client.MODULES,
+                                        widget=forms.CheckboxSelectMultiple, label="Enabled modules")
+
+    class Meta:
+        model = Client
+        fields = ["name", "code", "status", "contact_name", "contact_email", "go_live", "modules", "notes"]
+        help_texts = {"code": "Short identifier (letters, digits, hyphens). Leave blank to derive it from the name."}
+        widgets = {"notes": forms.Textarea(attrs={"rows": 3})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["code"].required = False
+        if self.instance.pk and isinstance(self.instance.modules, list):
+            self.fields["modules"].initial = self.instance.modules
+
+    def _scope(self):
+        qs = Client.objects.filter(tenant_key=settings.LINKEDEYE_TENANT)
+        return qs.exclude(pk=self.instance.pk) if self.instance.pk else qs
+
+    def clean_name(self):
+        name = " ".join((self.cleaned_data.get("name") or "").split())
+        if not name:
+            raise forms.ValidationError("Enter a name.")
+        if self.instance.pk and " ".join(self.instance.name.split()) == name:
+            return self.instance.name
+        if self._scope().filter(name__iexact=name).exists():
+            raise forms.ValidationError("A client with this name already exists.")
+        return name
+
+    def clean(self):
+        cleaned = super().clean()
+        code = (cleaned.get("code") or "").strip().lower()
+        if not code and cleaned.get("name"):
+            base = slugify(cleaned["name"])[:50] or "client"
+            code = base
+            n = 2
+            while self._scope().filter(code=code).exists():
+                suffix = f"-{n}"
+                code = f"{base[:50 - len(suffix)]}{suffix}"
+                n += 1
+        elif code and self._scope().filter(code=code).exists():
+            self.add_error("code", "A client with this code already exists.")
+            return cleaned
+        cleaned["code"] = code
+        cleaned["modules"] = cleaned.get("modules") or []
+        return cleaned
+
+
 class SiteForm(forms.ModelForm):
     timezone = forms.ChoiceField(label="Timezone")
 
     class Meta:
         model = Site
-        fields = ["name", "code", "region", "timezone", "criticality", "description"]
+        fields = ["client", "name", "code", "region", "timezone", "criticality", "description"]
         help_texts = {"code": "Short identifier (letters, digits, hyphens). Leave blank to derive it from the name.",
                       "name": "Records in other modules refer to the site by this name."}
         widgets = {"description": forms.Textarea(attrs={"rows": 3})}
@@ -161,6 +217,9 @@ class SiteForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["code"].required = False
+        self.fields["client"].queryset = client_choices()
+        self.fields["client"].required = False
+        self.fields["client"].empty_label = "No client"
         current = self.instance.timezone if self.instance and self.instance.pk else None
         self.fields["timezone"].choices = timezone_choices(current)
         if not self.instance.pk:
@@ -199,3 +258,203 @@ class SiteForm(forms.ModelForm):
                 self.add_error("code", "A site with this code already exists.")
             cleaned["code"] = code
         return cleaned
+
+
+class SiteLesiteProfileForm(forms.ModelForm):
+    """Lesites / portal onboarding fields plus optional site-scoped user links (memberships)."""
+
+    users = forms.ModelMultipleChoiceField(
+        queryset=User.objects.order_by("username"),
+        required=False,
+        widget=forms.SelectMultiple,
+        help_text="Users linked to this site (viewer role) for onboarding handoff.",
+    )
+
+    class Meta:
+        model = SiteLesiteProfile
+        fields = [
+            "legacy_sitename",
+            "enabled",
+            "environment",
+            "websocket_url",
+            "le_url",
+            "is_url_secured",
+            "entity_host",
+            "entity_port",
+            "analytics_prefix_url",
+            "prometheus_url",
+            "elastic_host",
+            "elastic_port",
+            "grafana_api",
+            "country_code",
+            "location",
+            "redis_host",
+            "redis_port",
+            "incident_url",
+            "incident_api",
+        ]
+
+    def __init__(self, *args, site=None, **kwargs):
+        self.site = site
+        super().__init__(*args, **kwargs)
+        if self.instance and getattr(self.instance, "pk", None) and getattr(self.instance, "site_id", None):
+            self.fields["users"].initial = list(
+                Membership.objects.filter(site_id=self.instance.site_id).values_list("user_id", flat=True)
+            )
+        elif site is not None and getattr(site, "pk", None):
+            self.fields["users"].initial = list(Membership.objects.filter(site=site).values_list("user_id", flat=True))
+
+
+# ------------------------------------------------------------------ integrations (Administration › Integrations)
+class OptionalHttpsURLField(forms.URLField):
+    """Bare hostnames default to https; Django 5+ also gets assume_scheme."""
+
+    def __init__(self, *, assume_scheme="https", **kwargs):
+        self._assume_scheme = assume_scheme
+        if django.VERSION >= (5, 0):
+            kwargs.setdefault("assume_scheme", assume_scheme)
+        super().__init__(**kwargs)
+
+    def to_python(self, value):
+        if django.VERSION < (5, 0) and value not in self.empty_values:
+            text = str(value).strip()
+            if text and "://" not in text:
+                value = f"{self._assume_scheme}://{text}"
+        return super().to_python(value)
+
+
+class _SecretOptionalMixin:
+    """Password-style fields: blank means keep the stored secret."""
+
+    secret_fields = ()
+
+    def clean(self):
+        cleaned = super().clean()
+        for name in self.secret_fields:
+            if not cleaned.get(name):
+                cleaned.pop(name, None)
+        return cleaned
+
+
+class PrometheusIntegrationForm(_SecretOptionalMixin, forms.Form):
+    url = OptionalHttpsURLField(label="Server URL", required=False)
+    timeout = forms.FloatField(label="Timeout (seconds)", required=False, min_value=1, max_value=120)
+
+
+class AlertmanagerIntegrationForm(_SecretOptionalMixin, forms.Form):
+    secret_fields = ("token",)
+    token = forms.CharField(label="Bearer token", required=False, strip=True, widget=forms.PasswordInput(render_value=False),
+                            help_text="Leave blank to keep the current token.")
+
+
+class LogIngestIntegrationForm(_SecretOptionalMixin, forms.Form):
+    secret_fields = ("token",)
+    token = forms.CharField(label="Bearer token", required=False, strip=True, widget=forms.PasswordInput(render_value=False),
+                            help_text="Leave blank to keep the current token.")
+
+
+class StackStormIntegrationForm(_SecretOptionalMixin, forms.Form):
+    secret_fields = ("api_key",)
+    url = OptionalHttpsURLField(label="Webhook URL", required=False)
+    api_key = forms.CharField(label="API key", required=False, strip=True, widget=forms.PasswordInput(render_value=False),
+                              help_text="Leave blank to keep the current key.")
+
+
+class WebhooksIntegrationForm(forms.Form):
+    urls = forms.CharField(label="Webhook URLs (one per line)", required=False, widget=forms.Textarea(attrs={"rows": 3}))
+    severities = forms.CharField(label="Severities (comma-separated)", required=False,
+                                 help_text="e.g. critical, warning")
+
+
+class EmailIntegrationForm(_SecretOptionalMixin, forms.Form):
+    secret_fields = ("email_host_password",)
+    recipients = forms.CharField(label="Recipients (one e-mail per line)", required=False, widget=forms.Textarea(attrs={"rows": 2}))
+    email_host = forms.CharField(label="SMTP host", required=False)
+    email_port = forms.IntegerField(label="SMTP port", required=False, min_value=1, max_value=65535)
+    email_host_user = forms.CharField(label="SMTP user", required=False)
+    email_host_password = forms.CharField(label="SMTP password", required=False, strip=False,
+                                          widget=forms.PasswordInput(render_value=False),
+                                          help_text="Leave blank to keep the current password.")
+    email_use_tls = forms.BooleanField(label="Use TLS", required=False)
+    default_from_email = forms.EmailField(label="From address", required=False)
+
+
+class NagiosIntegrationForm(_SecretOptionalMixin, forms.Form):
+    secret_fields = ("password",)
+    url = OptionalHttpsURLField(label="Server URL", required=False)
+    user = forms.CharField(label="User", required=False)
+    password = forms.CharField(label="Password", required=False, strip=False, widget=forms.PasswordInput(render_value=False),
+                               help_text="Leave blank to keep the current password.")
+    timeout = forms.FloatField(label="Timeout (seconds)", required=False, min_value=1, max_value=120)
+
+
+INTEGRATION_FORMS = {
+    "prometheus": PrometheusIntegrationForm,
+    "alertmanager": AlertmanagerIntegrationForm,
+    "logs": LogIngestIntegrationForm,
+    "stackstorm": StackStormIntegrationForm,
+    "webhooks": WebhooksIntegrationForm,
+    "email": EmailIntegrationForm,
+    "nagios": NagiosIntegrationForm,
+}
+
+
+def integration_form(slug, data=None, initial=None):
+    cls = INTEGRATION_FORMS.get(slug)
+    if not cls:
+        return None
+    return cls(data=data, initial=initial or {})
+
+
+# ------------------------------------------------------------------ sign-in throttling
+class ThrottleMixin:
+    """Refuses sign-ins for a username or client address after too many failures (see services.login_limits).
+
+    The lock is checked *before* the password, so a locked account cannot be used as a password oracle. Client
+    addresses come from core.audit._ip, which honours settings.TRUSTED_PROXIES."""
+    throttle_message = ""
+
+    def clean(self):
+        from core.audit import _ip, audit
+
+        from . import services
+        username = self.cleaned_data.get("username")
+        password = self.cleaned_data.get("password")
+        ip = _ip(self.request)
+        lock = services.login_lock_remaining(username, ip)
+        if lock:
+            kind, remaining = lock
+            minutes = max(1, -(-int(remaining.total_seconds()) // 60))
+            self.throttle_message = f"Too many failed sign-ins. Try again in {minutes} minute{'s' if minutes != 1 else ''}."
+            try:
+                audit(self.request, "login_throttled", object_type="auth.user", result="denied",
+                      username=str(username or "")[:150], locked_by="username" if kind == "user" else "client address",
+                      minutes=minutes)
+            except Exception:
+                pass
+            raise ValidationError(self.throttle_message, code="throttled")
+        try:
+            cleaned = super().clean()
+        except ValidationError as e:
+            # only a wrong password counts (the admin form also says "invalid_login" to a non-staff user whose
+            # password was right; user_cache is set then)
+            if username and password and getattr(e, "code", None) == "invalid_login" \
+                    and getattr(self, "user_cache", None) is None:
+                for kind in services.login_failed(username, ip):
+                    try:
+                        audit(self.request, "login_locked", object_type="auth.user", result="denied",
+                              username=str(username)[:150], locked_by="username" if kind == "user" else "client address",
+                              minutes=int(services.login_limits()[2].total_seconds() // 60))
+                    except Exception:
+                        pass
+            raise
+        services.login_succeeded(username)
+        return cleaned
+
+
+class ThrottledAuthenticationForm(ThrottleMixin, AuthenticationForm):
+    pass
+
+
+class ThrottledAdminAuthenticationForm(ThrottleMixin, AdminAuthenticationForm):
+    pass

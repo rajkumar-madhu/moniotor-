@@ -26,10 +26,25 @@ and scheduled reports. The bundles enforce this:
 * Kubernetes: `linkedeye-probes` has `replicas: 1` and `strategy: Recreate`, so a rollout stops the old pod
   before the new one starts. Never attach an HPA to it and never add a PodDisruptionBudget (with one replica
   it would block node drains; a drain simply restarts the pod).
-* The scheduler writes a heartbeat (`administration.Heartbeat`, key `scheduler`) every 60 s with its host
-  name. Its health check fails when the heartbeat is older than 5 minutes **or was written by another host**,
-  so a second scheduler shows up as an unhealthy container. **Administration → System health** shows the same
-  heartbeat.
+* Scheduler lease: even if a second `run_probes` is started by mistake, only one runs passes. On PostgreSQL
+  the active scheduler holds a session advisory lock on a dedicated connection (use a direct connection or a
+  session-mode pooler, not PgBouncer transaction mode); on MySQL/SQLite it holds a lease row (`core.SchedulerLease`)
+  renewed every `LINKEDEYE_SCHEDULER_HEARTBEAT_SECONDS` and valid for `LINKEDEYE_SCHEDULER_LEASE_TTL` seconds. A
+  second instance idles safely as a **standby**, logs `another scheduler holds the lease (…); standing by`, and
+  takes over when the active one stops (immediately on PostgreSQL, after the lease TTL elsewhere).
+  `run_probes --once` from cron takes the lease for its single pass and exits without running when another
+  scheduler holds it. Job last-run times are stored in `core.JobState`, so `--once` and restarts do not re-run
+  hourly jobs on every invocation.
+* The scheduler writes a heartbeat (`administration.Heartbeat`, key `scheduler`) from a dedicated thread every
+  `LINKEDEYE_SCHEDULER_HEARTBEAT_SECONDS` (30 s), independent of how long a pass takes, with its host name and
+  `loop_at` (when the main loop last finished a pass). Its health check fails when the heartbeat is older than
+  5 minutes, when the loop has not finished a pass for `HEALTHCHECK_MAX_PASS_AGE` (15 minutes), or when the
+  heartbeat came from another host and this container is not a standby with a fresh
+  `scheduler-standby:<host>` heartbeat. **Administration → System health** shows the same heartbeat.
+* Pass budget: periodic jobs run most-overdue first; once a pass has used `LINKEDEYE_SCHEDULER_PASS_BUDGET`
+  seconds the remaining non-critical jobs move to the next pass (critical jobs, `LINKEDEYE_SCHEDULER_CRITICAL_JOBS`,
+  always run). Notifications never run on the scheduler thread (see `LINKEDEYE_NOTIFY_ASYNC`), and SMTP has a
+  timeout (`LINKEDEYE_EMAIL_TIMEOUT`), so an unreachable mail server or webhook cannot stall detection.
 
 Place the probes container where it can reach the targets you monitor. Private and loopback targets are
 refused unless their range is listed in `LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS`; link-local and cloud-metadata
@@ -243,7 +258,7 @@ start while any `LINKEDEYE_*` value still contains a `<REPLACE ...>` placeholder
   failures) all `GET /healthz` with `Host: linkedeye-web`. A database outage takes pods out of the Service
   quickly but restarts them only after two minutes.
 * probes: exec `healthcheck.py probes` (startup up to 5 min, then every 60 s, 3 failures). Tune with
-  `HEALTHCHECK_MAX_HEARTBEAT_AGE` (seconds, default 300).
+  `HEALTHCHECK_MAX_HEARTBEAT_AGE` (seconds, default 300) and `HEALTHCHECK_MAX_PASS_AGE` (default 900).
 * All pods: `runAsNonRoot` (uid 10001), `readOnlyRootFilesystem`, no privilege escalation, all capabilities
   dropped, `RuntimeDefault` seccomp, no service-account token, `/tmp` as a 64 Mi memory `emptyDir`. They pass
   Pod Security Admission `restricted`.
@@ -287,6 +302,8 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 | `LINKEDEYE_DB_CONN_MAX_AGE` | `60` | | Seconds a database connection is reused (`0` = close after each request). Connections are health-checked before reuse. |
 | `LINKEDEYE_TIME_ZONE` | `Asia/Kolkata` | | Display time zone (IANA name). Data is stored in UTC. |
 | `LINKEDEYE_TENANT` | `default` | | Tenant whose records this deployment shows (single-tenant deployment). |
+| `LINKEDEYE_BACKEND_SUMMARY_URL` | empty | | Optional read-only status bridge to the legacy Neo4j dashboard's `/dashboard/api/summary`. Must be `https://` (plain `http://localhost` only when `LINKEDEYE_DEBUG=true`), without credentials in the URL; redirects are not followed. Empty: the dashboard and heatmap show "not connected". Only the user's visible site names are sent. |
+| `LINKEDEYE_BACKEND_SUMMARY_TOKEN` | empty | | Bearer token for `LINKEDEYE_BACKEND_SUMMARY_URL`; set the same high-entropy value as the legacy backend's `DASHBOARD_API_TOKEN`. Both URL and token are required. Secret: keep it in the environment, never in the repository. |
 | `LINKEDEYE_LOG_LEVEL` | `INFO` | | Level of the `linkedeye.*` loggers (probes, jobs, integrations). |
 | `LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS` | empty | | Comma-separated private / loopback ranges probes may connect to, e.g. `10.10.0.0/16,10.20.0.0/16`. Everything private not listed is refused. |
 | `LINKEDEYE_PROBE_TIMEOUT` | `10` | | Seconds per probe step (connect, TLS, response). |
@@ -294,13 +311,30 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 | `LINKEDEYE_PROBE_RETENTION_DAYS` | `30` | | Days of URL / domain check results kept (pruned hourly). |
 | `LINKEDEYE_NOTIFY_WEBHOOK_URLS` | empty | yes (URLs often embed tokens) | Comma-separated URLs that receive a JSON POST per notified event (Slack, Teams, Apprise, StackStorm, …). |
 | `LINKEDEYE_NOTIFY_EMAILS` | empty | | Comma-separated recipients of event e-mails. |
-| `LINKEDEYE_NOTIFY_SEVERITIES` | `critical,warning` | | Event severities that notify. |
+| `LINKEDEYE_NOTIFY_SEVERITIES` | `critical,warning` | | Event severities that notify. Webhook JSON shape and e-mail templates: [NOTIFICATION_TEMPLATES.md](NOTIFICATION_TEMPLATES.md). |
 | `LINKEDEYE_EMAIL_BACKEND` | SMTP (console backend with DEBUG) | | Django e-mail backend class path. |
 | `LINKEDEYE_EMAIL_HOST` | `localhost` | | SMTP server. |
 | `LINKEDEYE_EMAIL_PORT` | `25` | | SMTP port. |
 | `LINKEDEYE_EMAIL_HOST_USER` | empty | | SMTP user. |
 | `LINKEDEYE_EMAIL_HOST_PASSWORD` | empty | yes | SMTP password. |
 | `LINKEDEYE_EMAIL_USE_TLS` | `false` | | STARTTLS to the SMTP server. |
+| `LINKEDEYE_EMAIL_TIMEOUT` | `10` | | Seconds before an SMTP connection or command times out. |
+| `LINKEDEYE_LOGIN_MAX_FAILURES` | `5` | | Failed sign-ins for one username within the window before that username is locked out. |
+| `LINKEDEYE_LOGIN_MAX_FAILURES_PER_IP` | `20` | | Failed sign-ins from one client address (see `LINKEDEYE_TRUSTED_PROXIES`) within the window before that address is locked out. |
+| `LINKEDEYE_LOGIN_WINDOW_MINUTES` | `15` | | Counting window and lock-out length for sign-in throttling. Counters live in the database, so every web worker shares them. |
+| `LINKEDEYE_LOGIN_OTP` | `false` with `LINKEDEYE_DEBUG=true`, else `true` | | After a correct password, require a one-time code sent by e-mail before the session is created (see [OTP_PATHS.md](OTP_PATHS.md)). Set `false` for local dev or automation; keep `true` in production unless you use another MFA layer. |
+| `LINKEDEYE_WELCOME_EMAIL` | `true` | | When a global admin creates a user with an e-mail address, send the welcome message ([NOTIFICATION_TEMPLATES.md](NOTIFICATION_TEMPLATES.md)). |
+| `LINKEDEYE_PORTAL_URL` | empty | | Optional absolute sign-in URL for welcome e-mails; if empty, the creating request's login URL is used. |
+| `LINKEDEYE_NOTIFY_ASYNC` | `true` | | Deliver notifications on a background pool after the event's transaction commits. `false` delivers synchronously on the emitting thread (tests). |
+| `LINKEDEYE_NOTIFY_WORKERS` | `2` | | Notification delivery threads per process. |
+| `LINKEDEYE_NOTIFY_QUEUE_SIZE` | `500` | | Pending notifications per process; beyond this they are dropped with a logged warning. |
+| `LINKEDEYE_NOTIFY_DIGEST_THRESHOLD` | `10` | | More notifications than this of one severity within the digest window are collapsed into one summary notification (`0` = never collapse). |
+| `LINKEDEYE_NOTIFY_DIGEST_WINDOW` | `60` | | Digest window, seconds. |
+| `LINKEDEYE_SCHEDULER_LEASE` | `true` | | Only one `run_probes` per database runs passes; others stand by. |
+| `LINKEDEYE_SCHEDULER_LEASE_TTL` | `90` | | Seconds a lease row stays valid without renewal (MySQL/SQLite; PostgreSQL uses an advisory lock). |
+| `LINKEDEYE_SCHEDULER_HEARTBEAT_SECONDS` | `30` | | Heartbeat and lease renewal interval of `run_probes`. |
+| `LINKEDEYE_SCHEDULER_PASS_BUDGET` | `60` | | Seconds after which a pass defers its remaining non-critical jobs to the next pass. |
+| `LINKEDEYE_SCHEDULER_CRITICAL_JOBS` | `tcpcheck.run_due,servicedesk.sla` | | Jobs that run every pass they are due, whatever the budget. |
 | `LINKEDEYE_DEFAULT_FROM_EMAIL` | `linkedeye@localhost` | | Sender address. |
 | `LINKEDEYE_PROMETHEUS_URL` | empty (not connected) | | Prometheus base URL, e.g. `http://prometheus:9090`. Queried server-side only. |
 | `LINKEDEYE_PROMETHEUS_TIMEOUT` | `8` | | Seconds per Prometheus API call. |
@@ -316,6 +350,12 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 | `LINKEDEYE_LOG_RETENTION_DAYS` | `14` | | Days of ingested log entries kept (Logs & Events). |
 | `LINKEDEYE_TELEMETRY_ALERT_RETENTION_DAYS` | `90` | | Days resolved Alertmanager alerts are kept. |
 | `LINKEDEYE_AUTOMATION_RETENTION_DAYS` | `90` | | Days of automation / StackStorm execution history kept. |
+| `LINKEDEYE_AGENT_API_KEY` | empty (retrieval-only) | yes | Bearer token for the OpenAI-compatible chat API used by Ops Agent. Empty: the page still answers from live records via tools. Never sent to the browser. |
+| `LINKEDEYE_AGENT_BASE_URL` | `https://api.openai.com/v1` | | Chat Completions base URL. Resolved through the probe SSRF policy (private/metadata ranges refused unless listed in `LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS`). Redirects are not followed. |
+| `LINKEDEYE_AGENT_MODEL` | `gpt-4o-mini` | | Chat model id sent to the provider. |
+| `LINKEDEYE_AGENT_EMBEDDING_MODEL` | `text-embedding-3-small` | | Embedding model for the knowledge index. Uses `LINKEDEYE_AGENT_API_KEY`. Lexical retrieval still runs when embeddings are unavailable. |
+| `LINKEDEYE_AGENT_TIMEOUT` | `30` | | Seconds per model HTTP call (clamped to 1–120). |
+| `LINKEDEYE_AGENT_RETENTION_DAYS` | `90` | | Days of idle Ops Agent threads kept (pruned hourly). |
 
 ### Process and container variables
 
@@ -334,6 +374,7 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 | `GUNICORN_LOG_HEALTHZ` | `false` | gunicorn.conf.py | Also log successful `/healthz` requests. |
 | `GUNICORN_WSGI_APP` | `container_wsgi:application` | gunicorn.conf.py | WSGI callable (Django + WhiteNoise wrapper). |
 | `HEALTHCHECK_MAX_HEARTBEAT_AGE` | `300` | healthcheck.py | Max seconds since the scheduler heartbeat before probes is unhealthy. |
+| `HEALTHCHECK_MAX_PASS_AGE` | `900` | healthcheck.py | Max seconds since the scheduler loop last finished a pass before probes is unhealthy. |
 | `LINKEDEYE_IMAGE` | `linkedeye:9.0` | docker-compose.yml | Image to run / tag when building. |
 | `LINKEDEYE_DB_EXTRAS` | `postgres` | docker-compose.yml | `DB_EXTRAS` build argument. |
 | `WEB_PUBLISH` | `127.0.0.1:8000` | docker-compose.yml | Host address:port for the console. |
@@ -436,7 +477,9 @@ empty volume).
 | Sign-in returns to the login page | Secure cookies over plain HTTP on a non-localhost name. Use HTTPS. |
 | Pages unstyled | Static files missing: the image must be built with this Dockerfile (collectstatic at build). Check `curl -I https://host/static/linkedeye/app.css`. |
 | Pods stuck in `Init:0/1` | The migration Job has not run or failed: `kubectl -n fs-linkedeye logs job/linkedeye-migrate`. |
-| `probes` unhealthy, "heartbeat from another host" | A second scheduler is writing to this database. Find and stop it. |
+| `probes` unhealthy, "heartbeat came from … another host" | Another scheduler holds the lease and this container has no fresh standby heartbeat. Find the other scheduler; only one should be deployed. |
+| `probes` logs "another scheduler holds the lease; standing by" | A second `run_probes` is running against this database. It is harmless (it idles) but should be removed. |
+| `probes` unhealthy, "a pass is hung" | The heartbeat thread is alive but the loop has not finished a pass for 15 minutes; check the logs for the job or probe that hangs, then restart it. |
 | `probes` unhealthy, "run_probes is stalled" | A pass is hanging; check its logs and the targets' timeouts, then restart it. |
 | Alertmanager gets 503 / 401 | `LINKEDEYE_ALERTMANAGER_WEBHOOK_TOKEN` unset in the console / token mismatch with Alertmanager's credentials file. In compose, recreate both after a change (`up -d --force-recreate web alertmanager`). |
 | `alertmanager` container unhealthy (compose) | `LINKEDEYE_ALERTMANAGER_WEBHOOK_TOKEN` is empty in `.env`, so there is no token file to send. Set it and recreate the container. |

@@ -145,9 +145,12 @@ def alert_detail(request, pk):
     a = get_object_or_404(_scoped(request).select_related("acknowledged_by"), pk=pk)
     from core.models import Event
     events = Event.objects.filter(fingerprint=a.event_fingerprint).order_by("-occurred_at")[:20]
+    from ..alert_insight import alert_detail_context
+
     return render(request, "telemetry/alert_detail.html", {
         **perms(request), "can_ack": can_ack(request.user, a), "a": a, "events": events, "incidents": _incidents(a),
         "labels": sorted((a.labels or {}).items()), "annotations": sorted((a.annotations or {}).items()),
+        **alert_detail_context(a),
     })
 
 

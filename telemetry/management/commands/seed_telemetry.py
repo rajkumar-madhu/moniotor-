@@ -26,6 +26,17 @@ ALERTS = [
      "HTTP probe failing", "The blackbox exporter could not reach the portal.", 600, 560),
 ]
 
+# Structured EDR-style labels for the alert detail layout (example00000006).
+EDR_LABELS = {
+    "alertname": "LogRotationConfigTampering", "severity": "medium", "example": "true",
+    "account.name": "Example Corp", "endpoint.name": "demo-host-01", "agent.uuid": "demo-agent",
+    "src.process.displayName": "containerd", "src.process.cmdline": "/usr/bin/containerd",
+    "src.process.parent.displayName": "systemd", "src.process.parent.pid": "1",
+    "src.process.indicatorEvasionCount": "1", "src.process.indicatorGeneralCount": "0",
+    "tgt.file.path": "/var/lib/containerd/tmpmounts/mount123/etc/logrotate.d/alternatives",
+    "task.path": "/var/lib/containerd/tmpmounts/mount123/etc/logrotate.d/alternatives",
+}
+
 QUERIES = [
     ("Example: CPU busy % by host", '100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])))', "6h"),
     ("Example: memory used %", "100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)", "6h"),
@@ -60,6 +71,26 @@ class Command(BaseCommand):
                 "last_received_at": now - timedelta(minutes=end_min or 1), "fire_count": 1, "receive_count": 1,
             })
             created += was_created
+        _obj, was_created = Alert.objects.update_or_create(
+            fingerprint="example00000006",
+            defaults={
+                "tenant_key": tenant, "status": "firing", "alertname": "Log Rotation Config Tampering",
+                "severity": "medium", "instance": "demo-host-01", "job": "edr",
+                "summary": "Tampering with log rotation configuration (example)",
+                "description": "",
+                "labels": EDR_LABELS,
+                "annotations": {
+                    "summary": "Tampering with log rotation configuration (example)",
+                    "purple_ai_summary": (
+                        "Unauthorized writes to a logrotate.d file under a containerd temporary mount on demo-host-01. "
+                        "Process containerd (parent systemd) may be attempting defense evasion via postrotate injection."
+                    ),
+                },
+                "receiver": "linkedeye-edr", "starts_at": now - timedelta(minutes=8),
+                "last_received_at": now - timedelta(minutes=1), "fire_count": 1, "receive_count": 1,
+            },
+        )
+        created += was_created
         q_created = 0
         for name, promql, rng in QUERIES:
             _obj, was_created = SavedQuery.objects.update_or_create(
@@ -67,4 +98,4 @@ class Command(BaseCommand):
                 defaults={"promql": promql, "range_key": rng, "shared": True, "description": "Example query (seed_telemetry)"})
             q_created += was_created
         self.stdout.write(self.style.SUCCESS(
-            f"Example telemetry data ready: {len(ALERTS)} alerts ({created} new), {len(QUERIES)} saved queries ({q_created} new)."))
+            f"Example telemetry data ready: {len(ALERTS) + 1} alerts ({created} new), {len(QUERIES)} saved queries ({q_created} new)."))

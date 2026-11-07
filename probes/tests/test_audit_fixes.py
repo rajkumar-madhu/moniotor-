@@ -222,6 +222,10 @@ class DeletedDuringProbeTests(TransactionTestCase):
 
 
 class RunProbesCommandTests(TestCase):
+    def setUp(self):
+        from probes.test_pipeline_fixes import isolate_scheduler
+        isolate_scheduler(self)
+
     def test_jobs_run_even_if_probe_pass_fails(self):
         with mock.patch.object(runner, "run_due", side_effect=RuntimeError("boom")), \
              mock.patch("core.jobs.run_due", return_value={}) as jobs_due, \

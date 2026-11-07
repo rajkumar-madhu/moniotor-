@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 from django.conf import settings
+from django.db import DatabaseError, transaction
 from django.utils import timezone
 
 from core.access import PERMS, RANK, can, role_for, scope_by_site
@@ -83,19 +84,28 @@ def _probe(check):
 
 
 def save_result(check, r, now):
+    """Store the result; returns the new status, or None if the check was deleted while it was probed."""
+    from probes.runner import Gone, store_status
     status, message = evaluate(check, r)
-    TcpResult.objects.create(tcp_check=check, checked_at=now, status=status,
-                             response_ms=r.response_ms if r.ok else None, ip=r.ip or None,
-                             banner=r.banner[:200], message=message[:500])
-    previous = check.last_status
-    check.last_status, check.last_checked_at = status, now
-    check.last_response_ms = r.response_ms if r.ok else None
-    check.last_error = "" if status == Status.ONLINE else message[:500]
-    check.last_ip = r.ip or None
+    fields = {"last_status": status, "last_checked_at": now, "last_response_ms": r.response_ms if r.ok else None,
+              "last_error": "" if status == Status.ONLINE else message[:500], "last_ip": r.ip or None}
     if r.banner or not check.expect_banner:
-        check.last_banner = r.banner[:200]
-    check.save(update_fields=["last_status", "last_checked_at", "last_response_ms", "last_error", "last_ip",
-                              "last_banner"])
+        fields["last_banner"] = r.banner[:200]
+    try:
+        with transaction.atomic():
+            TcpResult.objects.create(tcp_check=check, checked_at=now, status=status,
+                                     response_ms=r.response_ms if r.ok else None, ip=r.ip or None,
+                                     banner=r.banner[:200], message=message[:500])
+            # conditional on the status this copy last saw: a stale copy (a scheduler pass racing an interactive
+            # "Run now") must not emit the same transition twice
+            previous = store_status(TcpCheck, check.pk, "last_status", status, check.last_status, fields)
+    except (Gone, DatabaseError):
+        if TcpCheck.objects.filter(pk=check.pk).exists():
+            raise
+        log.warning("tcp check %s (pk=%s) is gone; result discarded", check.name, check.pk)
+        return None
+    for k, v in fields.items():
+        setattr(check, k, v)
     if previous != status:
         log.info("tcp %s (%s): %s -> %s (%s)", check.name, check.target, previous, status, message)
         # the first result of a new check is only news when it is a problem
@@ -120,7 +130,7 @@ def run_checks(items, workers=None):
     out = []
     for c, r in zip(items, raw):
         try:
-            out.append(save_result(c, r, now))
+            out.append(save_result(c, r, now) or Status.UNKNOWN)   # None: deleted while probed
         except Exception:
             log.exception("could not store tcp result for %s", c.pk)
             out.append(Status.UNKNOWN)
@@ -149,7 +159,8 @@ def prune(now=None):
     """Job: delete results older than PROBE_RETENTION_DAYS. Never raises."""
     try:
         cutoff = (now or timezone.now()) - timedelta(days=settings.PROBE_RETENTION_DAYS)
-        n, _ = TcpResult.objects.filter(checked_at__lt=cutoff).delete()
+        # this tenant's history only: other tenants in a shared database follow their own retention setting
+        n, _ = TcpResult.objects.filter(tcp_check__tenant_key=tenant(), checked_at__lt=cutoff).delete()
         return f"pruned {n} TCP result(s)" if n else None
     except Exception:
         log.exception("tcpcheck.prune failed")

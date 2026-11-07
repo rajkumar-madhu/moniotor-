@@ -1,0 +1,310 @@
+{
+  "dashboard": "Dealer(EXE) Statistics",
+  "uid": 1,
+  "table": {
+    "intraday": "noren-login-intraday",
+    "history": "noren-login-history"
+  },
+  "totaltable": {
+    "noren-login-intraday": "",
+    "noren-login-history": ""
+  },
+  "graphs": [
+    {
+      "name": "Dealer Logins",
+      "id": 0,
+      "table": {
+        "intraday": "noren-login-intraday",
+        "history": "noren-login-history"
+      },
+      "border": 0,
+      "metadata": {
+        "viz_type": "big_number_total",
+        "datasource": "",
+        "extra_form_data": {},
+        "granularity_sqla": "@timestamp",
+        "time_range": "",
+        "url_params": {
+          "dataset_id": "",
+          "dataset_type": "table",
+          "viz_type": "big_number_total"
+        },
+        "time_range_endpoints": [
+          "inclusive",
+          "exclusive"
+        ],
+        "metric": {
+          "aggregate": "COUNT_DISTINCT",
+          "column": {
+            "advanced_data_type": null,
+            "certification_details": null,
+            "certified_by": null,
+            "column_name": "Userdetails.UserId",
+            "description": null,
+            "expression": null,
+            "filterable": true,
+            "groupby": true,
+            "id": 874,
+            "is_certified": false,
+            "is_dttm": false,
+            "python_date_format": null,
+            "type": "STRING",
+            "type_generic": 1,
+            "verbose_name": null,
+            "warning_markdown": null
+          },
+          "datasourceWarning": false,
+          "expressionType": "SIMPLE",
+          "hasCustomLabel": false,
+          "isNew": false,
+          "label": "COUNT_DISTINCT(Userdetails.UserId)",
+          "optionName": "metric_qi685aa9bi_uk9x2ystxcl",
+          "sqlExpression": null
+        },
+        "adhoc_filters": [],
+        "subheader": "Unique user based",
+        "y_axis_format": "SMART_NUMBER",
+        "header_font_size": 0.4,
+        "time_format": "smart_date",
+        "subheader_font_size": 0.15
+      },
+      "x": 0,
+      "y": 0,
+      "refresh": 300,
+      "width": 4,
+      "height": 4
+    },
+    {
+      "name": "Broker wise Logins",
+      "id": 1,
+      "table": {
+        "intraday": "noren-login-intraday",
+        "history": "noren-login-history"
+      },
+      "metadata": {
+        "viz_type": "table",
+        "conditional_formatting": [],
+        "datasource": "",
+        "extra_form_data": {},
+        "url_params": {
+          "dataset_id": "",
+          "dataset_type": "table",
+          "viz_type": "big_number_total"
+        },
+        "time_range_endpoints": [
+          "inclusive",
+          "exclusive"
+        ],
+        "granularity_sqla": "@timestamp",
+        "time_grain_sqla": "P1D",
+        "time_range": "",
+        "query_mode": "aggregate",
+        "groupby": [
+          "Userdetails.BrokerId"
+        ],
+        "include_search": true,
+        "metrics": [
+          {
+            "aggregate": "COUNT_DISTINCT",
+            "column": {
+              "advanced_data_type": null,
+              "certification_details": null,
+              "certified_by": null,
+              "column_name": "Userdetails.UserId",
+              "description": null,
+              "expression": null,
+              "filterable": true,
+              "groupby": true,
+              "id": 874,
+              "is_certified": false,
+              "is_dttm": false,
+              "python_date_format": null,
+              "type": "STRING",
+              "type_generic": 1,
+              "verbose_name": null,
+              "warning_markdown": null
+            },
+            "datasourceWarning": false,
+            "expressionType": "SIMPLE",
+            "hasCustomLabel": false,
+            "isNew": false,
+            "label": "COUNT_DISTINCT(Userdetails.UserId)",
+            "optionName": "metric_02kc5iprzctb_du2zcntcpa5",
+            "sqlExpression": null
+          }
+        ],
+        "all_columns": [],
+        "percent_metrics": [],
+        "page_length": null,
+        "order_by_cols": [],
+        "row_limit": 10000,
+        "server_page_length": 10,
+        "server_pagination": false,
+        "order_desc": true,
+        "adhoc_filters": [],
+        "table_timestamp_format": "smart_date",
+        "color_pn": true,
+        "align_pn": false,
+        "show_cell_bars": true
+      },
+      "x": 4,
+      "y": 0,
+      "refresh": 500,
+      "width": 8,
+      "height": 4
+    },
+    {
+      "name": "Types of Logins",
+      "id": 2,
+      "table": {
+        "intraday": "noren-login-intraday",
+        "history": "noren-login-history"
+      },
+      "border": 0,
+      "metadata": {
+        "viz_type": "pie",
+        "datasource": "",
+        "date_format": "smart_date",
+        "extra_form_data": {},
+        "url_params": {
+          "username": "linkedeyedashboard",
+          "standalone": "true"
+        },
+        "time_range_endpoints": [
+          "inclusive",
+          "exclusive"
+        ],
+        "granularity_sqla": "@timestamp",
+        "time_range": "",
+        "groupby": [
+          "AccessType"
+        ],
+        "metric": {
+          "expressionType": "SIMPLE",
+          "column": {
+            "id": 874,
+            "advanced_data_type": null,
+            "certification_details": null,
+            "certified_by": null,
+            "column_name": "Userdetails.UserId",
+            "verbose_name": null,
+            "description": null,
+            "expression": null,
+            "filterable": true,
+            "groupby": true,
+            "is_certified": false,
+            "is_dttm": false,
+            "python_date_format": null,
+            "type": "STRING",
+            "type_generic": 1,
+            "warning_markdown": null
+          },
+          "datasourceWarning": false,
+          "aggregate": "COUNT_DISTINCT",
+          "sqlExpression": null,
+          "isNew": false,
+          "hasCustomLabel": false,
+          "label": "COUNT_DISTINCT(Userdetails.UserId)",
+          "optionName": "metric_zudlu29s2b_9jut37ruahg"
+        },
+        "adhoc_filters": [],
+        "row_limit": 10000,
+        "color_scheme": "echarts4Colors",
+        "legendType": "scroll",
+        "legendOrientation": "top",
+        "label_type": "key",
+        "number_format": "SMART_NUMBER",
+        "show_labels": true,
+        "show_labels_threshold": 5,
+        "labels_outside": true,
+        "outerRadius": 70,
+        "innerRadius": 30
+      },
+      "x": 0,
+      "y": 4,
+      "refresh": 600,
+      "width": 4,
+      "height": 4
+    },
+    {
+      "name": "Segment wise Logins",
+      "id": 3,
+      "table": {
+        "intraday": "noren-login-intraday",
+        "history": "noren-login-history"
+      },
+      "border": 0,
+      "metadata": {
+        "viz_type": "table",
+        "datasource": "",
+        "extra_form_data": {},
+        "url_params": {
+          "dataset_id": "",
+          "dataset_type": "table",
+          "viz_type": "big_number_total"
+        },
+        "time_range_endpoints": [
+          "inclusive",
+          "exclusive"
+        ],
+        "granularity_sqla": "@timestamp",
+        "time_grain_sqla": "PT1S",
+        "time_range": "",
+        "query_mode": "aggregate",
+        "groupby": [
+          "Userdetails.BrokerId",
+          "Userdetails.UserExchDetails.ExchSeg"
+        ],
+        "metrics": [
+          {
+            "aggregate": "COUNT_DISTINCT",
+            "column": {
+              "advanced_data_type": null,
+              "certification_details": null,
+              "certified_by": null,
+              "column_name": "UserId",
+              "description": null,
+              "expression": null,
+              "filterable": true,
+              "groupby": true,
+              "id": 2446,
+              "is_certified": false,
+              "is_dttm": false,
+              "python_date_format": null,
+              "type": "STRING",
+              "type_generic": 1,
+              "verbose_name": null,
+              "warning_markdown": null
+            },
+            "datasourceWarning": false,
+            "expressionType": "SIMPLE",
+            "hasCustomLabel": false,
+            "isNew": false,
+            "label": "COUNT_DISTINCT(UserId)",
+            "optionName": "metric_1l7oowhv8c2_739o1fzap1a",
+            "sqlExpression": null
+          }
+        ],
+        "all_columns": [],
+        "page_length": null,
+        "percent_metrics": [],
+        "order_by_cols": [],
+        "row_limit": 10000,
+        "server_page_length": 10,
+        "order_desc": true,
+        "adhoc_filters": [],
+        "table_timestamp_format": "smart_date",
+        "include_search": true,
+        "color_pn": true,
+        "align_pn": false,
+        "conditional_formatting": [],
+        "show_cell_bars": true
+      },
+      "x": 4,
+      "y": 4,
+      "refresh": 600,
+      "width": 8,
+      "height": 4
+    }
+  ]
+}

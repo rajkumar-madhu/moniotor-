@@ -1,0 +1,4 @@
+{
+  "idrac--Memory-status-0-fine": "(dell_hw_chassis_memory_status{job = 'IDRAC-__FILTER__'})",
+  "ilo--Memory-status-0-fine": "(hpilo_memory{job= 'ILO-__FILTER__'})"
+}

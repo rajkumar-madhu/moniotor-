@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Device, DevicePoll, DiscoveredHost, DiscoveryRun, Interface
+from .models import Device, DevicePoll, DiscoveredHost, DiscoveryRun, Interface, NetworkProductImage
 
 
 class InterfaceInline(admin.TabularInline):
@@ -11,11 +11,19 @@ class InterfaceInline(admin.TabularInline):
     can_delete = False
 
 
+@admin.register(NetworkProductImage)
+class NetworkProductImageAdmin(admin.ModelAdmin):
+    list_display = ["vendor", "device_type", "model_key", "tenant_key"]
+    list_filter = ["vendor", "device_type", "tenant_key"]
+    search_fields = ["vendor", "model_key", "notes"]
+    ordering = ["tenant_key", "vendor", "device_type", "model_key"]
+
+
 @admin.register(Device)
 class DeviceAdmin(admin.ModelAdmin):
     list_display = ["name", "device_type", "vendor", "model", "mgmt_ip", "site", "status", "last_seen", "enabled"]
     list_filter = ["device_type", "status", "enabled", "environment", "site"]
-    search_fields = ["name", "mgmt_ip", "vendor", "model", "serial", "tags"]
+    search_fields = ["name", "mgmt_ip", "vendor", "model", "serial", "tags", "product_image_url"]
     readonly_fields = ["status", "last_seen", "last_checked_at", "last_latency_ms", "last_error", "status_changed_at",
                        "consecutive_failures", "uptime_seconds", "metrics_updated_at", "metrics_error", "created_at", "updated_at"]
     inlines = [InterfaceInline]

@@ -1,8 +1,47 @@
 """Platform-wide models: sites and role memberships, the audit trail and the
 unified event stream that every module writes to."""
 from django.conf import settings
+from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 from django.utils import timezone
+
+
+class Client(models.Model):
+    """Customer / tenant account for client-wise roll-ups (sites, service desk, monitoring)."""
+    STATUSES = [("active", "Active"), ("pilot", "Pilot"), ("on_hold", "On hold"), ("churned", "Churned")]
+    MODULES = [
+        ("servicedesk", "Service Desk"),
+        ("urlchecker", "URL Checker"),
+        ("domains", "Domains"),
+        ("network", "Network devices"),
+        ("telemetry", "Monitoring"),
+        ("cmdb", "CMDB & assets"),
+        ("tcpcheck", "TCP / uptime"),
+        ("bodeod", "BOD / EOD"),
+        ("automation", "Automation"),
+        ("observe", "Logs & exporters"),
+        ("reports", "Reports"),
+        ("agent", "Ops Agent"),
+    ]
+
+    tenant_key = models.CharField(max_length=100, db_index=True, default=settings.LINKEDEYE_TENANT)
+    name = models.CharField(max_length=100)
+    code = models.SlugField(max_length=60)
+    status = models.CharField(max_length=10, choices=STATUSES, default="active", db_index=True)
+    contact_name = models.CharField(max_length=120, blank=True)
+    contact_email = models.EmailField(blank=True)
+    go_live = models.DateField(null=True, blank=True)
+    modules = models.JSONField(default=list, blank=True, help_text="Enabled LinkedEye modules for this client.")
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [models.UniqueConstraint(fields=["tenant_key", "name"], name="client_tenant_name_unique"),
+                       models.UniqueConstraint(fields=["tenant_key", "code"], name="client_tenant_code_unique")]
+
+    def __str__(self):
+        return self.name
 
 
 class Site(models.Model):
@@ -11,9 +50,14 @@ class Site(models.Model):
     CRITICALITY = [("critical", "Critical"), ("high", "High"), ("standard", "Standard"), ("low", "Low")]
 
     tenant_key = models.CharField(max_length=100, db_index=True, default=settings.LINKEDEYE_TENANT)
+    client = models.ForeignKey(Client, on_delete=models.SET_NULL, null=True, blank=True, related_name="sites")
     name = models.CharField(max_length=100)
     code = models.SlugField(max_length=60)
     region = models.CharField(max_length=100, blank=True)
+    latitude = models.DecimalField(max_digits=8, decimal_places=5, null=True, blank=True,
+                                   validators=[MinValueValidator(-90), MaxValueValidator(90)])
+    longitude = models.DecimalField(max_digits=8, decimal_places=5, null=True, blank=True,
+                                    validators=[MinValueValidator(-180), MaxValueValidator(180)])
     timezone = models.CharField(max_length=60, default="Asia/Kolkata")
     criticality = models.CharField(max_length=10, choices=CRITICALITY, default="standard")
     description = models.TextField(blank=True)
@@ -26,6 +70,47 @@ class Site(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class SiteLesiteProfile(models.Model):
+    """Optional per-site integration profile for legacy Lesites / observability URLs."""
+
+    site = models.OneToOneField(Site, on_delete=models.CASCADE, related_name="lesite_profile")
+    enabled = models.BooleanField(default=True)
+    legacy_sitename = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Lesites sitename slug (e.g. fs-dr-le). Defaults from site code when empty.",
+    )
+    websocket_url = models.CharField(max_length=500, blank=True)
+    environment = models.CharField(max_length=40, blank=True, default="PROD")
+    entity_host = models.CharField(max_length=255, blank=True)
+    entity_port = models.CharField(max_length=8, blank=True, default="443")
+    is_url_secured = models.BooleanField(default=True)
+    analytics_prefix_url = models.URLField(max_length=500, blank=True)
+    location = models.CharField(max_length=80, blank=True, help_text="Country-state key, e.g. IN-KA")
+    country_code = models.CharField(max_length=8, blank=True)
+    redis_host = models.CharField(max_length=255, blank=True)
+    redis_port = models.CharField(max_length=8, blank=True, default="6379")
+    prometheus_url = models.URLField(max_length=500, blank=True)
+    elastic_host = models.CharField(max_length=255, blank=True)
+    elastic_port = models.CharField(max_length=8, blank=True, default="9200")
+    grafana_api = models.CharField(max_length=500, blank=True)
+    le_url = models.URLField(max_length=500, blank=True)
+    incident_url = models.URLField(max_length=500, blank=True)
+    incident_api = models.CharField(max_length=500, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "site lesites profile"
+
+    def __str__(self):
+        return f"Lesites profile · {self.site}"
+
+    @property
+    def sitename(self):
+        """Lesites slug for templates (legacy_sitename)."""
+        return (self.legacy_sitename or "").strip()
 
 
 class Membership(models.Model):
@@ -88,3 +173,31 @@ class Event(models.Model):
 
     def __str__(self):
         return f"[{self.severity}] {self.title}"
+
+
+class SchedulerLease(models.Model):
+    """Who runs scheduler passes (manage.py run_probes) on databases without advisory locks. The holder renews
+    `expires_at` from its heartbeat thread; another instance takes the lease only once it has expired."""
+    name = models.CharField(max_length=100, unique=True)
+    owner = models.CharField(max_length=200, blank=True)
+    acquired_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(default=timezone.now)
+
+    def __str__(self):
+        return f"{self.name} held by {self.owner or 'nobody'} until {self.expires_at:%Y-%m-%d %H:%M:%S}"
+
+
+class JobState(models.Model):
+    """Last run of each periodic job (core.jobs), so a restarted scheduler or `run_probes --once` from cron does not
+    re-run hourly jobs on every start."""
+    tenant_key = models.CharField(max_length=100, default=settings.LINKEDEYE_TENANT)
+    name = models.CharField(max_length=100)
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    last_duration_ms = models.FloatField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [models.UniqueConstraint(fields=["tenant_key", "name"], name="jobstate_tenant_name_unique")]
+
+    def __str__(self):
+        return f"{self.name} @ {self.last_run_at}"

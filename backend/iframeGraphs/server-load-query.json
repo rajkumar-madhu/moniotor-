@@ -1,0 +1,5 @@
+{
+  "linux--Load-1min-interval": "node_load1{instance='__FILTER__:9100'}",
+  "linux--Load-5min-interval": "node_load5{instance= '__FILTER__:9100'}",
+  "linux--Load-15min-interval": "node_load15{instance= '__FILTER__:9100'}"
+}

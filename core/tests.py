@@ -10,6 +10,23 @@ from core.events import emit, event_emitted
 from core.models import AuditEvent, Event, Membership, Site
 
 
+class B2BLandingTests(TestCase):
+    @override_settings(LINKEDEYE_LOGIN_OTP=False)
+    def test_welcome_page_public(self):
+        r = self.client.get("/welcome/")
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Sign in")
+
+    @override_settings(LINKEDEYE_LOGIN_OTP=False)
+    def test_welcome_page_authenticated_shows_sign_out(self):
+        u = User.objects.create_user("landing-tester", password="secret-for-test")
+        self.assertTrue(self.client.login(username="landing-tester", password="secret-for-test"))
+        r = self.client.get("/welcome/")
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Sign out")
+        self.assertNotContains(r, ">Sign in</a>")
+
+
 class AccessTests(TestCase):
     def setUp(self):
         self.mum = Site.objects.create(name="Mumbai (NSE)", code="mumbai-nse")
@@ -69,9 +86,11 @@ class EventAuditTests(TestCase):
         a = AuditEvent.objects.get()
         self.assertEqual((a.actor_name, a.source_ip, a.details), ("a", "10.0.0.5", {"name": "x"}))
 
-    @override_settings(NOTIFY_WEBHOOK_URLS=["http://hook.example/x"], NOTIFY_EMAILS=[], INCIDENT_AUTO_CREATE=False)
+    @override_settings(NOTIFY_WEBHOOK_URLS=["http://hook.example/x"], NOTIFY_EMAILS=[], INCIDENT_AUTO_CREATE=False,
+                       NOTIFY_ASYNC=False)
     def test_webhook_notification_for_critical(self):
-        with mock.patch("core.notify._post") as post:
+        # notifications are delivered after the event's transaction commits
+        with mock.patch("core.notify._post") as post, self.captureOnCommitCallbacks(execute=True):
             emit("test", "Down", severity="critical")
             emit("test", "Just info", severity="info")
         self.assertEqual(post.call_count, 1)
@@ -125,7 +144,9 @@ class OverviewTests(TestCase):
         self.assertContains(resp, "core-sw-01")
         self.assertContains(resp, "Oracle (db.example.com:1521)")
         self.assertNotContains(resp, "dr-fw-01")
-        self.assertContains(resp, "Devices up")
+        self.assertContains(resp, 'class="ov-health-card"')
+        self.assertContains(resp, 'class="legacy-heatmap-card"')
+        self.assertContains(resp, '<th>Devices</th>')  # site matrix column for the device kind
 
     def test_recent_events_render_in_one_wrapping_cell(self):
         # The events panel is a narrow column: the time sits on the source line and the title cell may wrap,

@@ -9,6 +9,14 @@ repeat notifications do not flood the event stream:
 
 Event fingerprints are "am:<fingerprint>", so Service Desk opens one incident per alert and moves it to
 Mitigated when the alert resolves.
+
+A "firing" notification for a resolved alert is a re-fire only when its startsAt is newer than the stored end (or
+start) of the alert: a delayed duplicate of the original firing notification (same startsAt, e.g. from an
+Alertmanager HA peer) is counted but does not re-open the alert.
+
+Every alert row is upserted, but one notification emits at most MAX_EVENTS_PER_INGEST events (most severe first);
+the remaining state changes are summarised in one aggregate event (fingerprint "am:ingest-overflow"), so an alert
+storm cannot run hundreds of rules/incident listeners inside one webhook request.
 """
 import hashlib
 import json
@@ -28,6 +36,9 @@ log = logging.getLogger("linkedeye.telemetry")
 
 MAX_BODY_BYTES = 1024 * 1024
 MAX_ALERTS = 1000
+MAX_EVENTS_PER_INGEST = 50
+OVERFLOW_FINGERPRINT = "am:ingest-overflow"
+SEVERITY_RANK = {"critical": 0, "warning": 1, "info": 2, "ok": 3}
 CRITICAL_SEVERITIES = {"critical", "page"}
 WARNING_SEVERITIES = {"warning"}
 
@@ -116,6 +127,14 @@ def emit_for(a, severity, reason):
                 site=a.site, obj=a, fingerprint=a.event_fingerprint, **data)
 
 
+def _is_newer_firing(a, starts_at):
+    """Is a firing notification with this startsAt a new firing of resolved alert `a` (not a stale duplicate)?"""
+    reference = a.ends_at or a.starts_at
+    if starts_at is None or reference is None:
+        return True   # nothing to compare: keep the previous behaviour (re-fire)
+    return starts_at > reference
+
+
 def _upsert(fp, fields, site, instance, status, severity):
     """Create or update one alert row under a row lock. Returns (alert, event reason or None, created)."""
     reason = None
@@ -131,6 +150,12 @@ def _upsert(fp, fields, site, instance, status, severity):
             reason = "new" if status == Alert.FIRING else None
         else:
             prev_status, prev_sev = a.status, (a.severity or "").lower()
+            if prev_status == Alert.RESOLVED and status == Alert.FIRING and not _is_newer_firing(a, fields["starts_at"]):
+                # a late duplicate of the firing we already resolved: count it, change nothing else
+                a.receive_count += 1
+                a.last_received_at = fields["last_received_at"]
+                a.save(update_fields=["receive_count", "last_received_at", "updated_at"])
+                return a, None, False
             if prev_status == Alert.RESOLVED and status == Alert.FIRING:
                 reason = "refired"
                 a.acknowledged_at = None
@@ -151,10 +176,11 @@ def _upsert(fp, fields, site, instance, status, severity):
 
 
 def ingest(payload, alerts, now=None):
-    """Upsert every alert; returns counts {received, created, updated, events}."""
+    """Upsert every alert; returns counts {received, created, updated, events, suppressed}."""
     now = now or timezone.now()
     receiver = _clip(payload.get("receiver"), 200)
-    stats = {"received": len(alerts), "created": 0, "updated": 0, "events": 0}
+    stats = {"received": len(alerts), "created": 0, "updated": 0, "events": 0, "suppressed": 0}
+    changes = []
     for raw in alerts:
         labels = _str_map(raw.get("labels"))
         annotations = _str_map(raw.get("annotations"))
@@ -183,9 +209,37 @@ def ingest(payload, alerts, now=None):
             a, reason, created = _upsert(fp, fields, site, instance, status, severity)
         stats["created" if created else "updated"] += 1
         if reason:
-            emit_for(a, event_severity(a.status, a.severity), reason)
-            stats["events"] += 1
+            changes.append((a, event_severity(a.status, a.severity), reason))
+    changes.sort(key=lambda c: SEVERITY_RANK.get(c[1], 9))   # stable: payload order within one severity
+    for a, sev, reason in changes[:MAX_EVENTS_PER_INGEST]:
+        emit_for(a, sev, reason)
+        stats["events"] += 1
+    overflow = changes[MAX_EVENTS_PER_INGEST:]
+    if overflow:
+        emit_overflow(overflow, receiver)
+        stats["events"] += 1
+        stats["suppressed"] = len(overflow)
     return stats
+
+
+def emit_overflow(changes, receiver=""):
+    """One aggregate event for the state changes beyond MAX_EVENTS_PER_INGEST in one notification."""
+    n = len(changes)
+    sev = min((c[1] for c in changes), key=lambda s: SEVERITY_RANK.get(s, 9))
+    by_reason, by_severity = {}, {}
+    for _a, s, reason in changes:
+        by_reason[reason] = by_reason.get(reason, 0) + 1
+        by_severity[s] = by_severity.get(s, 0) + 1
+    names = sorted({a.alertname for a, _s, _r in changes})
+    shown = ", ".join(names[:20]) + (f" and {len(names) - 20} more" if len(names) > 20 else "")
+    log.warning("alertmanager notification changed %s more alert(s) than the per-request event cap (%s)", n,
+                MAX_EVENTS_PER_INGEST)
+    return emit(source="telemetry", title=f"{n} more alert{'s' if n != 1 else ''} changed state", severity=sev,
+                kind="alert", fingerprint=OVERFLOW_FINGERPRINT,
+                message=f"One Alertmanager notification{' (' + receiver + ')' if receiver else ''} changed more alerts "
+                        f"than the {MAX_EVENTS_PER_INGEST}-event cap; see Monitoring > Alerts. Alerts: {shown}.",
+                count=n, reasons=by_reason, severities=by_severity, receiver=receiver, category="Monitoring",
+                fingerprints=[a.fingerprint for a, _s, _r in changes][:200])
 
 
 def acknowledge(alerts, user, now=None):

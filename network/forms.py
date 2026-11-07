@@ -2,9 +2,9 @@
 from django import forms
 from django.conf import settings
 from django.core.exceptions import ValidationError
-
 from . import discovery
-from .models import Device, DeviceType, Environment
+from .catalog import resolve_product_urls
+from .models import Device, DeviceType, Environment, NetworkProductImage
 
 TEXT = {"class": "in"}
 
@@ -35,7 +35,7 @@ class DeviceForm(forms.ModelForm):
     site = forms.ChoiceField(required=False)
 
     GROUPS = [
-        ("Identity", ["name", "device_type", "vendor", "model", "serial", "firmware"]),
+        ("Identity", ["name", "device_type", "vendor", "model", "serial", "firmware", "product_image_url", "product_page_url"]),
         ("Monitoring", ["mgmt_ip", "check_port", "prometheus_instance", "enabled"]),
         ("Placement & ownership", ["site", "role", "environment", "contact"]),
         ("Notes", ["tags", "description"]),
@@ -43,17 +43,21 @@ class DeviceForm(forms.ModelForm):
 
     class Meta:
         model = Device
-        fields = ["name", "device_type", "vendor", "model", "serial", "firmware", "mgmt_ip", "check_port",
-                  "prometheus_instance", "enabled", "site", "role", "environment", "contact", "tags", "description"]
+        fields = ["name", "device_type", "vendor", "model", "serial", "firmware", "product_image_url", "product_page_url",
+                  "mgmt_ip", "check_port", "prometheus_instance", "enabled", "site", "role", "environment", "contact",
+                  "tags", "description"]
         widgets = {
             "description": forms.Textarea(attrs={"rows": 3}),
             "name": forms.TextInput(attrs={"placeholder": "e.g. core-sw-01", "autocomplete": "off"}),
             "mgmt_ip": forms.TextInput(attrs={"placeholder": "e.g. 10.10.1.254", "autocomplete": "off"}),
             "prometheus_instance": forms.TextInput(attrs={"placeholder": "e.g. 10.10.1.254"}),
             "tags": forms.TextInput(attrs={"placeholder": "e.g. core, dc1"}),
-            "vendor": forms.TextInput(attrs={"placeholder": "e.g. Fortinet", "list": "net-vendors"}),
+            "vendor": forms.TextInput(attrs={"placeholder": "e.g. Fortinet", "list": "net-vendors", "data-prod-vendor": "1"}),
+            "model": forms.TextInput(attrs={"placeholder": "e.g. MX204", "data-prod-model": "1"}),
             "contact": forms.TextInput(attrs={"placeholder": "e.g. network@example.com"}),
             "role": forms.TextInput(attrs={"placeholder": "e.g. Perimeter Firewall"}),
+            "product_image_url": forms.URLInput(attrs={"placeholder": "https://…/product.webp", "data-prod-url": "image"}),
+            "product_page_url": forms.URLInput(attrs={"placeholder": "https://…/datasheet", "data-prod-url": "page"}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -61,6 +65,15 @@ class DeviceForm(forms.ModelForm):
         self.fields["site"].choices = site_choices(self.instance.site if self.instance.pk else self.initial.get("site", ""))
         self.fields["environment"].choices = [("", "—")] + list(Environment.choices)
         self.fields["check_port"].widget.attrs.update({"min": 1, "max": 65535})
+        self.fields["product_image_url"].required = False
+        self.fields["product_page_url"].required = False
+        self.fields["product_image_url"].help_text = (
+            "Filled from the product catalog when vendor and model match, or paste any HTTPS image URL."
+        )
+        self.product_catalog = list(
+            NetworkProductImage.objects.filter(tenant_key=settings.LINKEDEYE_TENANT)
+            .values("vendor", "device_type", "model_key", "product_image_url", "product_page_url")
+        )
 
     @property
     def groups(self):
@@ -83,6 +96,21 @@ class DeviceForm(forms.ModelForm):
 
     def clean_tags(self):
         return normalise_tags(self.cleaned_data["tags"])
+
+    def clean(self):
+        cleaned = super().clean()
+        v = (cleaned.get("vendor") or "").strip()
+        m = (cleaned.get("model") or "").strip()
+        dt = cleaned.get("device_type") or ""
+        if v:
+            img_url, page_url = resolve_product_urls(
+                tenant_key=settings.LINKEDEYE_TENANT, device_type=dt, vendor=v, model=m,
+            )
+            if not (cleaned.get("product_image_url") or "").strip() and img_url:
+                cleaned["product_image_url"] = img_url
+            if not (cleaned.get("product_page_url") or "").strip() and page_url:
+                cleaned["product_page_url"] = page_url
+        return cleaned
 
 
 class DiscoveryForm(forms.Form):

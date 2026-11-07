@@ -1,0 +1,6 @@
+{
+  "HW-idrac--Vdisk-status-0-fine-1-failure": "(dell_hw_storage_vdisk_status{job = 'IDRAC-__FILTER__'})",
+  "HW-idrac--Pdisk-status-0-fine-1-failure": "(dell_hw_storage_pdisk_failure_predicted{job ='IDRAC-__FILTER__'})",
+  "ilo--Disk-status-0-fine": "(hpilo_storage{job= 'ILO-__FILTER__'})"
+
+}

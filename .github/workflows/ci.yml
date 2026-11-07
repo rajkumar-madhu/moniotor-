@@ -14,7 +14,13 @@ concurrency:
 
 jobs:
   test:
+    name: Tests (Django ${{ matrix.django }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 5.2 is what this project ships; 4.2 is what LinkedEyeWebProject still runs (see docs/adr/0002)
+        django: ["5.2", "4.2"]
     env:
       LINKEDEYE_DEBUG: "true"
     steps:
@@ -24,6 +30,8 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
+      - if: matrix.django == '4.2'
+        run: pip install "Django>=4.2,<5.0"
       - name: Django system checks
         run: python manage.py check
       - name: Migrations are up to date

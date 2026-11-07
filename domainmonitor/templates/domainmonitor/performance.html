@@ -7,27 +7,27 @@
 
 <div class="dm-window">
   <nav class="seg" aria-label="Time window">{% for key, label, qs in windows %}<a href="?{{ qs }}" class="{% if key == window %}on{% endif %}"{% if key == window %} aria-current="true"{% endif %}>{{ label }}</a>{% endfor %}</nav>
-  <span class="t-mute dm-window-cap">Current {{ start|date:"j M H:i" }} – {{ end|date:"j M H:i" }} · compared with {{ prev_start|date:"j M H:i" }} – {{ start|date:"j M H:i" }}</span>
+  <span class="t-mute dm-window-cap">Current {{ start|date:"j M H:i" }} – {{ end|date:"j M H:i" }} · {% if compare %}compared with {{ prev_start|date:"j M H:i" }} – {{ start|date:"j M H:i" }}{% else %}not compared: results are kept {{ retention_days }} days, so there is not enough history for the previous window{% endif %}</span>
 </div>
 
 <section class="kpis dm-kpis dm-kpis-6" aria-label="Response time summary">
   <div class="kpi stacked"><div class="kpi-top"><div class="tile sq bg-info">{% icon "clock" 26 %}</div><div class="kpi-body"><div class="label">Median (p50)</div><div class="value">{{ k.cur.p50|ms }}</div>
-    <div class="sub dm-trend" title="vs previous window ({{ k.prev.p50|ms }})">{% if k.p50_change is None %}<span class="t-mute">no previous data</span>{% else %}{% delta k.p50_change good="down" %}{% endif %}</div></div></div></div>
+    <div class="sub dm-trend" title="vs previous window ({{ k.prev.p50|ms }})">{% if not compare %}<span class="t-mute">Not enough history to compare</span>{% elif k.p50_change is None %}<span class="t-mute">no previous data</span>{% else %}{% delta k.p50_change good="down" %}{% endif %}</div></div></div></div>
   <div class="kpi stacked"><div class="kpi-top"><div class="tile sq bg-purple">{% icon "gauge" 26 %}</div><div class="kpi-body"><div class="label">95th Percentile</div><div class="value">{{ k.cur.p95|ms }}</div>
-    <div class="sub dm-trend" title="vs previous window ({{ k.prev.p95|ms }})">{% if k.p95_change is None %}<span class="t-mute">no previous data</span>{% else %}{% delta k.p95_change good="down" %}{% endif %}</div></div></div></div>
+    <div class="sub dm-trend" title="vs previous window ({{ k.prev.p95|ms }})">{% if not compare %}<span class="t-mute">Not enough history to compare</span>{% elif k.p95_change is None %}<span class="t-mute">no previous data</span>{% else %}{% delta k.p95_change good="down" %}{% endif %}</div></div></div></div>
   <div class="kpi stacked"><div class="kpi-top"><div class="tile sq bg-warn">{% icon "flame" 26 %}</div><div class="kpi-body"><div class="label">Slowest Response</div><div class="value">{{ k.cur.max|ms }}</div>
-    <div class="sub dm-trend" title="vs previous window ({{ k.prev.max|ms }})">{% if k.max_change is None %}<span class="t-mute">no previous data</span>{% else %}{% delta k.max_change good="down" %}{% endif %}</div></div></div></div>
+    <div class="sub dm-trend" title="vs previous window ({{ k.prev.max|ms }})">{% if not compare %}<span class="t-mute">Not enough history to compare</span>{% elif k.max_change is None %}<span class="t-mute">no previous data</span>{% else %}{% delta k.max_change good="down" %}{% endif %}</div></div></div></div>
   <div class="kpi stacked"><div class="kpi-top"><div class="tile sq bg-ok">{% icon "bar" 26 %}</div><div class="kpi-body"><div class="label">Samples</div><div class="value">{{ k.cur.n }}</div>
-    <div class="sub" title="Successful checks with a response time">Previous: {{ k.prev.n }}</div></div></div></div>
-  <div class="kpi stacked"><div class="kpi-top"><div class="tile sq bg-crit">{% icon "arrow-up" 26 %}</div><div class="kpi-body"><div class="label">Regressed</div><div class="value">{{ k.regressed }}</div>
+    <div class="sub" title="Successful checks with a response time">{% if compare %}Previous: {{ k.prev.n }}{% else %}Not enough history to compare{% endif %}</div></div></div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile sq bg-crit">{% icon "arrow-up" 26 %}</div><div class="kpi-body"><div class="label">Regressed</div><div class="value">{{ k.regressed|default_if_none:"–" }}</div>
     <div class="sub" title="p95 up {{ regression_pct }}% or more vs the previous window">p95 up ≥ {{ regression_pct }}%</div></div></div></div>
-  <div class="kpi stacked"><div class="kpi-top"><div class="tile sq bg-ok">{% icon "arrow-down" 26 %}</div><div class="kpi-body"><div class="label">Improved</div><div class="value">{{ k.improved }}</div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile sq bg-ok">{% icon "arrow-down" 26 %}</div><div class="kpi-body"><div class="label">Improved</div><div class="value">{{ k.improved|default_if_none:"–" }}</div>
     <div class="sub"{% if k.no_data %} title="{{ k.no_data }} domain(s) without data in this window"{% endif %}>p95 down ≥ {{ regression_pct }}%</div></div></div></div>
 </section>
 
 <section class="grid dm-two">
   <div class="panel"><div class="panel-h nowrap"><h2>Response Time Trend</h2>
-      <div class="right legend"><span><i style="background:#2b4cff"></i>p50</span><span><i style="background:#7a4fd6"></i>p95</span><span><i class="dm-dash"></i>p95 previous</span></div></div>
+      <div class="right legend"><span><i style="background:#2b4cff"></i>p50</span><span><i style="background:#7a4fd6"></i>p95</span>{% if compare %}<span><i class="dm-dash"></i>p95 previous</span>{% endif %}</div></div>
     <div class="chart" data-chart="line" data-src="d-perf" style="height:210px"></div></div>
   <div class="panel"><div class="panel-h"><h2>Slowest Domains (p95)</h2><a class="right view-all" href="?{{ sort_query.urlencode }}&sort=-p95#domains">View all</a></div>
     {% if slowest %}<div class="dm-rank">{% for d in slowest %}

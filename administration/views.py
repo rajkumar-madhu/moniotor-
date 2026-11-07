@@ -23,10 +23,13 @@ from django.views.decorators.http import require_GET, require_POST
 
 from core.access import can, require
 from core.audit import audit
-from core.models import AuditEvent, Membership, Site
+from core.models import AuditEvent, Client, Membership, Site, SiteLesiteProfile
+from core.welcome_mail import send_welcome_email
 
 from . import services
-from .forms import MembershipForm, SetPasswordForm, SiteForm, UserCreateForm, UserEditForm
+from .forms import ClientForm, MembershipForm, SetPasswordForm, SiteForm, SiteLesiteProfileForm, UserCreateForm, UserEditForm
+from .finspot_naming import admin_lesites_url, entity_host as fs_entity_host, lesites_url, portal_url
+from .lesites_defaults import default_profile_fields, legacy_slug_for_site, port_connection_rows
 from .models import IntegrationTest
 
 User = get_user_model()
@@ -119,6 +122,7 @@ def index(request):
         "n_users": users.count(), "n_active": users.filter(is_active=True).count(),
         "n_admins": users.filter(Q(is_superuser=True) | Q(le_memberships__role="admin")).filter(is_active=True).distinct().count(),
         "n_sites": Site.objects.filter(tenant_key=t).count(),
+        "n_clients": Client.objects.filter(tenant_key=t).count(),
         "n_unmapped": len(services.unmapped_site_names()),
         "n_audit": AuditEvent.objects.filter(occurred_at__gte=since).count(),
         "n_integrations": len(items), "n_configured": sum(1 for i in items if i["configured"]),
@@ -220,6 +224,20 @@ def user_create(request):
                 Membership.objects.create(user=user, site=site, role=form.cleaned_data["role"])
                 audit(request, "create", user, email=user.email, site=site.name if site else "All sites",
                       role=form.cleaned_data["role"], password="generated" if generated else "set")
+            role_label = services.ROLE_LABELS.get(form.cleaned_data["role"], form.cleaned_data["role"])
+            site_scope = site.name if site else "All sites"
+            if send_welcome_email(
+                user,
+                password=password if generated else "",
+                invited_by=request.user.get_username(),
+                role=role_label,
+                site_scope=site_scope,
+                request=request,
+            ):
+                if user.email:
+                    messages.info(request, f"A welcome e-mail was sent to {user.email}.")
+            elif user.email:
+                messages.warning(request, "User was created, but the welcome e-mail could not be sent. Check e-mail settings under Integrations.")
             if generated:
                 _flash_password(request, user, password)
                 messages.success(request, f"Created user “{user.username}”. Copy the generated password now; it is shown only once.")
@@ -410,7 +428,110 @@ def user_password(request, pk):
 
 # ------------------------------------------------------------------ sites
 def _sites_qs():
-    return Site.objects.filter(tenant_key=settings.LINKEDEYE_TENANT).annotate(n_members=Count("memberships"))
+    return Site.objects.filter(tenant_key=settings.LINKEDEYE_TENANT).select_related("client").annotate(n_members=Count("memberships"))
+
+
+def _clients_qs():
+    return Client.objects.filter(tenant_key=settings.LINKEDEYE_TENANT).annotate(n_sites=Count("sites"))
+
+
+def _filtered_client_rows(request):
+    status = request.GET.get("status", "").strip()
+    rows = services.client_wise_rows(status if status in dict(Client.STATUSES) else None)
+    q = request.GET.get("q", "").strip().lower()
+    if q:
+        rows = [r for r in rows if not r["client"] or q in r["client"].name.lower() or q in r["client"].code.lower()]
+    return rows, status
+
+
+@admin_required
+def clients(request):
+    rows, status = _filtered_client_rows(request)
+    ctx = {"rows": rows, "statuses": Client.STATUSES, "status": status,
+           "k": {"total": _clients_qs().count(),
+                 "active": _clients_qs().filter(status="active").count(),
+                 "open_major": sum(r["open_major"] for r in rows if r["client"]),
+                 "sites": Site.objects.filter(tenant_key=settings.LINKEDEYE_TENANT, client__isnull=False).count()}}
+    return render(request, "administration/clients.html", ctx)
+
+
+@admin_required
+def client_create(request):
+    form = ClientForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        client = form.save(commit=False)
+        client.tenant_key = settings.LINKEDEYE_TENANT
+        client.save()
+        audit(request, "create", client, code=client.code, status=client.status)
+        messages.success(request, f"Created client “{client.name}”.")
+        return redirect("administration:clients")
+    return render(request, "administration/client_form.html", {"form": form, "client": None})
+
+
+@admin_required
+def client_edit(request, pk):
+    client = get_object_or_404(_clients_qs(), pk=pk)
+    fields = ClientForm.Meta.fields
+    before = {f: getattr(client, f) for f in fields}
+    form = ClientForm(request.POST or None, instance=client)
+    if request.method == "POST" and form.is_valid():
+        client = form.save()
+        changed = {f: getattr(client, f) for f in fields if getattr(client, f) != before[f]}
+        if changed:
+            audit(request, "update", client, **{f: str(v) for f, v in changed.items()})
+            messages.success(request, f"Saved client “{client.name}”.")
+        else:
+            messages.info(request, "No changes to save.")
+        return redirect("administration:clients")
+    ctx = {"form": form, "client": client,
+           "sites": Site.objects.filter(tenant_key=settings.LINKEDEYE_TENANT, client=client).order_by("name")}
+    return render(request, "administration/client_form.html", ctx)
+
+
+@admin_required
+@require_POST
+def client_delete(request, pk):
+    client = get_object_or_404(_clients_qs(), pk=pk)
+    if client.n_sites:
+        messages.error(request, f"Cannot delete “{client.name}”: {client.n_sites} site(s) still linked. Reassign them first.")
+        return redirect("administration:client_edit", pk=pk)
+    name = client.name
+    audit(request, "delete", client, name=name)
+    client.delete()
+    messages.success(request, f"Deleted client “{name}”.")
+    return redirect("administration:clients")
+
+
+@admin_required
+@require_POST
+def clients_bootstrap(request):
+    created = services.bootstrap_clients()
+    audit(request, "bootstrap", object_type="core.client", created=created)
+    if created:
+        messages.success(request, f"Created {len(created)} client(s) from service desk names: {', '.join(created)}.")
+    else:
+        messages.info(request, "Every service desk client name already has a client record.")
+    return redirect("administration:clients")
+
+
+@admin_required
+def clients_export(request):
+    rows, _ = _filtered_client_rows(request)
+    header = ["client", "code", "status", "sites", "open_incidents", "open_p1_p2", "url_checks", "urls_down",
+              "devices", "devices_down", "domains", "domains_issue", "contact", "email", "go_live"]
+    out = []
+    for r in rows:
+        c = r["client"]
+        if c is None:
+            out.append(["(Unassigned sites)", "", "", r["sites"], r["open_incidents"], r["open_major"],
+                        r["urls"], r["urls_down"], r["devices"], r["devices_down"], r["domains"], r["domains_issue"],
+                        "", "", ""])
+        else:
+            out.append([c.name, c.code, c.get_status_display(), r["sites"], r["open_incidents"], r["open_major"],
+                        r["urls"], r["urls_down"], r["devices"], r["devices_down"], r["domains"], r["domains_issue"],
+                        c.contact_name, c.contact_email, c.go_live.isoformat() if c.go_live else ""])
+    audit(request, "export", object_type="core.client", rows=len(out))
+    return _csv("client-wise-tracker.csv", header, out)
 
 
 @admin_required
@@ -456,24 +577,37 @@ def site_edit(request, pk):
     fields = SiteForm.Meta.fields
     before = {f: getattr(site, f) for f in fields}
     form = SiteForm(request.POST or None, instance=site)
+    rename_preview = None
     if request.method == "POST" and form.is_valid():
-        site = form.save()
-        changed = {f: getattr(site, f) for f in fields if getattr(site, f) != before[f]}
-        if changed:
-            audit(request, "update", site, **{f: str(v) for f, v in changed.items()},
-                  **({"previous_name": old_name} if "name" in changed else {}))
-            messages.success(request, f"Saved site “{site.name}”.")
-            if "name" in changed:
-                u = services.site_usage().get(old_name, {})
-                if u.get("urls") or u.get("domains"):
-                    messages.warning(request, f"{u.get('urls', 0)} URL check(s) and {u.get('domains', 0)} domain(s) still "
-                                              f"refer to “{old_name}”; update them in their modules.")
+        renaming = form.cleaned_data["name"] != old_name
+        refs = services.site_references(old_name) if renaming else []
+        if refs and not request.POST.get("confirm_rename"):
+            # Records in other modules store the site name: show what the rename will update and ask first.
+            rename_preview = {"old": old_name, "new": form.cleaned_data["name"], "refs": refs,
+                              "total": sum(n for _label, n in refs)}
         else:
-            messages.info(request, "No changes to save.")
-        return redirect("administration:sites")
-    u = services.site_usage().get(site.name, {})
+            updated = []
+            with transaction.atomic():
+                site = form.save()
+                if renaming:
+                    updated = services.rename_site_references(old_name, site.name)
+            changed = {f: getattr(site, f) for f in fields if getattr(site, f) != before[f]}
+            if changed:
+                extra = {}
+                if "name" in changed:
+                    extra = {"previous_name": old_name, "renamed_records": {label: n for label, n in updated}}
+                audit(request, "update", site, **{f: str(v) for f, v in changed.items()}, **extra)
+                messages.success(request, f"Saved site “{site.name}”.")
+                if updated:
+                    messages.info(request, f"Renamed “{old_name}” to “{site.name}” in "
+                                           + ", ".join(f"{n} {label.lower()}" for label, n in updated) + ".")
+            else:
+                messages.info(request, "No changes to save.")
+            return redirect("administration:sites")
+    site.name = old_name   # form validation copied the posted name onto the instance; it is not saved
+    u = services.site_usage().get(old_name, {})
     ctx = {"form": form, "site": site, "n_urls": u.get("urls", 0), "n_domains": u.get("domains", 0),
-           "members": _memberships_qs().filter(site=site).select_related("user")}
+           "members": _memberships_qs().filter(site=site).select_related("user"), "rename_preview": rename_preview}
     return render(request, "administration/site_form.html", ctx)
 
 
@@ -511,6 +645,93 @@ def sites_bootstrap(request):
     else:
         messages.info(request, "Every site name used by URL checks and domains already has a site record.")
     return redirect("administration:sites")
+
+
+# ------------------------------------------------------------------ site onboarding (Lesites)
+def _site_lesites_slug(site: Site) -> str:
+    if hasattr(site, "lesite_profile") and site.lesite_profile and (site.lesite_profile.legacy_sitename or "").strip():
+        return (site.lesite_profile.legacy_sitename or "").strip().lower()
+    return legacy_slug_for_site(site)
+
+
+def _site_lesites_link(site: Site) -> str:
+    return lesites_url(_site_lesites_slug(site))
+
+
+@admin_required
+def site_onboarding_list(request):
+    qs = _sites_qs().select_related("lesite_profile").order_by("name")
+    q = request.GET.get("q", "").strip()
+    if q:
+        qs = qs.filter(Q(name__icontains=q) | Q(code__icontains=q))
+    for s in qs:
+        s.lesites_slug = _site_lesites_slug(s)
+        s.lesites_link = _site_lesites_link(s)
+    page = Paginator(qs, _per_page(request)).get_page(request.GET.get("page"))
+    return render(request, "administration/site_onboarding_list.html", {"page": page, "query": _query(request), "tab": "sites"})
+
+
+@admin_required
+def site_onboarding(request, pk):
+    site = get_object_or_404(_sites_qs().select_related("client"), pk=pk)
+    profile, _created = SiteLesiteProfile.objects.get_or_create(site=site)
+
+    if request.GET.get("defaults"):
+        defaults = default_profile_fields(site, legacy_slug_for_site(site))
+        for k, v in defaults.items():
+            setattr(profile, k, v)
+        profile.save()
+        messages.info(request, "Applied FinSpot default field values (not saved until you submit).")
+
+    if request.method == "POST":
+        form = SiteLesiteProfileForm(request.POST, instance=profile, site=site)
+        if form.is_valid():
+            obj = form.save(commit=False)
+            obj.site = site
+            obj.save()
+            user_ids = {u.pk for u in (form.cleaned_data.get("users") or [])}
+            with transaction.atomic():
+                # Sync handoff users as viewers only; do not strip admin/operator memberships on this site.
+                Membership.objects.filter(site=site, role="viewer").exclude(user_id__in=user_ids).delete()
+                for uid in user_ids:
+                    m, created = Membership.objects.get_or_create(user_id=uid, site=site, defaults={"role": "viewer"})
+                    if not created and m.role != "viewer":
+                        pass  # keep existing role if user already had a stronger membership
+            audit(request, "update", object_type="core.sitelesiteprofile", site=site.name, sitename=obj.legacy_sitename)
+            messages.success(request, f"Saved onboarding for “{site.name}”.")
+            return redirect("administration:site_onboarding_list")
+    else:
+        form = SiteLesiteProfileForm(instance=profile, site=site)
+
+    slug = (profile.legacy_sitename or legacy_slug_for_site(site)).strip().lower()
+    naming = {
+        "portal": portal_url(slug),
+        "lesites": lesites_url(slug),
+        "lesites_admin": admin_lesites_url(slug),
+        "entity_host": fs_entity_host(slug),
+        "entity_port": profile.entity_port or "443",
+    }
+    return render(request, "administration/site_onboarding_form.html", {
+        "form": form, "site": site, "profile": profile, "naming": naming, "tab": "sites",
+        "latitude": site.latitude, "longitude": site.longitude,
+    })
+
+
+@admin_required
+def site_domain(request, pk):
+    site = get_object_or_404(_sites_qs(), pk=pk)
+    profile = getattr(site, "lesite_profile", None)
+    slug = _site_lesites_slug(site)
+    naming = {
+        "entity_host": fs_entity_host(slug) if slug else "",
+        "entity_port": (profile.entity_port if profile else None) or "443",
+        "portal": portal_url(slug) if slug else "",
+        "lesites": lesites_url(slug) if slug else "",
+    }
+    port_rows = port_connection_rows(slug) if slug else []
+    return render(request, "administration/site_domain.html", {
+        "site": site, "profile": profile, "slug": slug, "naming": naming, "port_rows": port_rows, "tab": "sites",
+    })
 
 
 # ------------------------------------------------------------------ audit log
@@ -589,11 +810,36 @@ def _json(value):
 # ------------------------------------------------------------------ integrations
 @admin_required
 def integrations(request):
+    from administration.forms import integration_form
+
     items = services.integrations()
+    for it in items:
+        if it.get("editable"):
+            slug = it["key"]
+            it["edit_form"] = integration_form(slug, initial=services.integration_form_initial(slug))
     history = IntegrationTest.objects.filter(tenant_key=settings.LINKEDEYE_TENANT)[:15]
     ctx = {"items": items, "history": history,
            "n_configured": sum(1 for i in items if i["configured"]), "n_total": len(items)}
     return render(request, "administration/integrations.html", ctx)
+
+
+@admin_required
+@require_POST
+def integration_save(request, slug):
+    from administration.forms import INTEGRATION_FORMS, integration_form
+    from administration import integration_config as ic
+
+    if slug not in INTEGRATION_FORMS:
+        messages.error(request, "Unknown integration.")
+        return redirect("administration:integrations")
+    form = integration_form(slug, data=request.POST)
+    if not form.is_valid():
+        messages.error(request, f"Could not save {slug}: fix the highlighted fields.")
+        return redirect(reverse("administration:integrations") + f"#{slug}")
+    ic.save(slug, form.cleaned_data, request.user)
+    audit(request, "update", object_type="administration.integrationsetting", integration=slug, result="ok")
+    messages.success(request, f"{slug.replace('_', ' ').title()} settings saved. Changes apply immediately.")
+    return redirect(reverse("administration:integrations") + f"#{slug}")
 
 
 @admin_required

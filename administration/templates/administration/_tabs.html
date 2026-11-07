@@ -1,6 +1,7 @@
 {% load le %}<nav class="tabs adm-tabs" aria-label="Administration sections">
   <a href="{% url 'administration:index' %}" class="{% if tab == 'index' %}on{% endif %}"{% if tab == 'index' %} aria-current="page"{% endif %}>Overview</a>
   <a href="{% url 'administration:users' %}" class="{% if tab == 'users' %}on{% endif %}"{% if tab == 'users' %} aria-current="page"{% endif %}>Users &amp; Roles</a>
+  <a href="{% url 'administration:clients' %}" class="{% if tab == 'clients' %}on{% endif %}"{% if tab == 'clients' %} aria-current="page"{% endif %}>Client wise</a>
   <a href="{% url 'administration:sites' %}" class="{% if tab == 'sites' %}on{% endif %}"{% if tab == 'sites' %} aria-current="page"{% endif %}>Sites</a>
   <a href="{% url 'administration:audit' %}" class="{% if tab == 'audit' %}on{% endif %}"{% if tab == 'audit' %} aria-current="page"{% endif %}>Audit Log</a>
   <a href="{% url 'administration:integrations' %}" class="{% if tab == 'integrations' %}on{% endif %}"{% if tab == 'integrations' %} aria-current="page"{% endif %}>Integrations</a>

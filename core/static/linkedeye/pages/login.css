@@ -1,0 +1,176 @@
+/* Sign-in page: InfraAsset warm paper, coral accent, Fraunces + IBM Plex. */
+.login-page {
+  --bg: #f4f1ea;
+  --frame: #f4f1ea;
+  --panel: #fffcf7;
+  --ink: #0e1116;
+  --ink-2: #5c6370;
+  --on-shape: #0e1116;
+  --caption: #ff5b2e;
+  --primary: #ff5b2e;
+  --brand: #ff5b2e;
+  --input-bg: #fffcf7;
+  --input-line: #c9c2b4;
+  --input-focus: #0f7a55;
+  --btn-primary: #ff5b2e;
+  --btn-primary-hover: #e84d22;
+  --btn-primary-active: #d0451c;
+  --btn-primary-ink: #fffcf7;
+  --crit-bg: #fde8e6;
+  --crit-ink: #a81818;
+  --crit-line: #f0c4bf;
+  --card-shadow: 0 1px 0 rgba(14, 17, 22, .04) inset, 0 14px 40px -20px rgba(14, 17, 22, .14);
+  --font: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --display: "Fraunces", Georgia, "Times New Roman", serif;
+  color-scheme: light;
+}
+
+.login {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr);
+  place-items: stretch;
+  padding: 0;
+  background:
+    radial-gradient(ellipse 85% 55% at 100% 0%, rgba(255, 91, 46, .1), transparent 58%),
+    linear-gradient(165deg, #f0ebe2 0%, #f4f1ea 48%, #ebe4d8 100%);
+}
+
+.login .showcase {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding: 28px 28px 32px 6vw;
+  background-color: #0e1116;
+  background-image:
+    linear-gradient(rgba(244, 241, 234, .04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(244, 241, 234, .04) 1px, transparent 1px);
+  background-size: 28px 28px;
+  background-position: -1px -1px;
+  color: #f4f1ea;
+  position: relative;
+  overflow: hidden;
+}
+.login .showcase::after {
+  content: "";
+  position: absolute;
+  inset: auto -25% -35% 15%;
+  height: 75%;
+  background: radial-gradient(circle, rgba(255, 91, 46, .18), transparent 62%);
+  pointer-events: none;
+}
+.login .wordmark { display: block; width: 190px; height: auto; filter: brightness(1.08); position: relative; z-index: 1; }
+.login .showcase figure {
+  position: relative;
+  z-index: 1;
+  width: min(560px, 100%);
+  margin: 0;
+  overflow: hidden;
+  background: rgba(255, 252, 247, .05);
+  border: 1px solid rgba(244, 241, 234, .1);
+  border-radius: 16px;
+  box-shadow: 0 24px 64px -28px rgba(0, 0, 0, .55);
+}
+.login .showcase figure img { display: block; width: 100%; height: auto; }
+.login .showcase figcaption {
+  position: absolute;
+  left: 18px;
+  bottom: 18px;
+  color: #ffc9a3;
+  font: 600 22px/1.25 var(--display);
+  letter-spacing: -.01em;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, .5);
+}
+
+.login .entry {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  justify-items: center;
+  align-items: center;
+  gap: 24px;
+  padding: 32px 28px 28px;
+}
+.login .card {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 16px;
+  width: 100%;
+  max-width: 400px;
+  padding: 36px 32px;
+  background: var(--panel);
+  border: 1px solid #ddd6c8;
+  border-radius: 14px;
+  box-shadow: var(--card-shadow);
+}
+.login .card .eyebrow {
+  margin: 0;
+  color: var(--brand);
+  font: 600 11px/1.2 var(--font);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+.login .card h1 {
+  margin: 0;
+  color: var(--ink);
+  font: 700 28px/1.2 var(--display);
+  letter-spacing: -.02em;
+}
+.login .card .lead { margin: -4px 0 4px; color: var(--ink-2); font-size: 14.5px; }
+.login .card .field label {
+  color: var(--ink);
+  font: 600 12.5px/1.3 var(--font);
+  letter-spacing: .02em;
+  text-transform: none;
+}
+.login .card input[type=text],
+.login .card input[type=password] {
+  height: 42px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-line);
+  border-radius: 8px;
+  color: var(--ink);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.login .card input[type=text]:focus,
+.login .card input[type=password]:focus {
+  border-color: var(--input-focus);
+  outline: 0;
+  box-shadow: 0 0 0 3px rgba(15, 122, 85, .2);
+}
+.login .card .btn.primary {
+  height: 42px;
+  justify-content: center;
+  background: var(--btn-primary);
+  border-color: var(--btn-primary);
+  border-radius: 8px;
+  color: var(--btn-primary-ink);
+  font: 600 14px/1 var(--font);
+}
+.login .card .btn.primary:hover { background: var(--btn-primary-hover); border-color: var(--btn-primary-hover); }
+.login .card .btn.primary:active { background: var(--btn-primary-active); border-color: var(--btn-primary-active); }
+.login .card .messages li.error { background: var(--crit-bg); border-color: var(--crit-line); color: var(--crit-ink); border-radius: 8px; }
+
+.login .card .login-aux {
+  margin: 8px 0 0;
+  text-align: center;
+  font-size: 13px;
+}
+.login .card .login-aux a {
+  color: var(--ink-2);
+  font-weight: 600;
+  text-decoration: none;
+}
+.login .card .login-aux a:hover { color: var(--brand); text-decoration: underline; }
+
+.login .copyright { color: var(--ink-2); font-size: 13px; text-align: center; }
+.login .copyright a { color: var(--ink); text-decoration: none; font-weight: 600; }
+.login .copyright a:hover { color: var(--brand); text-decoration: underline; }
+.login .copyright a:focus-visible { outline-color: var(--brand); }
+
+@media (max-width: 960px) {
+  .login { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
+  .login .showcase { padding: 20px 16px 16px; min-height: auto; }
+  .login .showcase figure { display: none; }
+  .login .entry { padding: 24px 16px; }
+}

@@ -176,9 +176,15 @@ def performance(request):
     label, span, bucket, every, fmt = PERF_WINDOWS[key]
     start, end = _aligned_window(timezone.now(), span, bucket)
     prev_start = start - span
+    # Probe results older than PROBE_RETENTION_DAYS are pruned: a previous window reaching past that horizon holds
+    # partial (or no) data, so a comparison against it would be meaningless. Hide it instead.
+    compare = prev_start >= timezone.now() - timedelta(days=settings.PROBE_RETENTION_DAYS)
     cur, cur_all, rows = analytics.response_stats(ids, start, end)
-    prev, prev_all, prev_rows = analytics.response_stats(ids, prev_start, start)
     empty = analytics.describe([])
+    if compare:
+        prev, prev_all, prev_rows = analytics.response_stats(ids, prev_start, start)
+    else:
+        prev, prev_all, prev_rows = {}, empty, []
     for d in domains:
         d.cur, d.prev = cur.get(d.pk, empty), prev.get(d.pk, empty)
         d.change = analytics.change_pct(d.cur["p95"], d.prev["p95"])
@@ -207,13 +213,15 @@ def performance(request):
 
     n = int(span / bucket)
     p50, p95 = analytics.bucket_series(rows, start, bucket, n)
-    _pp50, prev_p95 = analytics.bucket_series(prev_rows, prev_start, bucket, n)
     times = [timezone.localtime(start + bucket * i) for i in range(n)]
     chart = {"labels": [t.strftime(fmt) for t in times], "tipLabels": [t.strftime("%d %b %H:%M") for t in times],
              "unit": "ms", "xLabelEvery": every, "yTicks": 5,
              "series": [{"name": "p95", "color": "#7a4fd6", "values": p95, "width": 1.8},
-                        {"name": "p50", "color": "#2b4cff", "values": p50, "area": True, "areaOpacity": 0.12, "width": 1.8},
-                        {"name": "p95 (previous window)", "color": "#a8a398", "values": prev_p95, "dash": "4 3", "width": 1.4}]}
+                        {"name": "p50", "color": "#2b4cff", "values": p50, "area": True, "areaOpacity": 0.12, "width": 1.8}]}
+    if compare:
+        _pp50, prev_p95 = analytics.bucket_series(prev_rows, prev_start, bucket, n)
+        chart["series"].append({"name": "p95 (previous window)", "color": "#a8a398", "values": prev_p95, "dash": "4 3",
+                                "width": 1.4})
     ranked = [d for d in domains if d.cur["p95"] is not None]
     slowest = sorted(ranked, key=lambda d: -d.cur["p95"])[:5]
     top = slowest[0].cur["p95"] if slowest else 0
@@ -226,8 +234,8 @@ def performance(request):
         "p95_change": analytics.change_pct(cur_all["p95"], prev_all["p95"]),
         "max_change": analytics.change_pct(cur_all["max"], prev_all["max"]),
         "samples_change": analytics.change_pct(cur_all["n"], prev_all["n"]),
-        "regressed": sum(1 for d in domains if d.change is not None and d.change >= REGRESSION_PCT),
-        "improved": sum(1 for d in domains if d.change is not None and d.change <= -REGRESSION_PCT),
+        "regressed": sum(1 for d in domains if d.change is not None and d.change >= REGRESSION_PCT) if compare else None,
+        "improved": sum(1 for d in domains if d.change is not None and d.change <= -REGRESSION_PCT) if compare else None,
         "no_data": sum(1 for d in domains if not d.cur["n"]),
     }
     return _render(request, "domainmonitor/performance.html", {
@@ -235,6 +243,7 @@ def performance(request):
         "sort_query": _query(request, "sort"), "sort": sort, "k": k, "chart": chart, "slowest": slowest,
         "window": key, "window_label": label, "windows": _window_links(request),
         "start": start, "end": end, "prev_start": prev_start, "regression_pct": int(REGRESSION_PCT),
+        "compare": compare, "retention_days": settings.PROBE_RETENTION_DAYS,
         "total": len(domains), **_filter_context(request, scope),
     })
 

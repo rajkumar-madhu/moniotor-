@@ -1,0 +1,38 @@
+from django.urls import path
+from . import views
+
+#print('newonb----->')
+urlpatterns = [
+    path('', views.index, name='allonboard'),
+    path('getfilenames', views.getfilenames, name='getfilenames'),
+    path('getfilecontentdata', views.getfilecontentdata, name='getfilecontentdata'),
+    path('createcfg', views.createcfg, name='createcfg'),
+    path('getiplist/', views.getiplist, name='getiplist'),
+    path('gethostservicedata/', views.gethostservicedata, name='gethostservicedata'),
+    path('getmgmntdata/', views.getmgmntdata, name='getmgmntdata'),
+    path('getallmgmntdata/', views.getallmgmntdata, name='getallmgmntdata'),
+    path('snmpdatatable/', views.snmpdatatable, name='snmpdatatable'),
+    path('edithostdetails/', views.edithostdetails, name='edithostdetails'),
+    path('deletehost', views.deletehost),
+    path('mgmtdeletehost', views.mgmtdeletehost),
+    path('getserverstype', views.getserverstype, name='getserverstype'),
+    path('Serversos', views.Serversos, name='Serversos'),
+    path('Serverssoftware', views.Serverssoftware, name='Serverssoftware'),
+    path('Switcheslayer', views.Switcheslayer, name='Switcheslayer'),
+    path('Switchesmodel', views.Switchesmodel, name='Switchesmodel'),
+    path('Routermodel', views.Routermodel, name='Routermodel'),
+    path('Routertypes', views.Routertypes, name='Routertypes'),
+    path('Serversnic', views.Serversnic, name='Serversnic'),
+    path('Firewalltype', views.Firewalltype, name='Firewalltype'),
+    path('Firewallmodel', views.Firewallmodel, name='Firewallmodel'),
+    path('newonbtable', views.newonbtable, name='newonbtable'),
+    path('idracvalidation', views.idracvalidation, name='idracvalidation'),
+    path('ilovalidation', views.ilovalidation, name='ilovalidation'),
+    path('nodeexpvalidation', views.nodeexpvalidation, name='nodeexpvalidation'),
+    path('winexpvalidation', views.winexpvalidation, name='winexpvalidation'),
+    path('ngnixexpvalidation', views.ngnixexpvalidation, name='ngnixexpvalidation'),
+    path('Saveonboard', views.Saveonboard, name='Saveonboard'),
+    path('save-data-to-database', views.save_data_to_database, name='save_data_to_database'),
+    path('send-onboard-summary', views.send_onboard_summary, name='send-onboard-summary'),
+    path('download_file', views.download_file, name='download_file'),
+]

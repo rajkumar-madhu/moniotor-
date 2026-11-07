@@ -1,0 +1,656 @@
+#TEMPLATE_USED:DIRECT/HOSTS/Switch/CISCO/C2960-24.j2
+## Host as Service
+- use: generic-switch
+  alias: "{{ COMMON_HOSTNAME }}"
+  display_name: "{{ COMMON_HOSTNAME }}"
+  address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  host_name: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_hostname: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_nics: {}
+  _NEO4j_sertype: Public_24port
+  _NEO4j_FrdlyName: "{{ FRNDLY_NAME }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: Huawei_S5735_L24T4X_A1.j2
+  _NEO4j_type: Host
+  _NEO4j_parent: ""
+  _NEO4j_WF: {}
+
+## Service as Micro-Service
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:Info"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:Info"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: Info.png
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/1"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/1"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/2"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/2"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/3"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/3"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/4"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/4"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/5"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/5"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/6"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/6"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/7"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/7"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/8"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/8"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/9"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/9"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/10"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/10"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/11"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/11"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/12"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/12"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/13"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/13"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/14"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/14"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/15"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/15"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/16"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/16"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/17"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/17"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/18"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/18"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/19"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/19"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/20"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/20"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/21"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/21"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/22"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/22"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/23"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/23"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/24"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:GigabitEthernet0/0/24"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:XGigabitEthernet0/0/1"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:XGigabitEthernet0/0/1"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:XGigabitEthernet0/0/2"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:XGigabitEthernet0/0/2"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:XGigabitEthernet0/0/3"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:XGigabitEthernet0/0/3"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:XGigabitEthernet0/0/4"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:XGigabitEthernet0/0/4"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:console"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:console"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:MEth0/0/1"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:MEth0/0/1"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:usb"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:usb"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: port
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:CPU"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:CPU"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: CPU.png
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:Memory"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:Memory"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: Memory.png
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:temperature"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:temperature"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: temperature.png
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:fan"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:fan"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: fan.jpg
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:Uptime"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:Uptime"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: p_swi
+  _NEO4j_tech: Switch
+  _NEO4j_icon: Uptime.png
+  _NEO4j_type: HostMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No

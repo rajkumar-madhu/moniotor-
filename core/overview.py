@@ -8,6 +8,7 @@ from django.conf import settings
 from django.core.exceptions import FieldError
 from django.db import DatabaseError
 from django.urls import NoReverseMatch, reverse
+from urllib.parse import urlencode
 
 from .access import scope_by_site, visible_sites
 
@@ -168,3 +169,210 @@ def site_names(user=None):
     if allowed is not None:
         names &= allowed
     return sorted(names)
+
+
+# ------------------------------------------------------------------ operations overview (dashboard)
+MATRIX_KINDS = [
+    # (key, label, app, model, site field, enabled filter, ok statuses, bad statuses, url name)
+    ("url", "URL checks", "urlchecker", "UrlCheck", "site", {"enabled": True}, "last_status",
+     ("online",), ("down",), "urlchecker:index"),
+    ("tcp", "TCP services", "tcpcheck", "TcpCheck", "site", {"enabled": True}, "last_status",
+     ("online",), ("down",), "tcpcheck:index"),
+    ("domain", "Domains", "domainmonitor", "Domain", "site_key", {"is_active": True}, "status",
+     ("up",), ("down",), "domains:list"),
+    ("device", "Devices", "network", "Device", "site", {"enabled": True}, "status",
+     ("up",), ("down",), "network:all"),
+]
+SHARED = "All sites"
+
+
+def site_matrix(user, selected_site="", names=None, client_param=""):
+    """Per site, per check kind: total / healthy / down / other, plus firing alerts. Records with no site or
+    'All Sites' are grouped under one shared row. Returns {"kinds": [...], "rows": [...], "totals": {...}}.
+    `selected_site` narrows to one site; a site the user cannot see yields no rows (same as backend_summary).
+    Pass `names` (the user's site_names) when the caller already has them, to avoid recomputing."""
+    from django.db.models import Count, Max, Q
+
+    from .client_scope import client_site_names
+
+    names = site_names(user) if names is None else names
+    if client_param:
+        allowed = client_site_names(user, client_param)
+        if allowed is not None:
+            names = [n for n in names if n in allowed]
+    kinds, cells, updates_by_site = [], {}, {}
+    for key, label, app_label, name, field, enabled, status_field, ok, bad, url_name in MATRIX_KINDS:
+        m = model(app_label, name)
+        if not m:
+            continue
+        rows = _safe(lambda: list(_scoped(m, user, field).filter(**enabled).values(field).annotate(
+            total=Count("pk"), ok=Count("pk", filter=Q(**{f"{status_field}__in": ok})),
+            bad=Count("pk", filter=Q(**{f"{status_field}__in": bad})),
+            last_update=Max("last_checked_at"))), None)
+        if rows is None:
+            continue
+        kinds.append({"key": key, "label": label, "href": _url(url_name)})
+        for r in rows:
+            site = r[field] if r[field] not in ("", "All Sites", None) else SHARED
+            site_cells = cells.setdefault(site, {})
+            site_cells[key] = {"total": r["total"], "ok": r["ok"], "bad": r["bad"],
+                               "other": r["total"] - r["ok"] - r["bad"]}
+            if r["last_update"] and (site not in updates_by_site or r["last_update"] > updates_by_site[site]):
+                updates_by_site[site] = r["last_update"]
+    Alert = model("telemetry", "Alert")
+    alerts = {}
+    if Alert:
+        for r in _safe(lambda: list(_scoped(Alert, user).filter(status="firing").values("site").annotate(
+                n=Count("pk"), crit=Count("pk", filter=Q(severity="critical")))), []):
+            site = r["site"] if r["site"] not in ("", "All Sites", None) else SHARED
+            a = alerts.setdefault(site, {"n": 0, "crit": 0})
+            a["n"] += r["n"]
+            a["crit"] += r["crit"]
+    if selected_site:
+        sites = [selected_site] if selected_site in names else []
+    else:
+        raw = set(cells) | set(alerts) | set(names)
+        if client_param:
+            allowed_set = client_site_names(user, client_param)
+            if allowed_set is not None:
+                raw = {s for s in raw if s == SHARED or s in allowed_set}
+        sites = sorted(raw, key=lambda s: (s == SHARED, s.lower()))
+    out, totals = [], {k["key"]: {"total": 0, "ok": 0, "bad": 0, "other": 0} for k in kinds}
+    for site in sites:
+        row = {"site": site, "cells": [], "alerts": alerts.get(site, {"n": 0, "crit": 0}), "bad": 0,
+               "last_update": updates_by_site.get(site)}
+        for k in kinds:
+            c = cells.get(site, {}).get(k["key"])
+            if c:
+                for f in ("total", "ok", "bad", "other"):
+                    totals[k["key"]][f] += c[f]
+                row["bad"] += c["bad"]
+                tone = "crit" if c["bad"] else ("warn" if c["other"] else "ok")
+            else:
+                tone = "none"
+            q = "" if site == SHARED else "?" + urlencode({"site": site})
+            row["cells"].append({"kind": k["key"], "c": c, "tone": tone, "href": (k["href"] + q) if k["href"] else ""})
+        row["tone"] = "crit" if row["bad"] or row["alerts"]["crit"] else (
+            "warn" if any(x["tone"] == "warn" for x in row["cells"]) or row["alerts"]["n"] else "ok")
+        out.append(row)
+    out.sort(key=lambda r: ({"crit": 0, "warn": 1, "ok": 2}[r["tone"]], r["site"] == SHARED, r["site"].lower()))
+    summaries = []
+    for kind in kinds:
+        summary = dict(totals[kind["key"]], key=kind["key"], label=kind["label"], href=kind["href"])
+        total = summary["total"]
+        summary["ok_pct"] = round(summary["ok"] * 100 / total, 1) if total else 0
+        summary["bad_end_pct"] = round((summary["ok"] + summary["bad"]) * 100 / total, 1) if total else 0
+        summaries.append(summary)
+    return {"kinds": kinds, "rows": out, "totals": summaries}
+
+
+def site_map_points(user, rows, selected_site=""):
+    """Return authorized sites with explicitly configured coordinates and current status. With `selected_site`
+    (the same filter passed to site_matrix) only that site is plotted, so unfiltered sites never show as 'none'."""
+    from .models import Site
+
+    status_by_name = {row["site"]: row["tone"] for row in rows}
+    qs = _scoped(Site, user, field="name")
+    if selected_site:
+        qs = qs.filter(name=selected_site)
+    points = []
+    for site in qs.filter(latitude__isnull=False, longitude__isnull=False).only(
+            "name", "latitude", "longitude"):
+        points.append({
+            "name": site.name,
+            "latLng": [float(site.latitude), float(site.longitude)],
+            "tone": status_by_name.get(site.name, "none"),
+        })
+    return points
+
+
+DAY_START_H, DAY_END_H = 6, 24   # the market-day strip spans 06:00–24:00 IST
+
+
+def _strip_pct(t):
+    """Position of a time-of-day on the strip, 0–100."""
+    h = t.hour + t.minute / 60 + t.second / 3600
+    return round(max(0.0, min(100.0, (h - DAY_START_H) * 100 / (DAY_END_H - DAY_START_H))), 2)
+
+
+def market_day(user, now=None):
+    """Today's trading day in IST: phase bands, BOD/EOD windows with their latest run, critical/warning events
+    placed on a 06:00–24:00 strip, and a one-line state. None when the BOD/EOD module is not installed."""
+    from datetime import datetime, time as dtime
+    from django.utils import timezone
+    try:
+        from bodeod import services as bo
+        from bodeod.models import Run
+    except ImportError:
+        return None
+    n = bo.now_ist(now)
+    today = n.date()
+    trading, reason = _safe(lambda: bo.trading_day(today), (today.weekday() < 5, ""))
+    phase = bo.market_phase(now)
+    phases = [{"key": k, "label": label, "start": s, "end": e, "left": _strip_pct(s),
+               "width": round(_strip_pct(e) - _strip_pct(s), 2), "current": phase["key"] == k}
+              for k, label, s, e in bo.PHASES]
+    modes = []
+    for mode in _safe(lambda: list(scope_by_site(bo.modes_qs().filter(enabled=True), user)
+                                   .order_by("window_start")), []):
+        run = _safe(lambda: Run.objects.filter(mode=mode, trading_date=today).order_by("-started_at").first(), None)
+        state = bo.window_state(mode, now, trading) if trading else "no_trading"
+        status = run.status if run else ("missed" if state == "closed" else "pending")
+        modes.append({"code": mode.code, "name": mode.name, "site": mode.site, "start": mode.window_start,
+                      "end": mode.window_end, "left": _strip_pct(mode.window_start),
+                      "width": max(1.5, round(_strip_pct(mode.window_end) - _strip_pct(mode.window_start), 2)),
+                      "status": status, "state": state, "run": run,
+                      "href": _url("bodeod:detail", run.pk) if run else _url("bodeod:status")})
+    lanes = []  # greedy lanes so window labels never overlap (a label needs ~9% of the strip)
+    for m in modes:
+        span_end = m["left"] + max(m["width"], 9.0)
+        for i, last in enumerate(lanes):
+            if last <= m["left"]:
+                m["lane"], lanes[i] = i, span_end
+                break
+        else:
+            m["lane"] = len(lanes)
+            lanes.append(span_end)
+    Event = model("core", "Event")
+    start = timezone.make_aware(datetime.combine(today, dtime(DAY_START_H)), bo.IST)
+    marks = []
+    if Event:
+        evs = _safe(lambda: list(_scoped(Event, user).filter(occurred_at__gte=start, severity__in=["critical", "warning"])
+                                 .order_by("occurred_at")[:400]), [])
+        for e in evs:
+            t = timezone.localtime(e.occurred_at, bo.IST).time()
+            marks.append({"left": _strip_pct(t), "severity": e.severity, "title": e.title, "at": t})
+    hours = [{"h": h, "left": _strip_pct(dtime(h % 24)) if h < 24 else 100.0} for h in range(DAY_START_H, DAY_END_H + 1, 2)]
+    now_left = _strip_pct(n.time()) if n.hour >= DAY_START_H else None
+    upcoming = next((p for p in bo.PHASES if n.time() < p[2]), None)
+    if not trading:
+        nxt = _safe(lambda: bo.next_trading_day(today), None)
+        line = f"{reason}. Next trading day: {nxt:%A %-d %B}." if nxt else f"{reason}."
+    elif phase["key"] != "closed":
+        line = f"{phase['label']} until {phase['end']:%H:%M} IST."
+    elif upcoming:
+        line = f"Market closed. {upcoming[1]} opens at {upcoming[2]:%H:%M} IST."
+    else:
+        line = "Market closed for the day."
+    return {"now": n, "trading": trading, "reason": reason, "phase": phase, "phases": phases, "modes": modes,
+            "marks": marks, "crit": sum(1 for m in marks if m["severity"] == "critical"),
+            "warn": sum(1 for m in marks if m["severity"] == "warning"), "hours": hours, "now_left": now_left,
+            "line": line, "lanes": max(1, len(lanes))}
+
+
+def desk_summary(user):
+    """Open incidents (and P1/P2 among them) and firing alerts, for the overview header."""
+    out = {}
+    Ticket = model("servicedesk", "Ticket")
+    if Ticket:
+        r = _safe(lambda: (lambda qs: (qs.count(), qs.filter(priority__in=["P1", "P2"]).count()))(
+            _scoped(Ticket, user).filter(kind="incident").open()), None)
+        if r:
+            out["incidents"], out["p12"] = r
+            out["incidents_href"] = _url("servicedesk:incidents")
+    Alert = model("telemetry", "Alert")
+    if Alert:
+        n = _safe(lambda: _scoped(Alert, user).filter(status="firing").count(), None)
+        if n is not None:
+            out["alerts"], out["alerts_href"] = n, _url("telemetry:alertmanager")
+    return out

@@ -1,0 +1,26 @@
+/* PROD ENV card, as on the live site: three charts laid directly on one flat panel, each with its title above
+   and its legend beside it. backend-health.js sets the --critical-stop, --warning-stop and --ok-stop ring stops. */
+.backend-health { margin: 0; padding: 18px; border-radius: var(--radius); color: var(--ink); background: var(--panel); border: 1px solid transparent; box-shadow: var(--shadow); }
+.backend-health:hover { border-color: var(--line-strong); }
+.backend-health-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 2px 14px; }
+.backend-health-head h2 { margin-top: 3px; font: 500 13px/1.25 var(--font); letter-spacing: 0; color: var(--muted); }
+.backend-eyebrow { display: block; color: var(--ink); font: 700 18px/1.25 var(--serif); }
+.backend-connected { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); font-size: 14px; }
+.backend-connected i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 4px var(--ok-bg); }
+.backend-health-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 24px; }
+.backend-health-card { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto 1fr; gap: 12px 20px; align-items: start; padding: 4px 2px; }
+.backend-health-copy { display: contents; }
+.backend-health-label { grid-column: 1 / -1; grid-row: 1; color: var(--ink); font: 700 18px/1.25 var(--serif); }
+.backend-ring { grid-column: 1; grid-row: 2 / span 2; width: 150px; height: 150px; display: grid; place-items: center; border-radius: 50%; background: conic-gradient(from -90deg, var(--chart-crit) 0 var(--critical-stop), var(--chart-warn) var(--critical-stop) var(--warning-stop), var(--chart-ok) var(--warning-stop) var(--ok-stop), var(--stone) var(--ok-stop) 100%); }
+.backend-ring::before { content: ""; grid-area: 1 / 1; width: 96px; height: 96px; border-radius: 50%; background: var(--panel); }
+.backend-ring span { grid-area: 1 / 1; z-index: 1; color: var(--ink); font: 600 19px/1 var(--font); }
+.backend-ring.is-empty { background: conic-gradient(var(--stone-2) 0 100%); }
+.backend-health-copy strong { grid-column: 2; grid-row: 2; color: var(--ink); font-size: 13px; font-weight: 600; }
+.backend-health-stats { grid-column: 2; grid-row: 3; display: flex; flex-direction: column; gap: 5px; color: var(--ink-2); font-size: 12px; }
+.backend-health-stats span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.backend-health-stats i { width: 10px; height: 10px; display: inline-block; border-radius: 50%; }
+.backend-health-stats .dot-critical { background: var(--chart-crit); } .backend-health-stats .dot-warning { background: var(--chart-warn); } .backend-health-stats .dot-ok { background: var(--chart-ok); } .backend-health-stats .dot-unknown { background: var(--stone); }
+.backend-health-foot { margin: 10px 2px 0; color: var(--muted); font-size: 11px; }
+.backend-health-empty { margin: 0; padding: 13px 14px; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); background: var(--panel-2); font-size: 12.5px; }
+@media (max-width: 1200px) { .backend-ring { width: 104px; height: 104px; } .backend-ring::before { width: 66px; height: 66px; } .backend-ring span { font-size: 16px; } }
+@media (max-width: 860px) { .backend-health-grid { grid-template-columns: minmax(0, 1fr); } }

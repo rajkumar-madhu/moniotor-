@@ -1,0 +1,4 @@
+{
+  "HW-idrac--Nic-status-1-fine": "(dell_hw_nic_status{job='IDRAC-__FILTER__'})",
+  "HW-ilo--Nic-status-0-fine": "(hpilo_network{job= 'ILO-__FILTER__'})"
+}

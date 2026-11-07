@@ -1,0 +1,16 @@
+{
+  "Host-count": "MATCH (n:s_hw {type: 'Host'}) return count(n)",
+  "HostMs-count": "MATCH (n:s_hw {type: 'HostMS',  status: 2}) return count(n)",
+  "HostMsdown-count": "MATCH (n:s_hw {type: 'HostMS',  status: 0}) return count(n)",
+  "HostMsunknown-count": "MATCH (n:s_hw {  status: 3}) return count(n)",
+  "SwitchHost-count": "MATCH (n {tech: 'Switch',type: 'Host'}) return count(n)",
+  "SwitchPort-total": "MATCH (n {tech: 'Switch' }) return count (n)",
+  "SwitchPort-conn": "MATCH (n {tech: 'Switch' ,  status: 2}) return COUNT(n)",
+  "SwitchPort-disconn": "MATCH (n {tech: 'Switch' , status: 0}) return COUNT(n)",
+  "SwitchPort-unknown": "MATCH (n {tech: 'Switch' , status: 3}) return COUNT(n)",
+  "SwOk-count": "MATCH(n:s_sw) WHERE n.status=2 return count(n)",
+  "SwCritical-count": "MATCH(n:s_sw) WHERE n.status=0 return count(n)",
+  "SwWarning-count": "MATCH(n:s_sw) WHERE n.status=1 return count(n)",
+  "SwUnknown-count": "MATCH(n:s_sw) WHERE n.status=3 return count(n)"
+}
+

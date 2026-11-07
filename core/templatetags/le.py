@@ -80,6 +80,7 @@ ICONS = {
     "tag": '<path d="M3 12V4a1 1 0 011-1h8l9 9-9 9-9-9z"/><circle cx="7.5" cy="7.5" r="1.3"/>',
     "sort": '<path d="M8 4v16M4 8l4-4 4 4M16 20V4M12 16l4 4 4-4"/>',
     "sun": '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+    "moon": '<path d="M21 12.8A9 9 0 1111.2 3a7 7 0 0010 9.8z"/>',
     "mail": '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
     "award": '<circle cx="12" cy="9" r="6"/><path d="M8.5 14L7 22l5-3 5 3-1.5-8"/>',
     "file-search": '<path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h4"/><path d="M14 3v5h5v3"/><circle cx="16.5" cy="16.5" r="3"/><path d="M21 21l-2.3-2.3"/>',
@@ -96,6 +97,7 @@ ICONS = {
     "plug": '<path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 01-12 0V8zM12 18v4"/>',
     "calendar-range": '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4M7 14h4M13 17h4"/>',
     "logout": '<path d="M15 4h4a1 1 0 011 1v14a1 1 0 01-1 1h-4M10 17l-5-5 5-5M5 12h12"/>',
+    "map-pin": '<path d="M12 21c-4-4-7-7.6-7-11a7 7 0 0114 0c0 3.4-3 7-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
 }
 
 
@@ -124,20 +126,20 @@ TONES = {
 
 
 FILLED = {
-    "check-circle": '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M7.5 12.2l3 3 6-6.4" stroke="#fff" stroke-width="2.4"/>',
-    "x-circle": '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M8.5 8.5l7 7M15.5 8.5l-7 7" stroke="#fff" stroke-width="2.4"/>',
-    "alert": '<path d="M12 2.5l10 18H2l10-18z" fill="currentColor" stroke="none"/><path d="M12 9.5v5M12 17.3h.01" stroke="#fff" stroke-width="2.4"/>',
-    "clock": '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M12 7v5l3 2" stroke="#fff" stroke-width="2.2"/>',
-    "info": '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M12 11v6M12 7.5h.01" stroke="#fff" stroke-width="2.4"/>',
-    "pause": '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M10 8.5v7M14 8.5v7" stroke="#fff" stroke-width="2.4"/>',
-    "help": '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M9.3 9.4a2.8 2.8 0 015.4 1c0 1.8-2.7 2.3-2.7 3.6M12 17.2h.01" stroke="#fff" stroke-width="2.1"/>',
-    "check": '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M7.5 12.2l3 3 6-6.4" stroke="#fff" stroke-width="2.4"/>',
+    "check-circle": '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M7.5 12.2l3 3 6-6.4" class="ic-mark" stroke-width="2.4"/>',
+    "x-circle": '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M8.5 8.5l7 7M15.5 8.5l-7 7" class="ic-mark" stroke-width="2.4"/>',
+    "alert": '<path d="M12 2.5l10 18H2l10-18z" fill="currentColor" stroke="none"/><path d="M12 9.5v5M12 17.3h.01" class="ic-mark" stroke-width="2.4"/>',
+    "clock": '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M12 7v5l3 2" class="ic-mark" stroke-width="2.2"/>',
+    "info": '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M12 11v6M12 7.5h.01" class="ic-mark" stroke-width="2.4"/>',
+    "pause": '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M10 8.5v7M14 8.5v7" class="ic-mark" stroke-width="2.4"/>',
+    "help": '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M9.3 9.4a2.8 2.8 0 015.4 1c0 1.8-2.7 2.3-2.7 3.6M12 17.2h.01" class="ic-mark" stroke-width="2.1"/>',
+    "check": '<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/><path d="M7.5 12.2l3 3 6-6.4" class="ic-mark" stroke-width="2.4"/>',
 }
 
 
 @register.simple_tag
 def ficon(name, size=14, cls=""):
-    """Filled status glyph (solid circle/triangle with a white mark)."""
+    """Filled status glyph (solid circle/triangle with a contrasting mark, coloured by .ic-mark in app.css)."""
     body = FILLED.get(name, FILLED["info"])
     return mark_safe(
         f'<svg class="ic {cls}" width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" '

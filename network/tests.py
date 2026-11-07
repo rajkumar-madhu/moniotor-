@@ -15,8 +15,9 @@ from core import jobs as core_jobs
 from core import prometheus
 from core.models import AuditEvent, Event, Membership, Site
 
-from . import discovery, jobs, metrics, probe, services
-from .models import Device, DevicePoll, DiscoveredHost, DiscoveryRun, Interface, validate_host
+from . import discovery, jobs, legacy_panels, metrics, probe, services
+from .templatetags.network_tags import event_util_row_class
+from .models import Device, DevicePoll, DiscoveredHost, DiscoveryRun, Interface, NetworkProductImage, validate_host
 from .probe import TcpResult
 
 T = "default"
@@ -219,6 +220,12 @@ def fake_query(promql):
     """Prometheus answers shaped like snmp_exporter IF-MIB output for instance 'sw1'."""
     base = {"instance": "sw1", "job": "snmp"}
     ifs = [("1", "Gi1/0/1", "Uplink"), ("2", "Gi1/0/2", "")]
+    if "changes(ifOperStatus" in promql:   # before the plain ifOperStatus match below
+        return [prom_row(4, ifIndex="1", **base)]
+    if "ifInErrors" in promql:
+        return [prom_row(0.25, ifIndex="1", **base), prom_row(0, ifIndex="2", **base)]
+    if "ifInDiscards" in promql:
+        return [prom_row(1.5, ifIndex="1", **base)]
     if "ifHCInOctets" in promql:
         return [prom_row(400.0, ifIndex=i, ifName=n, ifAlias=a, **base) for i, n, a in ifs]
     if "ifHCOutOctets" in promql:
@@ -254,7 +261,9 @@ class MetricsTests(TestCase):
         g1, g2 = d.interfaces.order_by("if_index")
         self.assertEqual((g1.name, g1.alias, g1.if_type, g1.oper_status, g1.admin_status), ("Gi1/0/1", "Uplink", "Ethernet", "up", "up"))
         self.assertEqual((g1.in_mbps, g1.out_mbps, g1.speed_mbps, g1.utilization), (400.0, 100.0, 1000.0, 40.0))
+        self.assertEqual((g1.errors_per_s, g1.discards_per_s, g1.flaps_24h), (0.25, 1.5, 4))
         self.assertEqual((g2.oper_status, g2.if_type), ("down", "LAG"))
+        self.assertEqual((g2.errors_per_s, g2.discards_per_s, g2.flaps_24h), (0.0, None, None))  # missing series stay unknown
 
     def test_interface_transition_event_and_removed_interfaces(self):
         d = dev(prometheus_instance="sw1")
@@ -268,7 +277,8 @@ class MetricsTests(TestCase):
 
     def test_missing_series_and_errors_are_tolerated(self):
         d = dev(prometheus_instance="sw1")
-        Interface.objects.create(device=d, if_index=1, name="Gi1", in_mbps=5, out_mbps=5, utilization=1)
+        Interface.objects.create(device=d, if_index=1, name="Gi1", in_mbps=5, out_mbps=5, utilization=1,
+                                 errors_per_s=3, discards_per_s=1, flaps_24h=2)
         with mock.patch("core.prometheus.query", side_effect=prometheus.PrometheusError("Prometheus unreachable: refused")):
             jobs.collect_metrics()
         d.refresh_from_db()
@@ -276,6 +286,7 @@ class MetricsTests(TestCase):
         self.assertIn("unreachable", d.metrics_error)
         i = d.interfaces.get()
         self.assertIsNone(i.in_mbps)  # stale numbers are not shown as current
+        self.assertEqual((i.errors_per_s, i.discards_per_s, i.flaps_24h), (None, None, None))
 
         def partial(q):
             if "ifHCInOctets" in q:
@@ -433,7 +444,7 @@ class ViewTests(TestCase):
         r = self.c.get(reverse("network:all") + "?status=unknown&q=core")
         self.assertContains(r, "core-sw-01")
         self.assertNotContains(r, ">FG-01<")
-        for tab in ("overview", "interfaces", "traffic", "events", "configuration"):
+        for tab in ("overview", "interfaces", "traffic", "hardware", "neighbours", "events", "configuration"):
             r = self.c.get(reverse("network:detail", args=[self.d.pk]) + f"?tab={tab}")
             self.assertEqual(r.status_code, 200, tab)
             self.assertContains(r, "core-sw-01")
@@ -457,6 +468,14 @@ class ViewTests(TestCase):
         self.assertContains(r, "86 days")
         self.assertContains(r, "core-sw-01 is down")
         self.assertContains(r, "Timed out after 5s")
+        r = self.c.get(reverse("network:detail", args=[self.d.pk]) + "?tab=hardware")
+        self.assertContains(r, "System · SNMPv2-MIB")
+        self.assertContains(r, "Gi1/0/1")
+        r = self.c.get(reverse("network:detail", args=[self.d.pk]) + "?tab=neighbours")
+        self.assertContains(r, "LLDP neighbour collection is not connected")
+        self.assertContains(r, "Open topology")
+        r = self.c.get(reverse("network:detail", args=[self.d.pk]) + "?tab=configuration")
+        self.assertContains(r, "Running config · diff since last backup")
         r = self.c.get(reverse("network:detail", args=[self.d.pk]) + "?tab=events")
         self.assertContains(r, "Check History")
         r = self.c.get(reverse("network:interfaces_export", args=[self.d.pk]))
@@ -539,6 +558,22 @@ class ViewTests(TestCase):
             r = self.c.post(reverse("network:check_all"), {"type": "firewall"})
         self.assertEqual(tp.call_count, 1)
         self.assertEqual(r.status_code, 302)
+
+    def test_catalog_fills_product_image_on_save(self):
+        self.login(self.operator)
+        NetworkProductImage.objects.create(
+            tenant_key=T, vendor="Juniper", device_type="router", model_key="MX204",
+            product_image_url="https://cdn.example/mx204.webp",
+            product_page_url="https://example.com/mx204",
+        )
+        data = {"name": "cat-rtr", "device_type": "router", "vendor": "Juniper", "model": "MX204-HBASE",
+                "mgmt_ip": "192.0.2.50", "check_port": 22, "site": "", "environment": "prod", "enabled": "on"}
+        with mock.patch("network.probe.tcp_probe", return_value=ok(2.0)):
+            r = self.c.post(reverse("network:create"), data)
+        d = Device.objects.get(name="cat-rtr")
+        self.assertRedirects(r, d.get_absolute_url())
+        self.assertEqual(d.product_image_url, "https://cdn.example/mx204.webp")
+        self.assertEqual(d.product_page_url, "https://example.com/mx204")
 
     def test_operator_cannot_delete_admin_can(self):
         self.login(self.operator)
@@ -842,3 +877,72 @@ class RegressionTests(TestCase):
         self.assertEqual(Device.objects.get(name="lb-01").tags, "examples-lab")
         call_command("seed_network", "--remove", stdout=StringIO())
         self.assertEqual(sorted(Device.objects.values_list("name", flat=True)), ["fg-01", "lb-01"])
+
+
+class EventUtilRowClassTests(TestCase):
+    """Utilization % in event row: ≥80 red, 70–79 warning, <70 green."""
+
+    def _ev(self, **kw):
+        defaults = {
+            "tenant_key": T,
+            "source": "prometheus",
+            "kind": "alert",
+            "title": "Test",
+            "message": "",
+            "severity": "warning",
+            "data": {},
+        }
+        defaults.update(kw)
+        return Event(**defaults)
+
+    def test_data_json_decimal_fraction(self):
+        e = self._ev(data={"cpu": 0.835})
+        self.assertEqual(event_util_row_class(e), "nw-ev-hot")
+
+    def test_data_percent_number(self):
+        self.assertEqual(event_util_row_class(self._ev(data={"memory": 72})), "nw-ev-warm")
+        self.assertEqual(event_util_row_class(self._ev(data={"utilization": 55})), "nw-ev-cool")
+
+    def test_parse_percent_from_message_with_usage_word(self):
+        e = self._ev(title="Host load", message="CPU usage at 84% sustained")
+        self.assertEqual(event_util_row_class(e), "nw-ev-hot")
+
+    def test_no_class_without_util_context(self):
+        e = self._ev(message="Run 2 of 5 succeeded — 50% complete (batch progress only)")
+        self.assertEqual(event_util_row_class(e), "")
+
+
+# ------------------------------------------------------------------------------------------- legacy iframeGraphs
+@override_settings(LINKEDEYE_TENANT=T)
+class LegacyPanelsTests(TestCase):
+    def test_fortigate_100f(self):
+        d = Device(vendor="Fortigate", model="Fortigate 100F")
+        r = legacy_panels.resolve_legacy_panel(d)
+        self.assertIsNotNone(r)
+        self.assertIn("100F", r["iframe_j2"])
+
+    def test_huawei_switch_prefers_52x(self):
+        d = Device(vendor="Huawei", model="Huawei S5720-52X-LI-AC")
+        r = legacy_panels.resolve_legacy_panel(d)
+        self.assertIsNotNone(r)
+        self.assertTrue(r["iframe_j2"].startswith("Huawei_S5720_52X"))
+
+    def test_load_panel_markup_and_legacy_panel_url(self):
+        d = dev("fw-panel", vendor="Fortigate", model="Fortigate 100F", device_type="firewall")
+        r = legacy_panels.resolve_legacy_panel(d)
+        html = legacy_panels.load_panel_markup(d, r["iframe_j2"])
+        self.assertIsNotNone(html)
+        self.assertIn("<svg", html)
+        self.assertNotIn("__IP__", html)
+
+        _, operator, _ = users()
+        c = Client()
+        c.force_login(operator)
+        url = reverse("network:legacy_panel", args=[d.pk])
+        resp = c.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(b"<svg", resp.content)
+
+        r2 = c.get(reverse("network:detail", args=[d.pk]) + "?tab=hardware")
+        self.assertEqual(r2.status_code, 200)
+        self.assertContains(r2, 'src="' + url)

@@ -1,0 +1,6 @@
+{
+  "cisco-Switch--Temperature-status-1-fine-2-warning-3-failed": "chassisTempAlarm{instance = '__FILTER__'}",
+  "cisco--cisco-new-Temperature": "ciscoEnvMonTemperatureStatusValue{instance = '__FILTER__'}",
+  "cisco--router-Temperature-status-1-fine-2-warning-3-failed": "entPhysicalName{entPhysicalIndex = '7003', instance = '__FILTER__'}",
+  "huawei-Switch--Temperature-status-in-Celcius": "(hwEntityTemperature{ entPhysicalIndex = '67108873', instance = '__FILTER__'})"
+}

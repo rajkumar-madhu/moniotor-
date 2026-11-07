@@ -4,7 +4,7 @@ from django import forms
 from django.conf import settings
 from django.contrib.auth import get_user_model
 
-from core.access import can
+from core.access import can, can_on
 
 from . import workflow as wf
 from .models import CatalogItem, SlaPolicy, Ticket
@@ -48,8 +48,9 @@ class BoundedModelChoiceField(forms.ModelChoiceField):
         return super().to_python(value)
 
 
-def assignable_users(site=None):
-    """Active users who may work tickets (operate) on the site, by display name.
+def assignable_users(site=None, any_site=False):
+    """Active users who may work tickets (operate) on the site, by display name. `site` is a ticket's site_scope:
+    None (a global ticket) lists tenant-wide operators only; any_site=True lists everyone who operates somewhere.
 
     Memberships are prefetched and handed to core.access's per-user cache, so checking 300 users costs two
     queries instead of one per user."""
@@ -61,7 +62,7 @@ def assignable_users(site=None):
     users = []
     for u in qs:
         u._le_memberships = list(u.le_memberships.all())
-        if can(u, "operate", site or None):
+        if (can(u, "operate") if any_site else can_on(u, "operate", site or None)):
             users.append(u)
     return users
 
@@ -71,7 +72,7 @@ def operable(qs, user):
     if user is None:
         return qs
     sites = set(qs.order_by().values_list("site", flat=True).distinct())
-    return qs.filter(site__in=[s for s in sites if can(user, "operate", s if s not in ("", "All Sites") else None)])
+    return qs.filter(site__in=[s for s in sites if can_on(user, "operate", s)])
 
 
 # Upper bound for SLA targets (90 days, as for catalog fulfilment): larger values overflow the due-date arithmetic.
@@ -129,7 +130,7 @@ class TicketForm(forms.ModelForm):
         tenant = settings.LINKEDEYE_TENANT
         # the current assignee always stays a choice (even when inactive or no longer in the list), otherwise the
         # select renders with nothing selected and saving any other field would silently unassign the ticket
-        pks = [u.pk for u in assignable_users()]
+        pks = [u.pk for u in assignable_users(any_site=True)]
         if self.instance.assignee_id:
             pks.append(self.instance.assignee_id)
         self.fields["assignee"] = UserChoiceField(queryset=get_user_model().objects.filter(pk__in=pks), required=False,
@@ -143,7 +144,7 @@ class TicketForm(forms.ModelForm):
             hidden = current is not None and problems is not None and not problems.filter(pk=current.pk).exists()
             if current is not None:
                 qs = qs | Ticket.objects.filter(pk=current.pk)
-                if user is not None and not can(user, "operate", current.site_scope):
+                if user is not None and not can_on(user, "operate", current.site_scope):
                     # the link writes to the current problem too: keep it as it is
                     self.fields["problem"].disabled = True
                     self.fields["problem"].help_text = "Linked to a problem on a site you cannot change."
@@ -162,7 +163,7 @@ class TicketForm(forms.ModelForm):
 
     def clean_site(self):
         site = (self.cleaned_data.get("site") or "").strip()
-        if self.user is not None and not can(self.user, "operate", site if site not in ("", "All Sites") else None):
+        if self.user is not None and not can_on(self.user, "operate", site):
             raise forms.ValidationError("You cannot raise or move tickets for this site.")
         return site
 
@@ -172,11 +173,11 @@ class TicketForm(forms.ModelForm):
         if assignee is not None and "site" in data and (self.instance.pk is None or "assignee" in self.changed_data
                                                          or "site" in self.changed_data):
             site = data["site"]
-            if not can(assignee, "operate", site if site not in ("", "All Sites") else None):
+            if not can_on(assignee, "operate", site):
                 self.add_error("assignee", f"{user_label(assignee)} cannot work tickets on this site.")
         if "problem" in self.fields and "problem" in self.changed_data and self.user is not None:
             new = data.get("problem")
-            if new is not None and not can(self.user, "operate", new.site_scope):
+            if new is not None and not can_on(self.user, "operate", new.site_scope):
                 self.add_error("problem", "You cannot link incidents to problems on that site.")
         start, end = data.get("planned_start"), data.get("planned_end")
         if start and end and end <= start:

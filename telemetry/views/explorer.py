@@ -8,7 +8,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from core import prometheus
-from core.access import can, require
+from core.access import can_on, require, visible_sites
 from core.audit import audit
 
 from .. import explorer as svc
@@ -21,8 +21,25 @@ def _visible_saved(user):
             .filter(Q(owner=user) | Q(shared=True)).select_related("owner").order_by("name"))
 
 
+SITE_SCOPED_MESSAGE = ("Metrics Explorer needs access to all sites. PromQL reads every series in Prometheus, so it "
+                       "cannot be limited to your sites; ask an administrator for a role on all sites, or use the "
+                       "Infrastructure page for the hosts of your sites.")
+
+
+def _all_sites(user):
+    """Arbitrary PromQL cannot be scoped to sites, so the explorer is for users who see every site."""
+    return visible_sites(user) is None
+
+
+def _site_scoped_page(request):
+    return render(request, "telemetry/explorer_denied.html",
+                  {**prom_context(), **perms(request), "message": SITE_SCOPED_MESSAGE}, status=403)
+
+
 @require("view")
 def explorer(request):
+    if not _all_sites(request.user):
+        return _site_scoped_page(request)
     ctx = {**prom_context(), **perms(request), "error": "", "policy_error": "", "result": None, "notes": [],
            "ranges": svc.RANGES, "examples": svc.EXAMPLES,
            "limits": {"chars": svc.MAX_QUERY_CHARS, "points": svc.MAX_POINTS, "series": svc.MAX_SERIES,
@@ -76,6 +93,9 @@ def _back(q="", range_key="", saved=None):
 @require("operate")
 @require_POST
 def save_query(request):
+    if not _all_sites(request.user):
+        messages.error(request, SITE_SCOPED_MESSAGE)
+        return redirect("telemetry:explorer")
     name = request.POST.get("name", "").strip()
     promql = request.POST.get("promql", "").strip()
     range_key = request.POST.get("range", svc.DEFAULT_RANGE)
@@ -103,7 +123,7 @@ def save_query(request):
 @require_POST
 def delete_query(request, pk):
     obj = get_object_or_404(SavedQuery, pk=pk, tenant_key=settings.LINKEDEYE_TENANT)
-    if obj.owner_id != request.user.pk and not can(request.user, "admin"):
+    if obj.owner_id != request.user.pk and not can_on(request.user, "admin", None):
         messages.error(request, "Only the owner or an administrator can delete this query.")
         return redirect("telemetry:explorer")
     name = obj.name

@@ -58,7 +58,7 @@ def topology_view(request):
     else:
         isolated = 0
     nodes = [ci_map[pk] for pk in keep]
-    health = services.link_health(nodes)
+    health = services.link_health(nodes, request.user)
     graph = topology.layout(nodes, sub_edges, health, root_id=root.pk if root else None)
     counts = {s: sum(1 for n in graph["nodes"] if n["state"] == s) for s in ("healthy", "warning", "critical", "unknown")}
     return render(request, "cmdb/topology.html", {
@@ -99,7 +99,7 @@ def heatmap_view(request):
         names = [sel["name"]] + [c.name for c in member_cis]
         incidents = services.recent_incidents(names, limit=8 if tab == "incidents" else 5,
                                               fingerprints=services.ci_fingerprints(member_cis), user=request.user)
-        health = services.link_health(d["ci_map"].values())
+        health = services.link_health(d["ci_map"].values(), request.user)
         health.update(hm.health_from_rows(domains))
         rows = sorted(sel["service_rows"], key=lambda r: r["name"].lower()) if tab == "services" else _top_services(sel["service_rows"])
         details = {
@@ -122,7 +122,10 @@ def heatmap_view(request):
         "logs": services._safe_reverse("observe:logs"), "metrics": services._safe_reverse("telemetry:explorer"),
         "add_domain": reverse("cmdb:item_create") + "?type=" + CIType.BUSINESS_DOMAIN + "&next=" + reverse("cmdb:heatmap"),
     }
+    from core import overview   # lazy: documented shared API (docs/MODULES.md)
+    request.le_site_names = names = overview.site_names(request.user)   # reused by the context processor
     return render(request, "cmdb/heatmap.html", {
         "d": d, "sel": sel, "details": details, "dpage": dpage, "kpis": kpis, "keep": keep,
         "f": {"domain": domain, "service": service, "host": host}, "links": links,
-        "prom_configured": prometheus.configured(), **perms(request)})
+        "prom_configured": prometheus.configured(),
+        "matrix": overview.site_matrix(request.user, request.GET.get("site", ""), names=names), **perms(request)})

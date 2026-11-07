@@ -1,0 +1,5 @@
+{
+  "idrac--Fan-status-0-fine": "(dell_hw_chassis_fan_status{job = 'IDRAC-__FILTER__'})",
+  "idrac--Fan-speed-rpm": "(dell_hw_chassis_fan_reading{job = 'IDRAC-__FILTER__'})",
+  "ilo--Fan-status-0-fine": "(hpilo_fans{job = 'ILO-__FILTER__'})"
+}

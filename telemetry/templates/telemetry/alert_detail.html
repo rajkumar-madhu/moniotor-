@@ -7,6 +7,7 @@
 <div class="head host-head">
   <div class="glyph {% if a.status == 'firing' %}g-crit{% else %}g-teal{% endif %}">{% icon "bell" 30 %}</div>
   <div style="min-width:0"><h1>{{ a.alertname }}</h1>
+    {% if context_path %}<p class="tm-alert-path">{{ context_path }}</p>{% endif %}
     <div class="meta">{% include "telemetry/_alert_status.html" with st=a.status %}<span class="sev t-{{ a.severity_tone }}">{{ a.severity|default:"no severity" }}</span>
       {% if a.instance %}{% if "/" not in a.instance %}<a class="chip mute mono" href="{% url 'telemetry:host_detail' a.instance %}" title="Host metrics">{{ a.instance }}</a>{% else %}<span class="chip mute mono">{{ a.instance }}</span>{% endif %}{% endif %}
       {% if a.job %}<span class="chip">job: {{ a.job }}</span>{% endif %}
@@ -26,12 +27,42 @@
   </div>
 </div>
 
-<section class="grid g-main">
+<dl class="tm-alert-meta">
+  <div><dt>Severity</dt><dd class="sev t-{{ a.severity_tone }}">{{ a.severity|default:"—"|capfirst }}</dd></div>
+  <div><dt>Reported</dt><dd>{{ a.last_received_at|short_dt }}</dd></div>
+  <div><dt>Status</dt><dd>{% if a.acknowledged %}In progress{% else %}{{ a.get_status_display }}{% endif %}</dd></div>
+  <div><dt>Assigned to</dt><dd>{% if a.acknowledged_by %}{{ a.acknowledged_by.get_full_name|default:a.acknowledged_by.username }}{% else %}—{% endif %}</dd></div>
+  <div><dt>Analyst verdict</dt><dd>{{ analyst_verdict }}</dd></div>
+  <div><dt>Detection</dt><dd>{{ a.receiver|default:"Alertmanager" }}</dd></div>
+</dl>
+
+<nav class="tm-alert-tabs" aria-label="Alert sections">
+  <a href="#overview" class="on">Overview</a>
+  <a href="#indicators">Indicators <span class="n">{{ indicator_count }}</span></a>
+  <a href="#graph">Graph</a>
+  <a href="#timeline">Timeline <span class="n">{{ events|length }}</span></a>
+  <a href="#raw">Raw data</a>
+</nav>
+
+<section class="grid g-main" id="overview">
   <div class="stack">
-    <div class="panel"><div class="panel-h"><h2>Summary</h2></div>
-      <p style="margin:0 0 6px"><b>{{ a.summary|default:"No summary annotation." }}</b></p>
-      {% if a.description %}<p style="margin:0;white-space:pre-line;overflow-wrap:anywhere">{{ a.description }}</p>{% endif %}
+    <div class="panel tm-insight">
+      <div class="panel-h"><h2>{% icon "info" 18 %} Ops insight</h2></div>
+      <p class="tm-insight-body">{{ insight_summary }}</p>
+      {% if a.summary and a.summary not in insight_summary %}<p class="tm-insight-sub"><b>Summary:</b> {{ a.summary }}</p>{% endif %}
     </div>
+
+    {% if has_structured_fields %}
+      {% for section in detail_sections %}
+      <details class="panel tm-field-group" open>
+        <summary class="panel-h"><h2>{{ section.title }}</h2><span class="tm-chevron" aria-hidden="true"></span></summary>
+        <dl class="tm-field-pairs">{% for k, v in section.fields %}
+          <dt class="mono" title="{{ k }}">{{ k }}</dt>
+          <dd class="wrap">{% if v|length > 120 %}<span class="mono">{{ v }}</span>{% elif "/" in v or v|safe_http %}<code>{{ v }}</code>{% else %}{{ v }}{% endif %}</dd>
+        {% endfor %}</dl>
+      </details>
+      {% endfor %}
+    {% else %}
     <div class="tm-kv-grid">
       <div class="panel"><div class="panel-h"><h2>Labels ({{ labels|length }})</h2></div>
         <div class="table-wrap dense borderless tm-table"><table><tbody>{% for k, v in labels %}
@@ -42,14 +73,45 @@
           <tr><td class="mono">{{ k }}</td><td class="wrap">{% if v|safe_http %}<a href="{{ v|safe_http }}" target="_blank" rel="noopener noreferrer">{{ v|truncatechars:120 }}</a>{% else %}{{ v }}{% endif %}</td></tr>
         {% empty %}<tr><td class="empty">No annotations.</td></tr>{% endfor %}</tbody></table></div></div>
     </div>
-    <div class="panel"><div class="panel-h"><h2>Event History</h2></div>
+    {% endif %}
+
+    <div class="panel" id="indicators"><div class="panel-h"><h2>Indicators</h2></div>
+      {% if indicators %}
+      <div class="table-wrap dense tm-table"><table>
+        <thead><tr><th>Indicator</th><th>Count</th><th>Detail</th></tr></thead>
+        <tbody>{% for row in indicators %}
+          <tr><td>{{ row.label }}</td><td>{{ row.count }}</td><td class="wrap t-mute">{{ row.detail }}</td></tr>
+        {% endfor %}</tbody></table></div>
+      {% else %}<p class="t-mute" style="margin:0;padding:0 16px 14px">No behavioral indicators in this payload. Add label counts (e.g. <code>src.process.indicatorEvasionCount</code>) or annotation <code>indicators_json</code> via Alertmanager.</p>{% endif %}
+    </div>
+
+    <div class="panel" id="graph"><div class="panel-h"><h2>Attack graph</h2></div>
+      {% if attack_graph.has_graph %}
+      <div class="tm-attack-graph" role="img" aria-label="Process and file relationship">
+        {% if attack_graph.endpoint %}<div class="tm-graph-node host"><span class="lbl">Endpoint</span><strong>{{ attack_graph.endpoint }}</strong></div>{% endif %}
+        {% if attack_graph.parent or attack_graph.process %}<div class="tm-graph-chain">
+          {% if attack_graph.parent %}<div class="tm-graph-node proc"><span class="lbl">Parent</span><strong>{{ attack_graph.parent }}</strong></div><span class="tm-graph-arrow" aria-hidden="true">→</span>{% endif %}
+          {% if attack_graph.process %}<div class="tm-graph-node proc"><span class="lbl">Process</span><strong>{{ attack_graph.process }}</strong></div>{% endif %}
+          {% if attack_graph.target %}<span class="tm-graph-arrow" aria-hidden="true">→</span><div class="tm-graph-node file"><span class="lbl">Target</span><strong title="{{ attack_graph.target }}">{{ attack_graph.target_short }}</strong></div>{% endif %}
+        </div>{% endif %}
+      </div>
+      {% else %}<p class="t-mute" style="margin:0;padding:0 16px 14px">Not enough structured fields to draw a graph.</p>{% endif %}
+    </div>
+
+    <div class="panel" id="timeline"><div class="panel-h"><h2>Timeline</h2></div>
       <div class="table-wrap dense tm-table"><table>
         <thead><tr><th>Time</th><th>Severity</th><th>Event</th></tr></thead>
         <tbody>{% for e in events %}
           <tr><td>{{ e.occurred_at|short_dt }}</td><td>{% badge e.severity %}</td><td class="wrap">{{ e.title }}</td></tr>
         {% empty %}<tr><td colspan="3" class="empty">No events emitted for this alert yet.</td></tr>{% endfor %}</tbody></table></div>
     </div>
+
+    <div class="panel" id="raw"><div class="panel-h"><h2>Raw data</h2></div>
+      <pre class="tm-raw-json">{% if labels or annotations %}labels: {{ labels }}
+annotations: {{ annotations }}{% else %}No payload fields stored.{% endif %}</pre>
+    </div>
   </div>
+
   <div class="stack">
     <div class="panel"><div class="panel-h"><h2>Details</h2></div>
       <dl class="kv">
@@ -69,6 +131,12 @@
         <li><div class="body">{% if t.url %}<a class="who" href="{{ t.url }}">{{ t.number }}</a>{% else %}<span class="who">{{ t.number }}</span>{% endif %} <span class="tag">{{ t.priority }}</span><div class="what">{{ t.title|truncatechars:90 }}</div></div><span class="when">{% badge t.status %}</span></li>
       {% empty %}<li class="t-mute">No incident linked. Critical and page alerts open one automatically.</li>{% endfor %}</ul>{% endif %}
     </div>
+    {% if has_structured_fields %}
+    <div class="panel"><div class="panel-h"><h2>All labels</h2></div>
+      <div class="table-wrap dense borderless tm-table"><table><tbody>{% for k, v in labels %}
+        <tr><td class="mono">{{ k }}</td><td class="wrap mono">{{ v }}</td></tr>
+      {% empty %}<tr><td class="empty">No labels.</td></tr>{% endfor %}</tbody></table></div></div>
+    {% endif %}
   </div>
 </section>
 </div>

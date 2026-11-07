@@ -1,0 +1,5 @@
+{
+  "idrac--Temperature-reading-celsius": "(dell_hw_chassis_temps_reading{job= 'IDRAC-__FILTER__'})",
+  "idrac--Temperature-status-0-fine": "(dell_hw_chassis_temps{job= 'IDRAC-__FILTER__'})",
+  "ilo--Temperature-status-0-fine": "(hpilo_temperature{job= 'ILO-__FILTER__'})"
+}

@@ -1,0 +1,18 @@
+{% if matrix.rows %}
+<section class="legacy-heatmap-card" aria-labelledby="legacy-heatmap-title">
+  <div class="legacy-panel-head">
+    <div><h2 id="legacy-heatmap-title">Heat-Map</h2><span class="legacy-env-badge">PROD</span></div>
+    <div class="legacy-panel-tools"><span>Latest check</span>{% if heatmap_url %}<a href="{{ heatmap_url }}" aria-label="Open detailed heatmap">↗</a>{% endif %}</div>
+  </div>
+  <div class="legacy-table-scroll"><table class="legacy-heatmap-table">
+    <thead><tr><th>DOMAINNAME</th>{% for k in matrix.kinds %}<th>{{ k.label }}</th>{% endfor %}<th>ALERTS</th><th>LAST UPDATE</th></tr></thead>
+    <tbody>{% for r in matrix.rows %}<tr{% if r.site == le_site %} class="is-selected"{% endif %}>
+      <th scope="row"><span class="legacy-site-dot t-{{ r.tone }}"></span><span>{{ r.site }}</span></th>
+      {% for c in r.cells %}<td><a class="legacy-status status-{{ c.tone }}" href="{{ c.href }}" title="{{ c.c.ok|default:0 }} healthy / {{ c.c.total|default:0 }} monitored">{% if c.c %}{{ c.c.ok }}/{{ c.c.total }}{% else %}—{% endif %}</a></td>{% endfor %}
+      <td><span class="legacy-status{% if r.alerts.crit %} status-crit{% elif r.alerts.n %} status-warn{% else %} status-ok{% endif %}">{% if r.alerts.n %}{{ r.alerts.n }}{% else %}0{% endif %}</span></td>
+      <td class="legacy-last-update">{% if r.last_update %}<time datetime="{{ r.last_update|date:'c' }}" title="{{ r.last_update|date:'Y-m-d H:i:s' }}">{{ r.last_update|date:"M j, H:i:s" }}</time>{% else %}—{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endif %}
+

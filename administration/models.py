@@ -18,6 +18,8 @@ class IntegrationTest(models.Model):
         ("prometheus", "Prometheus"),
         ("notify", "Notifications"),
         ("stackstorm", "StackStorm"),
+        ("agent", "Ops Agent"),
+        ("backend_summary", "Legacy Neo4j dashboard"),
     ]
 
     tenant_key = models.CharField(max_length=100, db_index=True, default=settings.LINKEDEYE_TENANT)
@@ -55,3 +57,45 @@ class Heartbeat(models.Model):
     @property
     def age_seconds(self):
         return max(0, int((timezone.now() - self.seen_at).total_seconds()))
+
+
+class LoginThrottle(models.Model):
+    """Failed sign-in counter for one username or one client address, shared by every web worker (the default
+    LocMemCache is per process, so a cache-only counter would multiply the limit by the number of workers).
+
+    `failures` counts failures since `window_started_at`; once it reaches the limit the key is refused until
+    `locked_until`. See administration.services.login_throttle_*."""
+    KINDS = [("user", "Username"), ("ip", "Client address")]
+
+    kind = models.CharField(max_length=4, choices=KINDS)
+    value = models.CharField(max_length=191)
+    failures = models.PositiveIntegerField(default=0)
+    window_started_at = models.DateTimeField(default=timezone.now)
+    locked_until = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["kind", "value"], name="administration_loginthrottle_key_unique")]
+
+    def __str__(self):
+        return f"{self.kind}:{self.value} ({self.failures} failures)"
+
+
+class IntegrationSetting(models.Model):
+    """Per-tenant integration overrides edited from Administration › Integrations (falls back to env when unset)."""
+
+    tenant_key = models.CharField(max_length=100, db_index=True, default=settings.LINKEDEYE_TENANT)
+    slug = models.CharField(max_length=30, db_index=True)
+    values = models.JSONField(default=dict, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name="+")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["tenant_key", "slug"], name="administration_integrationsetting_unique"),
+        ]
+        ordering = ["slug"]
+
+    def __str__(self):
+        return f"{self.slug} ({self.tenant_key})"

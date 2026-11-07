@@ -47,8 +47,41 @@ def role_for(user, site_name=None):
 
 
 def can(user, perm, site_name=None):
+    """`perm` on one site; with site_name None, `perm` on ANY site (use it only to decide whether to show a
+    module or a button at all). To authorise a change to a record, use can_on() with the record's site."""
     role = role_for(user, site_name)
     return bool(role) and RANK[role] >= PERMS[perm]
+
+
+GLOBAL_SITES = ("", "All Sites")
+
+
+def is_global_site(site):
+    """True for records that belong to every site: site None, "" or "All Sites"."""
+    return site is None or (isinstance(site, str) and site.strip() in GLOBAL_SITES)
+
+
+def tenant_wide(user, perm):
+    """`perm` on every site: a membership without a site at that role, superuser, or the no-membership defaults."""
+    if not can(user, perm):
+        return False
+    if user.is_superuser:
+        return True
+    ms = _memberships(user)
+    if not ms:  # users without memberships hold their default role everywhere
+        return True
+    return any(m.site is None and RANK[m.role] >= PERMS[perm] for m in ms)
+
+
+def can_on(user, perm, site):
+    """`perm` on a record's site. Global records (site None, "" or "All Sites") and tenant-wide objects (pass
+    None) need the permission tenant-wide, so a role held on one site never counts for another site or for
+    every site. This is the check to use before changing anything."""
+    if not user or not user.is_authenticated:
+        return False
+    if is_global_site(site):
+        return tenant_wide(user, perm)
+    return can(user, perm, site)
 
 
 def visible_sites(user):

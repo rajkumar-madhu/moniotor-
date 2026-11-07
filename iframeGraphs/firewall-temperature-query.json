@@ -1,0 +1,3 @@
+{
+  "fortigate--Temperature-celsius-0-critical-1-fine": "fgHwSensorEntValue{instance='__FILTER__'}* on (fgHwSensorEntIndex) group_left(fgHwSensorEntName) max by (fgHwSensorEntIndex, fgHwSensorEntName) (fgHwSensorEntName{fgHwSensorEntName=~'.*Temperature.*'})"
+}

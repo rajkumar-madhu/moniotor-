@@ -20,11 +20,11 @@ from django.apps import apps
 from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from django.db import connection
-from django.db.models import Count
+from django.db import IntegrityError, connection, transaction
+from django.db.models import Count, Q
 from django.utils import timezone
 
-from .models import Heartbeat, IntegrationTest
+from .models import Heartbeat, IntegrationTest, LoginThrottle
 
 log = logging.getLogger("linkedeye.administration")
 
@@ -86,6 +86,94 @@ def generate_password(user=None, length=20):
         except ValidationError:
             continue
     raise RuntimeError("could not generate a password that passes the configured validators")
+
+
+# ------------------------------------------------------------------ sign-in throttling
+LOGIN_MAX_FAILURES_DEFAULT = 5          # per username
+LOGIN_MAX_FAILURES_PER_IP_DEFAULT = 20  # per client address
+LOGIN_WINDOW_MINUTES_DEFAULT = 15
+
+
+def _int_setting(name, default):
+    try:
+        v = int(_setting(name, default))
+    except (TypeError, ValueError):
+        return default
+    return v if v > 0 else default
+
+
+def login_limits():
+    """(max failures per username, max failures per client address, window) from LINKEDEYE_LOGIN_MAX_FAILURES,
+    LINKEDEYE_LOGIN_MAX_FAILURES_PER_IP and LINKEDEYE_LOGIN_WINDOW_MINUTES (settings or environment). The window
+    is both the counting window and the lock-out time."""
+    return (_int_setting("LOGIN_MAX_FAILURES", LOGIN_MAX_FAILURES_DEFAULT),
+            _int_setting("LOGIN_MAX_FAILURES_PER_IP", LOGIN_MAX_FAILURES_PER_IP_DEFAULT),
+            timedelta(minutes=_int_setting("LOGIN_WINDOW_MINUTES", LOGIN_WINDOW_MINUTES_DEFAULT)))
+
+
+def _throttle_keys(username, ip):
+    keys = []
+    name = str(username or "").strip().lower()[:191]
+    if name:
+        keys.append(("user", name))
+    if ip:
+        keys.append(("ip", str(ip)[:191]))
+    return keys
+
+
+def login_lock_remaining(username, ip, now=None):
+    """(kind, timedelta) of the longest active lock on the username or client address, or None."""
+    now = now or timezone.now()
+    keys = _throttle_keys(username, ip)
+    if not keys:
+        return None
+    q = None
+    for kind, value in keys:
+        q = Q(kind=kind, value=value) if q is None else q | Q(kind=kind, value=value)
+    row = LoginThrottle.objects.filter(q, locked_until__gt=now).order_by("-locked_until").first()
+    return (row.kind, row.locked_until - now) if row else None
+
+
+def login_failed(username, ip, now=None):
+    """Count one failed sign-in for the username and the client address. Returns the kinds that became locked by
+    this failure (e.g. ["user"]). Never raises: a throttle error must not turn a wrong password into a 500."""
+    now = now or timezone.now()
+    max_user, max_ip, window = login_limits()
+    locked = []
+    try:
+        for kind, value in _throttle_keys(username, ip):
+            limit = max_user if kind == "user" else max_ip
+            for _attempt in range(2):   # a concurrent first failure may win the insert; retry the update once
+                try:
+                    with transaction.atomic():
+                        row = LoginThrottle.objects.select_for_update().filter(kind=kind, value=value).first()
+                        if row is None:
+                            row = LoginThrottle.objects.create(kind=kind, value=value, failures=0, window_started_at=now)
+                        if row.window_started_at <= now - window:
+                            row.failures, row.window_started_at = 0, now
+                        row.failures += 1
+                        row.updated_at = now
+                        if row.failures >= limit and not (row.locked_until and row.locked_until > now):
+                            row.locked_until = now + window
+                            locked.append(kind)
+                        row.save(update_fields=["failures", "window_started_at", "locked_until", "updated_at"])
+                    break
+                except IntegrityError:
+                    continue
+        # housekeeping: forget counters that are neither counting nor locking any more
+        LoginThrottle.objects.filter(updated_at__lt=now - 2 * window).exclude(locked_until__gt=now).delete()
+    except Exception:
+        log.exception("could not record a failed sign-in")
+    return locked
+
+
+def login_succeeded(username):
+    """A successful sign-in clears the username's counter (the client address keeps its count)."""
+    try:
+        for kind, value in _throttle_keys(username, None):
+            LoginThrottle.objects.filter(kind=kind, value=value).delete()
+    except Exception:
+        log.exception("could not clear the sign-in throttle")
 
 
 # ------------------------------------------------------------------ helpers
@@ -153,19 +241,23 @@ def last_tests():
 # ------------------------------------------------------------------ integrations
 def integrations():
     """Status of every external integration. Never includes secret values."""
+    from administration import integration_config as ic
+
     tests = last_tests()
     items = []
 
-    prom = settings.PROMETHEUS_URL
+    prom = ic.prometheus_url()
     items.append({
         "key": "prometheus", "name": "Prometheus", "icon": "activity", "configured": bool(prom),
         "purpose": "Metrics, targets and alerts for the Monitoring pages.",
         "env": ["LINKEDEYE_PROMETHEUS_URL", "LINKEDEYE_PROMETHEUS_TIMEOUT"],
-        "details": [("Server", safe_url(prom) or "–"), ("Timeout", f"{settings.PROMETHEUS_TIMEOUT:g} s")],
+        "details": [("Server", safe_url(prom) or "–"), ("Timeout", f"{ic.prometheus_timeout():g} s"),
+                    ("Source", "Console" if ic.has_override("prometheus") else "Environment")],
         "testable": True, "test_label": "Run 'up' query", "last_test": tests.get("prometheus"),
+        "editable": True,
     })
 
-    am = getattr(settings, "ALERTMANAGER_WEBHOOK_TOKEN", "")
+    am = ic.alertmanager_webhook_token()
     am_url = _reverse("telemetry:alertmanager_webhook") or "/api/v1/alertmanager/"
     last_alert = _latest_event(source="telemetry", kind="alert")
     items.append({
@@ -176,9 +268,10 @@ def integrations():
                     ("Last alert received", last_alert)],
         "testable": False, "last_test": None,
         "warning": bool(am) and len(am) < 24,
+        "editable": True,
     })
 
-    li = getattr(settings, "LOG_INGEST_TOKEN", "")
+    li = ic.log_ingest_token()
     li_url = _reverse("observe:log_ingest") or "/api/v1/logs/"
     last_log = _latest_event(source="observe", kind="log")
     items.append({
@@ -189,20 +282,23 @@ def integrations():
                     ("Last error-level log event", last_log)],
         "testable": False, "last_test": None,
         "warning": bool(li) and len(li) < 24,
+        "editable": True,
     })
 
-    st2 = getattr(settings, "STACKSTORM_URL", "")
+    st2 = ic.stackstorm_url()
     items.append({
         "key": "stackstorm", "name": "StackStorm", "icon": "bot", "configured": bool(st2),
         "purpose": "Automation runbooks and event workflows trigger StackStorm webhooks.",
         "env": ["LINKEDEYE_STACKSTORM_URL", "LINKEDEYE_STACKSTORM_API_KEY"],
         "details": [("Webhook URL", safe_url(st2) or "–"),
-                    ("API key", "Set" if getattr(settings, "STACKSTORM_API_KEY", "") else "Not set")],
+                    ("API key", "Set" if ic.stackstorm_api_key() else "Not set"),
+                    ("Source", "Console" if ic.has_override("stackstorm") else "Environment")],
         "testable": True, "test_label": "Ping", "last_test": tests.get("stackstorm"),
+        "editable": True,
     })
 
-    hooks = list(getattr(settings, "NOTIFY_WEBHOOK_URLS", []) or [])
-    sev = ", ".join(getattr(settings, "NOTIFY_SEVERITIES", []) or []) or "none"
+    hooks = ic.notify_webhook_urls()
+    sev = ", ".join(ic.notify_severities()) or "none"
     items.append({
         "key": "webhooks", "name": "Notification webhooks", "icon": "share", "configured": bool(hooks),
         "purpose": "JSON POST for every critical/warning event (Slack, Teams, Apprise, StackStorm…).",
@@ -212,9 +308,10 @@ def integrations():
                     ("Severities", sev)],
         "testable": True, "test_key": "notify", "test_label": "Send test notification",
         "last_test": tests.get("notify"),
+        "editable": True,
     })
 
-    emails = list(getattr(settings, "NOTIFY_EMAILS", []) or [])
+    emails = ic.notify_emails()
     backend = getattr(settings, "EMAIL_BACKEND", "")
     items.append({
         "key": "email", "name": "E-mail notifications", "icon": "mail", "configured": bool(emails),
@@ -223,30 +320,83 @@ def integrations():
                 "LINKEDEYE_EMAIL_HOST_PASSWORD", "LINKEDEYE_EMAIL_USE_TLS", "LINKEDEYE_DEFAULT_FROM_EMAIL"],
         "details": [("Recipients", f"{len(emails)} address(es)" if emails else "None"),
                     ("Backend", backend.rsplit(".", 2)[-2] if backend.count(".") >= 2 else backend or "–"),
-                    ("SMTP server", f"{getattr(settings, 'EMAIL_HOST', '')}:{getattr(settings, 'EMAIL_PORT', '')}"),
-                    ("TLS", "On" if getattr(settings, "EMAIL_USE_TLS", False) else "Off"),
-                    ("SMTP password", "Set" if getattr(settings, "EMAIL_HOST_PASSWORD", "") else "Not set"),
-                    ("From", getattr(settings, "DEFAULT_FROM_EMAIL", "") or "–")],
+                    ("SMTP server", f"{ic.email_host()}:{ic.email_port()}"),
+                    ("TLS", "On" if ic.email_use_tls() else "Off"),
+                    ("SMTP password", "Set" if ic.email_host_password() else "Not set"),
+                    ("From", ic.default_from_email() or "–"),
+                    ("Source", "Console" if ic.has_override("email") else "Environment")],
         "testable": True, "test_key": "notify", "test_label": "Send test notification",
         "last_test": tests.get("notify"),
+        "editable": True,
     })
 
-    nag = str(_setting("NAGIOS_URL") or "").strip()
+    agent_key = getattr(settings, "AGENT_API_KEY", "") or ""
+    items.append({
+        "key": "agent", "name": "Ops Agent", "icon": "bot", "configured": bool(agent_key.strip()),
+        "purpose": "In-console assistant over live checks, alerts, tickets and runbooks (OpenAI-compatible).",
+        "env": ["LINKEDEYE_AGENT_API_KEY", "LINKEDEYE_AGENT_BASE_URL", "LINKEDEYE_AGENT_MODEL",
+                "LINKEDEYE_AGENT_EMBEDDING_MODEL", "LINKEDEYE_AGENT_TIMEOUT"],
+        "details": [("API key", "Set" if agent_key.strip() else "Not set"),
+                    ("Model", getattr(settings, "AGENT_MODEL", "") or "–"),
+                    ("Endpoint", safe_url(getattr(settings, "AGENT_BASE_URL", "")) or "–")],
+        "testable": True, "test_label": "Ping the model", "last_test": tests.get("agent"),
+    })
+
+    nag = ic.nagios_url()
     items.append({
         "key": "nagios", "name": "Nagios", "icon": "server", "configured": bool(nag),
         "purpose": "Host and service status for Monitoring › Nagios Status (statusjson.cgi).",
         "env": ["LINKEDEYE_NAGIOS_URL", "LINKEDEYE_NAGIOS_USER", "LINKEDEYE_NAGIOS_PASSWORD"],
         "details": [("Server", safe_url(nag) or "–"),
-                    ("User", "Set" if _setting("NAGIOS_USER") else "Not set"),
-                    ("Password", "Set" if _setting("NAGIOS_PASSWORD") else "Not set")],
+                    ("User", "Set" if ic.nagios_user() else "Not set"),
+                    ("Password", "Set" if ic.nagios_password() else "Not set"),
+                    ("Source", "Console" if ic.has_override("nagios") else "Environment")],
         "testable": False, "last_test": None,
+        "editable": True,
     })
     channels = notify_channels()
     for it in items:
         it.setdefault("test_key", it["key"])
         it.setdefault("warning", False)
+        it.setdefault("editable", False)
         it["test_enabled"] = it["testable"] and (channels > 0 if it["test_key"] == "notify" else it["configured"])
     return items
+
+
+def integration_form_initial(slug):
+    from administration import integration_config as ic
+
+    data = ic.values_for_form(slug)
+    if slug == "webhooks":
+        urls = ic.notify_webhook_urls() if ic.has_override("webhooks") else []
+        return {"urls": "\n".join(urls), "severities": ", ".join(ic.notify_severities())}
+    if slug == "email":
+        base = {
+            "email_use_tls": ic.email_use_tls(),
+            "default_from_email": ic.default_from_email(),
+        }
+        if ic.has_override("email"):
+            return {
+                **data,
+                **base,
+                "recipients": "\n".join(ic.notify_emails()),
+                "email_host": ic.email_host(),
+                "email_port": ic.email_port(),
+                "email_host_user": ic.email_host_user(),
+            }
+        return {**data, **base, "email_port": ic.email_port()}
+    if slug == "prometheus":
+        data.setdefault("timeout", ic.prometheus_timeout())
+        if ic.has_override("prometheus") and not data.get("url"):
+            data["url"] = ic.prometheus_url() or ""
+    if slug == "stackstorm" and ic.has_override("stackstorm") and not data.get("url"):
+        data["url"] = ic.stackstorm_url() or ""
+    if slug == "nagios":
+        data.setdefault("timeout", ic.nagios_timeout())
+        if ic.has_override("nagios"):
+            data.setdefault("url", ic.nagios_url() or "")
+            data.setdefault("user", ic.nagios_user())
+    return data
 
 
 def _record(request, integration, ok, message, started):
@@ -278,7 +428,9 @@ def test_prometheus():
 
 
 def notify_channels():
-    return len(getattr(settings, "NOTIFY_WEBHOOK_URLS", []) or []) + (1 if getattr(settings, "NOTIFY_EMAILS", []) else 0)
+    from administration import integration_config as ic
+
+    return len(ic.notify_webhook_urls()) + (1 if ic.notify_emails() else 0)
 
 
 def test_notify(actor="system"):
@@ -289,8 +441,10 @@ def test_notify(actor="system"):
     channels = notify_channels()
     if not channels:
         return False, "No notification channel is configured (set LINKEDEYE_NOTIFY_WEBHOOK_URLS or LINKEDEYE_NOTIFY_EMAILS)."
-    if "warning" not in (getattr(settings, "NOTIFY_SEVERITIES", []) or []):
-        return False, "Warning events are not delivered: add 'warning' to LINKEDEYE_NOTIFY_SEVERITIES."
+    from administration import integration_config as ic
+
+    if "warning" not in ic.notify_severities():
+        return False, "Warning events are not delivered: add 'warning' to notification severities."
     ev = Event(tenant_key=tenant(), source="administration", kind="test", severity="warning",
                title="LinkedEye test notification",
                message=f"This is a test notification sent by {actor} from Administration › Integrations. No action is needed.",
@@ -314,15 +468,21 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 def test_stackstorm():
     """GET the configured StackStorm URL (no redirects, short timeout). Returns (ok, message). Never raises."""
-    url = (getattr(settings, "STACKSTORM_URL", "") or "").strip()
+    try:  # the same URL builder the automation module uses for triggers
+        from automation.services import stackstorm_endpoint
+        url = stackstorm_endpoint()
+    except ImportError:  # pragma: no cover - automation not installed
+        url = (getattr(settings, "STACKSTORM_URL", "") or "").strip()
     if not url:
         return False, "StackStorm is not configured (set LINKEDEYE_STACKSTORM_URL)."
     p = urlsplit(url)
     if p.scheme not in ("http", "https") or not p.hostname:
         return False, "LINKEDEYE_STACKSTORM_URL must be an http(s) URL."
+    from administration import integration_config as ic
+
     headers = {"Accept": "application/json", "User-Agent": "LinkedEye-Admin/1.0"}
-    if getattr(settings, "STACKSTORM_API_KEY", ""):
-        headers["St2-Api-Key"] = settings.STACKSTORM_API_KEY
+    if ic.stackstorm_api_key():
+        headers["St2-Api-Key"] = ic.stackstorm_api_key()
     opener = urllib.request.build_opener(_NoRedirect)
     req = urllib.request.Request(url, headers=headers, method="GET")
     try:
@@ -343,7 +503,16 @@ def test_stackstorm():
         return False, f"Unexpected error: {e.__class__.__name__}"
 
 
-TESTS = {"prometheus": test_prometheus, "notify": None, "stackstorm": test_stackstorm}
+def test_agent():
+    """Tiny chat completion against the configured model. Never raises; never returns the API key."""
+    try:
+        from agent.llm import ping
+    except ImportError:  # pragma: no cover - agent not installed
+        return False, "The Ops Agent module is not installed."
+    return ping()
+
+
+TESTS = {"prometheus": test_prometheus, "notify": None, "stackstorm": test_stackstorm, "agent": test_agent}
 
 
 def run_test(request, key):
@@ -589,6 +758,89 @@ def site_usage():
     return usage
 
 
+# Every model that stores a site *name* (not a foreign key): (app label, model, field, label shown to admins).
+# core.Membership points at core.Site by foreign key, so it follows a rename by itself and is not listed.
+SITE_NAME_FIELDS = [
+    ("urlchecker", "UrlCheck", "site", "URL checks"),
+    ("domainmonitor", "Domain", "site_key", "Domains"),
+    ("tcpcheck", "TcpCheck", "site", "TCP checks"),
+    ("network", "Device", "site", "Network devices"),
+    ("network", "DiscoveryRun", "site", "Discovery runs"),
+    ("cmdb", "ConfigurationItem", "site", "Configuration items"),
+    ("observe", "Exporter", "site", "Exporters"),
+    ("observe", "LogEntry", "site", "Log entries"),
+    ("telemetry", "Alert", "site", "Alerts"),
+    ("servicedesk", "Ticket", "site", "Tickets"),
+    ("automation", "Runbook", "site", "Runbooks"),
+    ("automation", "Rule", "site", "Workflow rules"),
+    ("automation", "Execution", "site", "Automation executions"),
+    ("bodeod", "Mode", "site", "BOD/EOD modes"),
+    ("reports", "ScheduledReport", "site", "Scheduled reports"),
+    ("reports", "ReportRun", "site", "Report runs"),
+    ("core", "Event", "site", "Events"),
+    ("agent", "Thread", "site", "Ops Agent threads"),
+    ("agent", "KnowledgeChunk", "site", "Ops Agent knowledge"),
+]
+
+
+def _site_name_querysets(name):
+    """(label, queryset of this tenant's records whose site field equals `name`, field) for installed models."""
+    t = tenant()
+    for app_label, model_name, field, label in SITE_NAME_FIELDS:
+        try:
+            model = apps.get_model(app_label, model_name)
+            model._meta.get_field(field)
+        except LookupError:
+            continue
+        except Exception:  # FieldDoesNotExist: the module changed shape; skip rather than break the admin page
+            continue
+        qs = model._default_manager.filter(**{field: name})
+        if any(f.name == "tenant_key" for f in model._meta.get_fields()):
+            qs = qs.filter(tenant_key=t)
+        yield label, qs, field
+
+
+def _templates_for_site(name):
+    """automation.Template rows whose default values name the site (stored inside a JSON field)."""
+    try:
+        Template = apps.get_model("automation", "Template")
+    except LookupError:
+        return []
+    return [tpl for tpl in Template.objects.filter(tenant_key=tenant())
+            if isinstance(tpl.fields, dict) and tpl.fields.get("site") == name]
+
+
+def site_references(name):
+    """[(label, count)] of records in every module that store the site name `name` (only non-zero counts)."""
+    out = []
+    for label, qs, _field in _site_name_querysets(name):
+        n = qs.count()
+        if n:
+            out.append((label, n))
+    n = len(_templates_for_site(name))
+    if n:
+        out.append(("Automation templates", n))
+    return out
+
+
+def rename_site_references(old, new):
+    """Point every record that stores the site name `old` at `new`, in one transaction. Returns [(label, count)]
+    of updated rows (non-zero only). Run it in the same transaction that renames the core.Site row."""
+    out = []
+    with transaction.atomic():
+        for label, qs, field in _site_name_querysets(old):
+            n = qs.update(**{field: new})
+            if n:
+                out.append((label, n))
+        tpls = _templates_for_site(old)
+        for tpl in tpls:
+            tpl.fields = {**tpl.fields, "site": new}
+            tpl.save(update_fields=["fields"])
+        if tpls:
+            out.append(("Automation templates", len(tpls)))
+    return out
+
+
 def unmapped_site_names():
     """Site names used by URL checks / domains that have no core.Site record yet."""
     from core.models import Site
@@ -606,3 +858,106 @@ def bootstrap_sites():
     call_command("bootstrap_sites", stdout=out)
     after = set(Site.objects.filter(tenant_key=tenant()).values_list("name", flat=True))
     return sorted(after - before), out.getvalue().strip()
+
+
+def _client_qs():
+    from core.models import Client
+    return Client.objects.filter(tenant_key=tenant())
+
+
+def bootstrap_clients():
+    """Create client records for every distinct service-desk client name not yet registered."""
+    from django.utils.text import slugify
+
+    from core.models import Client
+    from servicedesk.models import Ticket
+
+    t = tenant()
+    known = {n.lower() for n in _client_qs().values_list("name", flat=True)}
+    names = sorted({n.strip() for n in Ticket.objects.filter(tenant_key=t).exclude(client="").values_list("client", flat=True)
+                    if n and n.strip()})
+    created = []
+    for name in names:
+        if name.lower() in known:
+            continue
+        base = slugify(name)[:50] or "client"
+        code = base
+        n = 2
+        while _client_qs().filter(code=code).exists():
+            suffix = f"-{n}"
+            code = f"{base[:50 - len(suffix)]}{suffix}"
+            n += 1
+        Client.objects.create(tenant_key=t, name=name, code=code)
+        known.add(name.lower())
+        created.append(name)
+    return created
+
+
+def client_wise_rows(status=None):
+    """Roll-up counts per client from live module data (sites, tickets, checks, devices, domains)."""
+    from django.db.models import Q
+
+    from core.models import Client, Site
+    from domainmonitor.models import Domain
+    from network.models import Device
+    from servicedesk import workflow as wf
+    from servicedesk.models import Ticket
+    from urlchecker.models import UrlCheck
+
+    t = tenant()
+    clients = list(_client_qs().prefetch_related("sites").order_by("name"))
+    if status in dict(Client.STATUSES):
+        clients = [c for c in clients if c.status == status]
+
+    site_by_client = {}
+    for site in Site.objects.filter(tenant_key=t).select_related("client"):
+        if site.client_id:
+            site_by_client.setdefault(site.client_id, []).append(site.name)
+
+    open_incidents = Ticket.objects.filter(tenant_key=t, kind="incident").exclude(status__in=wf.DONE)
+    url_qs = UrlCheck.objects.filter(tenant_key=t, enabled=True)
+    dev_qs = Device.objects.filter(tenant_key=t)
+    dom_qs = Domain.objects.filter(tenant_key=t, is_active=True)
+
+    rows = []
+    for client in clients:
+        sites = site_by_client.get(client.pk, [])
+        site_q = Q(site__in=sites) if sites else Q(pk__in=[])
+        inc = open_incidents.filter(Q(client=client.name) | site_q)
+        rows.append({
+            "client": client,
+            "sites": len(sites),
+            "open_incidents": inc.count(),
+            "open_major": inc.filter(priority__in=("P1", "P2")).count(),
+            "urls": url_qs.filter(site_q).count() if sites else 0,
+            "urls_down": url_qs.filter(site_q, last_status__in=("down", "degraded")).count() if sites else 0,
+            "devices": dev_qs.filter(site_q).count() if sites else 0,
+            "devices_down": dev_qs.filter(site_q, status="down").count() if sites else 0,
+            "devices_by_type": dict(dev_qs.filter(site_q).values_list("device_type").annotate(n=Count("id")).order_by())
+                               if sites else {},
+            "domains": dom_qs.filter(site_key__in=sites).count() if sites else 0,
+            "domains_issue": dom_qs.filter(site_key__in=sites).filter(
+                Q(status="down") | Q(ssl_status__in=("Expiring", "Expired", "Invalid")) | Q(dns_status="Failed")
+            ).count() if sites else 0,
+        })
+
+    unassigned_sites = list(Site.objects.filter(tenant_key=t, client__isnull=True).values_list("name", flat=True))
+    if unassigned_sites and status is None:
+        site_q = Q(site__in=unassigned_sites)
+        inc = open_incidents.filter(site_q)
+        rows.append({
+            "client": None,
+            "sites": len(unassigned_sites),
+            "open_incidents": inc.count(),
+            "open_major": inc.filter(priority__in=("P1", "P2")).count(),
+            "urls": url_qs.filter(site_q).count(),
+            "urls_down": url_qs.filter(site_q, last_status__in=("down", "degraded")).count(),
+            "devices": dev_qs.filter(site_q).count(),
+            "devices_down": dev_qs.filter(site_q, status="down").count(),
+            "devices_by_type": dict(dev_qs.filter(site_q).values_list("device_type").annotate(n=Count("id")).order_by()),
+            "domains": dom_qs.filter(site_key__in=unassigned_sites).count(),
+            "domains_issue": dom_qs.filter(site_key__in=unassigned_sites).filter(
+                Q(status="down") | Q(ssl_status__in=("Expiring", "Expired", "Invalid")) | Q(dns_status="Failed")
+            ).count(),
+        })
+    return rows

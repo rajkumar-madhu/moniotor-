@@ -1,7 +1,14 @@
 """Formatting filters for the network pages."""
+import re
+
 from django import template
 
 register = template.Library()
+
+# First utilization % in title/message (e.g. 82%, 71.5 percent).
+_PCT_RE = re.compile(r"\b(\d{1,2}(?:\.\d+)?|100(?:\.0+)?)\s*(?:%|(?:percent)\b)", re.I)
+# Standalone high util phrases
+_UTIL_WORD = re.compile(r"\butili[sz]ation\b|\busage\b|\bload\b|\bcpu\b|\bmemory\b|\bdisk\b", re.I)
 
 
 @register.filter
@@ -51,6 +58,19 @@ def speed(value):
 
 
 @register.filter
+def per_s(value):
+    """Errors / discards per second ('–' when not collected)."""
+    if value is None or value == "":
+        return "–"
+    v = float(value)
+    if v == 0:
+        return "0/s"
+    if v < 0.01:
+        return "<0.01/s"
+    return f"{v:.2f}/s".replace(".00/s", "/s") if v < 10 else f"{v:,.0f}/s"
+
+
+@register.filter
 def latency(value):
     if value is None or value == "":
         return "–"
@@ -76,6 +96,55 @@ def avail_tone(value):
 def if_state(value):
     return {"up": "up", "down": "down", "lowerLayerDown": "down", "notPresent": "unknown", "dormant": "paused",
             "testing": "warning"}.get(value or "", "unknown")
+
+
+@register.filter
+def event_util_row_class(event):
+    """Row class for events that carry a utilization % (Prometheus/other alerts).
+
+    ≥80% → red, 70–79% → warning, &lt;70% → green.
+    Uses ``event.data`` keys (utilization, util, usage, cpu, memory, mem, disk) or
+    the first ``NN%`` in title/message when it looks utilization-related.
+    """
+    pct = _util_percent_from_event(event)
+    if pct is None:
+        return ""
+    if pct >= 80:
+        return "nw-ev-hot"
+    if pct >= 70:
+        return "nw-ev-warm"
+    return "nw-ev-cool"
+
+
+def _util_percent_from_event(event):
+    data = getattr(event, "data", None) or {}
+    if isinstance(data, dict):
+        for key in ("utilization", "util", "usage", "cpu", "memory", "mem", "disk"):
+            raw = data.get(key)
+            if raw is None:
+                continue
+            try:
+                v = float(raw)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= v <= 1:
+                v *= 100
+            if 0 <= v <= 100:
+                return v
+    title = (getattr(event, "title", None) or "") + " "
+    message = getattr(event, "message", None) or ""
+    text = title + message
+    m = _PCT_RE.search(text)
+    if not m:
+        return None
+    try:
+        v = float(m.group(1))
+    except ValueError:
+        return None
+    window = text[max(0, m.start() - 48) : m.end() + 48]
+    if _UTIL_WORD.search(window) or _UTIL_WORD.search(text):
+        return v
+    return None
 
 
 @register.simple_tag

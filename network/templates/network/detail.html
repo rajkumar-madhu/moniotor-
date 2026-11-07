@@ -1,24 +1,50 @@
 {% extends "core/base.html" %}{% load le static network_tags %}
 {% block title %}{{ device.name }}{% endblock %}
 {% block page_css %}<link rel="stylesheet" href="{% static 'network/page.css' %}">{% endblock %}
-{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'network:all' %}">Network Devices</a>{% icon "chevron-right" 14 %}<a href="{{ device.type_list_url }}">{{ device.type_plural }}</a>{% if device.vendor %}{% icon "chevron-right" 14 %}<a href="{{ device.type_list_url }}?vendor={{ device.vendor|urlencode }}">{{ device.vendor }}</a>{% endif %}{% icon "chevron-right" 14 %}<span>{{ device.name }}</span></nav>{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'network:all' %}">Network Devices</a>{% icon "chevron-right" 14 %}<a href="{{ device.type_list_url }}">{{ device.type_plural }}</a>{% if device.vendor %}{% icon "chevron-right" 14 %}<a href="{{ device.type_list_url }}?vendor={{ device.vendor|urlencode }}">{{ device.vendor }}</a>{% endif %}{% icon "chevron-right" 14 %}<span>{% if is_vm %}VM details{% else %}{{ device.name }}{% endif %}</span></nav>{% endblock %}
 {% block content %}
-<div class="pg-network nw-detail">
+<div class="pg-network nw-detail{% if is_vm %} nw-vm{% endif %}">
 <div class="head nw-head">
-  <div class="nw-device" aria-hidden="true"><span class="nw-device-lbl">{{ device.vendor|default:device.get_device_type_display }}</span><span class="nw-device-box">{% icon device.type_icon 24 %}<i></i><i></i><i></i><i></i></span></div>
+  <div class="nw-device nw-device-hero{% if device.product_image_url %} has-img{% endif %}" {% if not device.product_image_url %}aria-hidden="true"{% endif %}>
+    <span class="nw-device-lbl">{{ device.vendor|default:device.get_device_type_display }}</span>
+    {% if device.product_image_url %}
+    {% if device.product_page_url %}
+    <a class="nw-device-thumb" href="{{ device.product_page_url }}" target="_blank" rel="noopener noreferrer" title="Open vendor product page" aria-label="Product photo — open datasheet">
+      <img src="{{ device.product_image_url }}" alt="" width="72" height="48" loading="lazy" decoding="async">
+    </a>
+    {% else %}
+    <a class="nw-device-thumb" href="{{ device.product_image_url }}" target="_blank" rel="noopener noreferrer" title="Open full image" aria-label="Product photo — expand">
+      <img src="{{ device.product_image_url }}" alt="" width="72" height="48" loading="lazy" decoding="async">
+    </a>
+    {% endif %}
+    {% else %}
+    <span class="nw-device-box">{% icon device.type_icon 24 %}<i></i><i></i><i></i><i></i></span>
+    {% endif %}
+  </div>
   <div class="nw-title">
-    <h1>{{ device.name }} {% badge device.status %}{% if device.is_example %} <span class="sample-pill" title="Created by manage.py seed_network">Example record</span>{% endif %}{% if not device.enabled %} <span class="chip mute">Monitoring disabled</span>{% endif %}</h1>
+    <h1>{{ device.name }} {% if is_vm %}{% badge device.status vm_power %}{% else %}{% badge device.status %}{% endif %}{% if device.is_example %} <span class="sample-pill" title="Created by manage.py seed_network">Example record</span>{% endif %}{% if not device.enabled %} <span class="chip mute">Monitoring disabled</span>{% endif %}{% if is_vm and sample_mode %} <span class="sample-pill">Sample data</span>{% endif %}</h1>
+    {% if is_vm %}
+    <p><span class="mi">{{ device.vendor|default:"Hypervisor" }}{% if device.model %} {{ device.model }}{% endif %}{% if device.firmware %} · {{ device.firmware }}{% endif %}</span><span class="sep">|</span><wbr><span class="mi mono">{{ device.mgmt_ip }}</span><span class="sep">|</span><wbr><span class="mi">Site: {{ device.site|default:"–" }}</span><span class="sep">|</span><wbr><span class="mi">Uptime: {% if device.uptime_seconds is not None %}{{ device.uptime_display }}{% elif sample_mode %}27 days, 8 hours{% else %}<span class="t-mute" title="{{ metrics_msg }}">–</span>{% endif %}</span></p>
+    <p><span class="mi">Cluster: {{ vm_meta.cluster|default:"–" }}</span><span class="sep">|</span><wbr><span class="mi">Host: {{ vm_meta.host|default:"–" }}</span><span class="sep">|</span><wbr><span class="mi">Datastore: {{ vm_meta.datastore|default:"–" }}</span><span class="sep">|</span><wbr><span class="mi">OS: {{ vm_meta.os|default:device.firmware|default:"–" }}</span><span class="sep">|</span><wbr><span class="mi">Environment: {{ device.get_environment_display|default:"–" }}</span></p>
+    {% else %}
     <p><span class="mi">{{ device.model|default:device.get_device_type_display }}</span><span class="sep">|</span><wbr><span class="mi mono">{{ device.mgmt_ip }}</span><span class="sep">|</span><wbr><span class="mi">Site: {{ device.site|default:"–" }}</span><span class="sep">|</span><wbr><span class="mi">Uptime: {% if device.uptime_seconds is not None %}{{ device.uptime_display }}{% else %}<span class="t-mute" title="{{ metrics_msg }}">–</span>{% endif %}</span></p>
     <p><span class="mi">SN: {{ device.serial|default:"–" }}</span><span class="sep">|</span><wbr><span class="mi">Firmware: {{ device.firmware|default:"–" }}</span><span class="sep">|</span><wbr><span class="mi">Role: {{ device.role|default:"–" }}</span><span class="sep">|</span><wbr><span class="mi">Environment: {{ device.get_environment_display|default:"–" }}</span></p>
+    {% endif %}
   </div>
   <div class="actions nw-actions">
     <div class="nw-btns">
-      {% if can_operate %}<a class="btn" href="{% url 'network:edit' device.pk %}">{% icon "edit" 16 %}Edit Device</a>
-      <a class="btn ghost-primary" href="{{ discovery_url }}">{% icon "refresh" 16 %}Run Discovery</a>{% endif %}
+      {% if can_operate %}<a class="btn" href="{% url 'network:edit' device.pk %}">{% icon "edit" 16 %}{% if is_vm %}Edit VM{% else %}Edit Device{% endif %}</a>
+      {% if not is_vm %}<a class="btn ghost-primary" href="{{ discovery_url }}">{% icon "refresh" 16 %}Run Discovery</a>{% endif %}{% endif %}
+      {% if is_vm %}
+      <button class="btn" type="button" disabled title="Hypervisor control is read-only">{% icon "terminal" 16 %}Open Console</button>
+      <button class="btn" type="button" disabled title="Hypervisor control is read-only">{% icon "cloud" 16 %}VMware</button>
+      <button class="btn" type="button" disabled title="Hypervisor control is read-only">{% icon "terminal" 16 %}Linux</button>
+      {% endif %}
       {% if topology_url %}<a class="btn" href="{{ topology_url }}">{% icon "share" 16 %}Open in Topology</a>{% endif %}
       {% if can_operate and device.enabled %}<form method="post" action="{% url 'network:check' device.pk %}">{% csrf_token %}<button class="btn" type="submit">{% icon "radar" 16 %}Check now</button></form>{% endif %}
       <details class="row-menu nw-more"><summary class="btn" aria-label="More actions">{% icon "more" 16 %}More</summary>
         <div class="menu-pop">
+          {% if is_vm %}<a href="?tab=overview&amp;sample=1">{% icon "activity" 14 %}Show sample guest metrics</a>{% endif %}
           <a href="{% url 'network:interfaces_export' device.pk %}">{% icon "download" 14 %}Export interfaces (CSV)</a>
           <a href="?tab=events">{% icon "file" 14 %}Check history</a>
           {% if can_admin %}<form method="post" action="{% url 'network:delete' device.pk %}" data-confirm="Delete {{ device.name }} with its check history and interfaces?">{% csrf_token %}<button class="danger" type="submit">{% icon "trash" 14 %}Delete device</button></form>{% endif %}
@@ -28,27 +54,70 @@
       <span class="nw-tag tone-ink">{% icon device.type_icon 13 %}{{ device.get_device_type_display }}</span>
       {% if device.vendor %}<span class="nw-tag tone-crit">{% icon "grid" 13 %}{{ device.vendor }}</span>{% endif %}
       <span class="nw-tag tone-ok">{% icon "radar" 13 %}TCP {{ device.check_port }}</span>
-      {% if device.prometheus_instance %}<span class="nw-tag tone-ok">{% icon "activity" 13 %}SNMP</span>{% endif %}
+      {% if device.prometheus_instance %}{% if prometheus_on %}<span class="nw-tag tone-ok">{% icon "activity" 13 %}{% if is_vm %}Guest metrics{% else %}SNMP{% endif %}</span>
+      {% else %}<span class="nw-tag tone-warn" title="Set LINKEDEYE_PROMETHEUS_URL (Administration → Integrations) so charts can load from Prometheus.">{% icon "activity" 13 %}Metrics (Prometheus offline)</span>{% endif %}{% endif %}
       {% for t in device.tag_list %}<span class="nw-tag">{% icon "tag" 13 %}{{ t }}</span>{% endfor %}
       {% if device.environment %}<span class="nw-tag tone-info">{% icon "globe" 13 %}{{ device.get_environment_display }}</span>{% endif %}
     </div>
   </div>
 </div>
 
-<nav class="tabs nw-tabs" aria-label="Device sections">
-  {% for key, label in tabs %}<a href="?tab={{ key }}" class="{% if tab == key %}on{% endif %}"{% if tab == key %} aria-current="page"{% endif %}>{{ label }}{% if key == "interfaces" and if_total %} <small>{{ if_total }}</small>{% endif %}</a>{% endfor %}
+<section class="nw-head-stats" aria-label="Key facts">
+  <div class="nw-head-stat"><span class="nw-head-stat-lbl">Last seen</span><span class="nw-head-stat-val" title="{{ device.last_seen|default_if_none:'' }}">{% if device.last_seen %}{{ device.last_seen|short_dt }} <span class="nw-head-stat-ago">({{ device.last_seen|ago }})</span>{% else %}<span class="t-mute">—</span>{% endif %}</span></div>
+  <div class="nw-head-stat"><span class="nw-head-stat-lbl">Last check</span><span class="nw-head-stat-val" title="{{ device.last_checked_at|default_if_none:'' }}">{% if device.last_checked_at %}{{ device.last_checked_at|short_dt }} <span class="nw-head-stat-ago">({{ device.last_checked_at|ago }})</span>{% else %}<span class="t-mute">—</span>{% endif %}</span></div>
+  <div class="nw-head-stat"><span class="nw-head-stat-lbl">Added</span><span class="nw-head-stat-val" title="{{ device.created_at|default_if_none:'' }}">{{ device.created_at|short_dt }} <span class="nw-head-stat-ago">({{ device.created_at|ago }})</span></span></div>
+  <div class="nw-head-stat"><span class="nw-head-stat-lbl">{% if is_vm %}Guest metrics{% else %}SNMP metrics{% endif %}</span><span class="nw-head-stat-val" title="{{ device.metrics_updated_at|default_if_none:'' }}{% if device.metrics_error %} · {{ device.metrics_error }}{% endif %}">{% if device.metrics_updated_at %}{{ device.metrics_updated_at|short_dt }} <span class="nw-head-stat-ago">({{ device.metrics_updated_at|ago }})</span>{% elif not device.prometheus_instance %}<span class="t-mute">No instance</span>{% else %}<span class="t-mute">—</span>{% endif %}</span></div>
+  {% if device.contact %}<div class="nw-head-stat nw-head-stat-wide"><span class="nw-head-stat-lbl">Contact</span><span class="nw-head-stat-val">{{ device.contact }}</span></div>{% endif %}
+  {% if device.description %}<div class="nw-head-stat nw-head-stat-wide"><span class="nw-head-stat-lbl">Notes</span><span class="nw-head-stat-val nw-head-stat-desc">{{ device.description|truncatewords:24 }}</span></div>{% endif %}
+</section>
+
+{% if not prometheus_on %}
+<div class="nw-alert crit nw-prom-bar" role="status">{% icon "activity" 16 %}<span><b>Prometheus is not connected.</b> Device graphs and SNMP/guest series need <code>LINKEDEYE_PROMETHEUS_URL</code> (or the site integration). LinkedEye is not Netdata Cloud—metrics come from your Prometheus scrape targets.{% if can_admin %} <a href="{% url 'administration:integrations' %}">Open Integrations</a>{% endif %} · <a href="{% url 'telemetry:prometheus' %}">Prometheus targets</a></span></div>
+{% endif %}
+
+{% if is_vm %}
+{% include "network/_detail_kpis_vm.html" %}
+{% include "network/_detail_charts_vm.html" %}
+{% else %}
+{% include "network/_detail_kpis_network.html" %}
+{% include "network/_detail_charts_network.html" %}
+{% endif %}
+
+<nav class="tabs nw-tabs{% if is_vm %} nw-vm-tabs{% endif %}" aria-label="Device sections">
+  {% for key, label in tabs %}<a href="?tab={{ key }}{% if sample_mode and is_vm %}&amp;sample=1{% endif %}" class="{% if tab == key %}on{% endif %}"{% if tab == key %} aria-current="page"{% endif %}>{{ label }}{% if key == "interfaces" and if_total %} <small>{{ if_total }}</small>{% endif %}{% if key == "events" and events|length and tab != "events" %} <small>{{ events|length }}</small>{% endif %}</a>{% endfor %}
 </nav>
 
 {% if device.last_error and device.status != "up" %}<div class="nw-alert {% if device.status == 'down' %}crit{% else %}mute{% endif %}">{% icon "alert" 16 %}<span><b>Last check:</b> {{ device.last_error }}{% if device.last_checked_at %} ({{ device.last_checked_at|ago }}){% endif %}</span></div>{% endif %}
 
-{% if tab == "overview" %}{% include "network/_tab_overview.html" %}
+{% if is_vm and tab == "overview" %}{% include "network/_tab_overview_vm.html" %}
+{% elif is_vm and tab == "performance" %}{% include "network/_tab_performance_vm.html" %}
+{% elif is_vm and vm_stub %}{% include "network/_tab_vm_stub.html" %}
+{% elif tab == "overview" %}{% include "network/_tab_overview.html" %}
 {% elif tab == "interfaces" %}{% include "network/_tab_interfaces.html" %}
 {% elif tab == "traffic" %}{% include "network/_tab_traffic.html" %}
+{% elif tab == "hardware" %}{% include "network/_tab_hardware.html" %}
+{% elif tab == "neighbours" %}{% include "network/_tab_neighbours.html" %}
 {% elif tab == "events" %}{% include "network/_tab_events.html" %}
 {% else %}{% include "network/_tab_configuration.html" %}{% endif %}
 </div>
-{% if traffic %}{{ traffic|json_script:"nw-traffic" }}{% endif %}{% if avail_chart %}{{ avail_chart|json_script:"nw-avail" }}{% endif %}
+{% if traffic_24h %}{{ traffic_24h|json_script:"nw-traffic-strip" }}{% endif %}
+{% if traffic and traffic_range == "7d" %}{{ traffic|json_script:"nw-traffic" }}{% endif %}
+{% if avail_chart %}{{ avail_chart|json_script:"nw-avail" }}{% endif %}
 {% if latency_chart %}{{ latency_chart|json_script:"nw-latency" }}{% endif %}{% if spark %}{{ spark|json_script:"nw-spark" }}{% endif %}
+{% if errors_chart %}{{ errors_chart|json_script:"nw-errors" }}{% endif %}
+{% if vm_metrics.util_1h %}{{ vm_metrics.util_1h|json_script:"nw-vm-util" }}{% endif %}
+{% if vm_metrics.cpu_24h %}{{ vm_metrics.cpu_24h|json_script:"nw-vm-cpu" }}{% endif %}
+{% if vm_metrics.memory_24h %}{{ vm_metrics.memory_24h|json_script:"nw-vm-mem" }}{% endif %}
+{% if vm_metrics.network_24h %}{{ vm_metrics.network_24h|json_script:"nw-vm-net" }}{% endif %}
+{% if vm_performance %}
+{% if vm_performance.cpu %}{{ vm_performance.cpu|json_script:"nw-vm-perf-cpu" }}{% endif %}
+{% if vm_performance.memory %}{{ vm_performance.memory|json_script:"nw-vm-perf-mem" }}{% endif %}
+{% if vm_performance.disk_used %}{{ vm_performance.disk_used|json_script:"nw-vm-perf-disk" }}{% endif %}
+{% if vm_performance.network %}{{ vm_performance.network|json_script:"nw-vm-perf-net" }}{% endif %}
+{% if vm_performance.disk_io %}{{ vm_performance.disk_io|json_script:"nw-vm-perf-dio" }}{% endif %}
+{% if vm_performance.load1 %}{{ vm_performance.load1|json_script:"nw-vm-perf-load" }}{% endif %}
+{% endif %}
+{% if tab == "overview" and ports %}{{ port_data|json_script:"nw-ports" }}<script src="{% static 'network/front-panel.js' %}" defer></script>{% endif %}
 <script>
 document.addEventListener('click', function (e) {
   document.querySelectorAll('.pg-network details.row-menu[open]').forEach(function (d) { if (!d.contains(e.target)) d.removeAttribute('open'); });

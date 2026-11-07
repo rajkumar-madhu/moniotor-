@@ -240,7 +240,7 @@ def inventory(user, site=""):
         out["device_status"] = dict(qs.values_list("status").annotate(n=Count("id")))
     TcpCheck = _model("tcpcheck", "TcpCheck")
     if TcpCheck is not None and hasattr(TcpCheck, "last_status"):
-        qs = scope_by_site(TcpCheck.objects.all(), user)
+        qs = scope_by_site(TcpCheck.objects.filter(tenant_key=settings.LINKEDEYE_TENANT), user)
         if site:
             qs = qs.filter(site=site)
         out["tcp"] = qs.count()

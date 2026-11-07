@@ -1,0 +1,4 @@
+{
+  "linux--Ssh-login-count": "(node_logind_sessions{class='user', instance='__FILTER__:9100', remote='true', type='tty'} )",
+  "windows--Ssh-login-count": "(windows_logon_logon_type{status = 'system', instance='__FILTER__:9182'} )"
+}

@@ -16,6 +16,7 @@ urlpatterns = [
     path("network/devices/export.csv", views.export_csv, name="export"),
     path("network/devices/check/", views.check_all, name="check_all"),
     path("network/devices/<int:pk>/", views.detail, name="detail"),
+    path("network/devices/<int:pk>/legacy-panel/", views.legacy_panel, name="legacy_panel"),
     path("network/devices/<int:pk>/edit/", views.device_form, name="edit"),
     path("network/devices/<int:pk>/delete/", views.device_delete, name="delete"),
     path("network/devices/<int:pk>/check/", views.check_now, name="check"),

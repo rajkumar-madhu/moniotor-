@@ -1,0 +1,31 @@
+# LinkedEye HashiCorp Vault — local Docker (dev mode)
+#
+# Start:
+#   docker compose -f docker-compose.vault.yml up -d
+#
+# Configure:
+#   cd backend
+#   $env:VAULT_HOST="127.0.0.1"; $env:VAULT_PORT="18200"
+#   $env:VAULT_TOKEN="<set-your-dev-token>"
+#   python manage.py vault_bootstrap
+#
+# UI: http://127.0.0.1:18200
+
+services:
+  vault:
+    image: hashicorp/vault:1.15
+    container_name: linkedeye-vault
+    restart: unless-stopped
+    ports:
+      - "${VAULT_HOST_PORT:-18200}:8200"
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN_ID:?set VAULT_DEV_ROOT_TOKEN_ID}
+      VAULT_ADDR: http://127.0.0.1:8200
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - linkedeye-vault-data:/vault/file
+    command: server -dev -dev-root-token-id=${VAULT_DEV_ROOT_TOKEN_ID} -dev-listen-address=0.0.0.0:8200
+
+volumes:
+  linkedeye-vault-data:

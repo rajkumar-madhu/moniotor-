@@ -15,6 +15,7 @@
     <div class="panel-h"><h2>Site details</h2></div>
     {% for e in form.non_field_errors %}<p class="err">{{ e }}</p>{% endfor %}
     <div class="form-grid">
+      {% include "administration/_field.html" with f=form.client %}
       {% include "administration/_field.html" with f=form.name %}
       {% include "administration/_field.html" with f=form.code %}
       {% include "administration/_field.html" with f=form.region %}
@@ -22,7 +23,15 @@
       {% include "administration/_field.html" with f=form.criticality %}
       <div class="field"></div>
       {% include "administration/_field.html" with f=form.description full=1 %}
+      {% if rename_preview %}
+      <div class="field full adm-rename" role="alert">
+        <p><b>Rename “{{ rename_preview.old }}” to “{{ rename_preview.new }}”?</b> {{ rename_preview.total }} record{{ rename_preview.total|pluralize }} in other modules store the site name and will be updated in the same step:</p>
+        <ul class="adm-feed">{% for label, n in rename_preview.refs %}<li>{{ label }}<b class="right">{{ n }}</b></li>{% endfor %}</ul>
+      </div>
+      <div class="field full adm-foot"><a class="btn" href="{% url 'administration:site_edit' site.pk %}">Cancel</a><button class="btn primary" type="submit" name="confirm_rename" value="1">Rename and update {{ rename_preview.total }} record{{ rename_preview.total|pluralize }}</button></div>
+      {% else %}
       <div class="field full adm-foot"><a class="btn" href="{% url 'administration:sites' %}">Cancel</a><button class="btn primary" type="submit">{% if site %}Save site{% else %}{% icon "plus" 16 %}Create site{% endif %}</button></div>
+      {% endif %}
     </div>
   </form>
   <div class="stack">
@@ -34,7 +43,7 @@
         <dt>Domains</dt><dd>{% if n_domains %}<a href="{% url 'domains:list' %}?site={{ site.name|urlencode }}">{{ n_domains }}</a>{% else %}0{% endif %}</dd>
         <dt>Members</dt><dd>{{ members|length }}</dd>
       </dl>
-      <p class="hint t-mute adm-note">Records refer to the site by name. Renaming the site does not change them.</p>
+      <p class="hint t-mute adm-note">Records refer to the site by name. Renaming the site updates them in every module (you are shown the counts and asked to confirm first).</p>
     </div>
     <div class="panel">
       <div class="panel-h"><h2>Members</h2></div>

@@ -3,13 +3,21 @@ from django.db.models import Q
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.utils.text import capfirst
+from django.views.decorators.http import require_GET
 
 from urlchecker.models import UrlCheck
 from urlchecker.stats import overall_uptime
 
 from .access import scope_by_site
+from .client_scope import active_client
 from .samples import exporters as s_exporters, firewall as s_firewall, heatmap as s_heatmap, incidents as s_incidents
 from .nav import NAV
+
+
+@require_GET
+def b2b_landing(request):
+    """Public B2B product landing — sign-in uses existing accounts flow; access is provisioned by your admin."""
+    return render(request, "core/b2b_landing.html", {})
 
 
 def dashboard(request):
@@ -17,13 +25,27 @@ def dashboard(request):
     user = request.user
     t = settings.LINKEDEYE_TENANT
     urls = scope_by_site(UrlCheck.objects.filter(tenant_key=t, enabled=True), user)
+    request.le_site_names = names = overview.site_names(user)   # reused by the context processor
+    site = request.GET.get("site", "")
+    matrix = overview.site_matrix(user, site, names=names, client_param=active_client(request))
     return render(request, "core/dashboard.html", {
-        "kpis": overview.kpis(user),
         "problems": overview.problems(user, limit=50),
         "events": overview.recent_events(user, limit=10),
         "uptime7": overall_uptime(list(urls), 24 * 7),
+        "desk": overview.desk_summary(user),
+        "matrix": matrix,
+        "md": overview.market_day(user),
         "heatmap_url": overview._url("cmdb:heatmap") or overview._url("heatmap"),
     })
+
+
+@require_GET
+def backend_summary_api(request):
+    """Load legacy backend health independently from the page render."""
+    from .backend_summary import summary
+    from .client_scope import active_client
+
+    return JsonResponse(summary(request.user, request.GET.get("site", ""), client_param=active_client(request)))
 
 
 SEARCH_LIMIT = 25

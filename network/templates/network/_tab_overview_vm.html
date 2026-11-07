@@ -1,0 +1,32 @@
+{% load le network_tags %}
+{% if sample_mode %}<div class="nw-alert mute" role="status">{% icon "info" 16 %}<span>Showing <b>sample</b> guest metrics. Scrape <code>node_exporter</code> into Prometheus and set the device instance label{% if can_operate %}, or remove <code>?sample=1</code>{% endif %}.</span>
+  <a class="right" href="?tab=overview">Live only</a></div>
+{% elif not prometheus_on or not device.prometheus_instance %}
+<div class="nw-alert mute" role="status">{% icon "info" 16 %}<span>{{ metrics_msg }}</span>
+  <a class="right" href="?tab=overview&amp;sample=1">Show sample data</a></div>
+{% endif %}
+
+<section class="panel nw-vm-main" id="vm-info">
+  <div class="panel-h"><h2>VM Information</h2>{% if can_operate %}<a class="right view-all" href="{% url 'network:edit' device.pk %}">Edit {% icon "arrow-right" 14 %}</a>{% endif %}</div>
+  <div class="table-wrap dense"><table class="nw-kv"><tbody>
+    {% for label, value in vm_info_rows %}
+    <tr><td>{{ label }}</td><td{% if label == "Management IP" or label == "vCenter" %} class="mono"{% endif %}>{{ value }}</td></tr>
+    {% endfor %}
+  </tbody></table></div>
+  {% if vm_metrics %}<p class="nw-note">{{ vm_metrics.source }}{% if vm_metrics.sample %} · synced just now{% else %}{% if device.metrics_updated_at %} · synced {{ device.metrics_updated_at|ago }}{% endif %}{% endif %} — CPU, memory, disk, and network charts use Prometheus (guest exporter) above.</p>{% endif %}
+</section>
+
+<section class="panel nw-vm-actions">
+  <div class="panel-h"><h2>VM Actions</h2><span class="right t-mute small">Hypervisor control is read-only in release 1</span></div>
+  <div class="nw-vm-action-grid" role="group" aria-label="VM actions (read-only)">
+    {% for key, label, ic in vm_actions %}
+    <button type="button" class="nw-vm-action" disabled title="Hypervisor control is read-only">{% icon ic 18 %}<span>{{ label }}</span></button>
+    {% endfor %}
+  </div>
+  <p class="nw-note">Power, console, snapshot, and migrate require a vCenter or hypervisor connector. Inventory and guest metrics above still work without it.</p>
+</section>
+
+<section class="panel">
+  <div class="panel-h"><h2>Recent Alerts</h2><a class="right view-all" href="?tab=events">View All {% icon "arrow-right" 14 %}</a></div>
+  {% include "network/_events_table.html" %}
+</section>

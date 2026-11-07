@@ -24,8 +24,11 @@ Every LinkedEye module is a Django app that owns its directory. Shared code live
 | Periodic jobs | `from core.jobs import register`; in `AppConfig.ready()` call `register("<app>.<job>", interval_seconds, func)`; `manage.py run_probes` runs them. Jobs must be idempotent, bounded (timeouts) and must not raise. |
 | Prometheus | `from core import prometheus`; `prometheus.configured()`, `query(promql)`, `query_range(promql, seconds, step)`, `targets()`, `alerts()`; errors raise `prometheus.PrometheusError` (show its message, never a stack trace). |
 | Network probes | `from probes import checks`; `checks.http_check(url, ...)`, `checks.dns_check(host)`, `checks.tls_check(host, port)`, `checks.resolve_allowed(host, port)` (SSRF policy), `checks.check_address(ip)`. Any new socket code must go through `resolve_allowed` / `check_address`. |
+| Site health overview | Import lazily inside the view: `from core import overview`. `overview.site_names(user)` (visible site names), `overview.site_matrix(user, selected_site="", names=None)` (per-site / per-kind counts; an out-of-scope `selected_site` returns no rows). Set `request.le_site_names = names` so the base context reuses them. Render with `{% include "core/_legacy_heatmap.html" %}` + `linkedeye/pages/site-heatmap.css`. |
+| Legacy backend summary | `{% include "core/_backend_health.html" %}` + `linkedeye/pages/backend-health.css` / `backend-health.js`; the page fetches `/api/backend-summary/` (`core.backend_summary.summary`) asynchronously, so never call it in a page view. |
 | Notifications | Automatic for critical/warning events (core/notify.py); nothing to do. |
 | Tenant | `settings.LINKEDEYE_TENANT`; models carry `tenant_key` where data could belong to more than one customer. |
+| Ops Agent | `agent` at `/agent/`. Threads are per-user. Tools call `core.overview` and other apps lazily and are always `scope_by_site`. The model key is `LINKEDEYE_AGENT_API_KEY` (server-side only). |
 
 `base.html` context: `le_can` is not provided yet – use `core.access.can(request.user, "operate")` in the view
 and pass a boolean (e.g. `can_operate`) to the template.
@@ -39,6 +42,14 @@ KPI cards (`.kpi.stacked > .kpi-top > .tile.s-* + .kpi-body`), panels (`.panel`,
 `page` + `query`), charts (`div.chart[data-chart=line|bars|donut|spark][data-src]` + `json_script`),
 `.empty` for empty states, `.messages` via Django messages. Forms: `.form-grid > .field` with labels.
 Follow the existing pages (urlchecker/templates/urlchecker/index.html, domainmonitor/templates/…) for markup.
+
+Theme: the classic LinkedEye look (near-black page, `#1f1f1f` rail and cards, one amber accent), defined by the
+`:root` tokens at the top of `app.css`. Page CSS and Python use tokens, never hex values: `--panel`, `--ink`, `--muted`,
+`--primary`, status families `--ok|warn|crit|info|purple|teal` with `-bg`, `-ink` and `-line`, `--on-solid` for text on a
+solid status fill, `--active-fill`/`--active-ink` for selected pills. Chart colours from Python are strings such as
+`"var(--chart-1)"` (`--chart-1` to `--chart-10`, `--chart-ok|warn|crit`); `charts.js` resolves them before writing SVG
+attributes. No web font is loaded. The shell is an icon rail (`.side`) that expands on hover or keyboard focus and is
+pinned open by the menu button (`.shell.rail-open`). Nav labels sit in `.lbl`, clipped rather than removed while collapsed.
 
 ## Data rules
 

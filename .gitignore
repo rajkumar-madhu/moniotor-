@@ -1,6 +1,10 @@
 .venv/
+.vscode/
 __pycache__/
 *.pyc
 db.sqlite3
 .env
 staticfiles/
+# Local onboarding exports (often contain credentials)
+/*.xlsx
+/LinkedEye_Client_Wise_Tracker*.csv

@@ -1,0 +1,5 @@
+{
+  "linux--Memory-usage-Gb": "((node_memory_MemTotal_bytes {instance = '__FILTER__:9100'}/ (1024*1024*1024) ) or sum (node_memory_MemTotal_bytes {instance = '__FILTER__:9100'}/ (1024*1024*1024)    - node_memory_MemAvailable_bytes{instance = '__FILTER__:9100'}/ (1024*1024*1024)))",
+  "windows--Memory-usage-Gb": "((windows_memory_physical_total_bytes {instance ='__FILTER__:9182'}/ (1024*1024*1024) ) or sum (windows_memory_physical_total_bytes {instance = '__FILTER__:9182'}/ (1024*1024*1024)    - windows_memory_available_bytes{instance ='__FILTER__:9182' }/ (1024*1024*1024)))",
+  "windows--Memory-usage-bytes": "((windows_memory_available_bytes {instance='__FILTER__:9182'} / (1024*1024*1024)))"
+}

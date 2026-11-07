@@ -16,7 +16,7 @@ import threading
 import urllib.error
 import urllib.request
 from datetime import timedelta
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -65,6 +65,65 @@ def can_manage(user, perm, site):
     if not ms:  # users without memberships hold their default role everywhere
         return True
     return any(m.site_id is None and RANK[m.role] >= PERMS[perm] for m in ms)
+
+
+def can_see_secrets(user, *sites):
+    """Webhook URLs carry their secret in the path (Slack/Teams), so only operators of every given site see them in
+    full. Answers are cached on the user object for the request (a page renders many rows)."""
+    if user is None or not getattr(user, "is_authenticated", False):
+        return False
+    cache = getattr(user, "_le_automation_secrets", None)
+    if cache is None:
+        cache = {}
+        try:
+            user._le_automation_secrets = cache
+        except AttributeError:  # pragma: no cover - exotic user objects
+            pass
+    for site in sites:
+        key = site or ""
+        if key not in cache:
+            cache[key] = can_manage(user, "operate", key)
+        if not cache[key]:
+            return False
+    return True
+
+
+def redact_url(url):
+    """scheme://host[:port]/… — never the path, query, fragment or credentials (webhook secrets live there)."""
+    url = str(url or "").strip()
+    if not url:
+        return ""
+    try:
+        p = urlsplit(url)
+        host = p.hostname or ""
+        port = p.port
+    except ValueError:
+        return "(hidden URL)"
+    if not p.scheme or not host:
+        return "(hidden URL)"
+    if ":" in host:
+        host = f"[{host}]"
+    if port:
+        host += f":{port}"
+    rest = p.path not in ("", "/") or p.query or p.fragment
+    return f"{p.scheme}://{host}/…" if rest else f"{p.scheme}://{host}/"
+
+
+def rule_target(rule, user):
+    """The webhook URL of a rule for display: full for operators of the rule's site, redacted otherwise."""
+    url = str(rule.params.get("url") or "")
+    return url if can_see_secrets(user, rule.site) else redact_url(url)
+
+
+def execution_trigger(ex, user):
+    """An execution's trigger for display. Webhook URLs are redacted unless the user operates the execution's site
+    (and the rule's site, when a rule ran it)."""
+    if ex.kind != "webhook":
+        return ex.trigger
+    sites = [ex.site]
+    if ex.rule_id is not None and ex.rule is not None:
+        sites.append(ex.rule.site)
+    return ex.trigger if can_see_secrets(user, *sites) else redact_url(ex.trigger)
 
 
 def runbooks_for(user):
@@ -156,10 +215,17 @@ def stackstorm_configured():
 
 
 def stackstorm_endpoint(trigger=""):
+    """settings.STACKSTORM_URL with `trigger` appended to its *path*; a query string (e.g. ``?st2-api-key=…``) and
+    fragment are kept after it. Used for triggers and for the connection test alike."""
     base = (getattr(settings, "STACKSTORM_URL", "") or "").strip()
     if not base:
         return ""
-    return base.rstrip("/") + "/" + str(trigger or "").lstrip("/") if trigger else base
+    trigger = str(trigger or "").strip().lstrip("/")
+    if not trigger:
+        return base
+    p = urlsplit(base)
+    path = (p.path or "").rstrip("/") + "/" + trigger
+    return urlunsplit((p.scheme, p.netloc, path, p.query, p.fragment))
 
 
 def stackstorm_display_url():
@@ -169,6 +235,8 @@ def stackstorm_display_url():
         return ""
     p = urlsplit(base)
     host = p.hostname or ""
+    if ":" in host:
+        host = f"[{host}]"
     if p.port:
         host += f":{p.port}"
     return f"{p.scheme}://{host}{p.path}"
@@ -357,7 +425,7 @@ def post_webhook(url, payload, triggered_by="", rule=None, event=None, site=""):
             return _finish(ex, "success", http_status=code, response=raw)
         return _finish(ex, "failed", http_status=code, response=raw, error=f"Webhook returned HTTP {code}")
     except Exception as e:
-        log.exception("webhook %s failed", str(url).split("?")[0])
+        log.exception("webhook %s failed", redact_url(url))
         return _finish(ex, "failed", error=f"Unexpected error: {e.__class__.__name__}")
 
 

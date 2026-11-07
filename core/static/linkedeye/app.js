@@ -35,11 +35,19 @@
   // filters that submit on change
   document.querySelectorAll('[data-autosubmit]').forEach(s => s.addEventListener('change', () => s.form.submit()));
 
-  // hamburger: collapse the sidebar on desktop, slide it in on phones
+  // hamburger: pin the icon rail open on desktop, slide it in on phones
   document.addEventListener('click', e => {
-    if (!e.target.closest('[data-toggle-menu]')) return;
-    if (window.innerWidth > 860) document.getElementById('shell').classList.toggle('collapsed');
-    else document.getElementById('side').classList.toggle('open');
+    const btn = e.target.closest('[data-toggle-menu]');
+    if (!btn) return;
+    const open = window.innerWidth > 860
+      ? document.getElementById('shell').classList.toggle('rail-open')
+      : document.getElementById('side').classList.toggle('open');
+    btn.setAttribute('aria-expanded', String(open));
+  });
+
+  // the user menu closes on a click anywhere else
+  document.addEventListener('click', e => {
+    document.querySelectorAll('details.user-menu[open]').forEach(d => { if (!d.contains(e.target)) d.removeAttribute('open'); });
   });
 
   // per-page selector in pagers keeps the other query parameters
@@ -50,4 +58,28 @@
   // optional auto refresh: <body data-refresh="60">
   const page = document.querySelector('[data-refresh]');
   if (page) setTimeout(() => { if (!document.hidden) location.reload(); }, +page.dataset.refresh * 1000);
+
+  const THEME_KEY = 'linkedeye-theme';
+  const themeBtn = document.querySelector('[data-toggle-theme]');
+  const sun = '<svg class="ic" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
+  const moon = '<svg class="ic" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 0010 9.8z"/></svg>';
+  const applyTheme = t => {
+    document.documentElement.setAttribute('data-theme', t);
+    document.documentElement.style.backgroundColor = t === 'dark' ? '#0f1419' : '#f3f4f6';
+    localStorage.setItem(THEME_KEY, t);
+    if (themeBtn) {
+      themeBtn.innerHTML = t === 'light' ? moon : sun;
+      themeBtn.title = t === 'light' ? 'Switch to dark theme' : 'Switch to light theme';
+      themeBtn.setAttribute('aria-label', themeBtn.title);
+    }
+    document.dispatchEvent(new CustomEvent('linkedeye-theme', { detail: { theme: t } }));
+  };
+  const initial = document.documentElement.getAttribute('data-theme');
+  applyTheme(initial === 'dark' || initial === 'light' ? initial : 'light');
+  document.addEventListener('linkedeye-theme', () => {
+    if (typeof window.leChartsRefresh === 'function') window.leChartsRefresh();
+  });
+  themeBtn?.addEventListener('click', () => {
+    applyTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
+  });
 })();
