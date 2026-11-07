@@ -1,0 +1,29 @@
+{% extends "core/base.html" %}{% load le static compute_tags %}
+{% block title %}{{ member.device.name }} in {{ member.cluster.name }}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'compute/page.css' %}">{% endblock %}
+{% block crumbs %}{% url 'compute:clusters' as s_url %}{% include "compute/_crumbs.html" with section="Clusters" section_url=s_url leaf=member.cluster.name %}{% endblock %}
+{% block content %}
+<div class="pg-compute">
+<div class="head">
+  <div class="glyph">{% icon "server" 30 %}</div>
+  <div><h1>{{ member.device.name }}</h1><p>Member of <a href="{{ member.cluster.get_absolute_url }}">{{ member.cluster.name }}</a> · {{ member.cluster.get_kind_display }} · <a href="{{ member.device.get_absolute_url }}">Open device</a></p></div>
+</div>
+<form method="post" class="panel cm-form" novalidate>{% csrf_token %}
+  {% for e in form.non_field_errors %}<p class="err">{{ e }}</p>{% endfor %}
+  <div class="form-grid">
+    {% for f in form.visible_fields %}
+    <div class="field">
+      <label for="{{ f.id_for_label }}">{{ f.label }}{% if f.field.required %} <span class="req">*</span>{% endif %}</label>{{ f }}
+      {% if f.help_text %}<span class="hint">{{ f.help_text }}</span>{% endif %}
+      {% for e in f.errors %}<span class="err">{{ e }}</span>{% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+  <p class="cm-note">Host CPU cores and memory feed the cluster's overcommit ratio. Leave them empty to use node_exporter values when the server has a Prometheus instance.</p>
+  <div class="cm-form-foot">
+    <a class="btn" href="{{ member.cluster.get_absolute_url }}#members">Cancel</a>
+    <button class="btn primary" type="submit">Save member</button>
+  </div>
+</form>
+</div>
+{% endblock %}

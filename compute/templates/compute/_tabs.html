@@ -1,0 +1,7 @@
+{% load le %}<nav class="tabs cm-tabs" aria-label="Compute sections">
+  <a href="{% url 'compute:overview' %}" class="{% if tab == 'overview' %}on{% endif %}">{% icon "grid" 15 %}Overview</a>
+  <a href="{% url 'compute:servers' %}" class="{% if tab == 'servers' %}on{% endif %}">{% icon "server" 15 %}Servers</a>
+  <a href="{% url 'compute:vms' %}" class="{% if tab == 'vms' %}on{% endif %}">{% icon "cloud" 15 %}Virtual Machines</a>
+  <a href="{% url 'compute:clusters' %}" class="{% if tab == 'clusters' %}on{% endif %}">{% icon "layers" 15 %}Clusters</a>
+  <a href="{% url 'compute:kubernetes' %}" class="{% if tab == 'kubernetes' %}on{% endif %}">{% icon "hexagon" 15 %}Kubernetes</a>
+</nav>

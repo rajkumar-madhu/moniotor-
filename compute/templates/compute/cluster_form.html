@@ -1,0 +1,30 @@
+{% extends "core/base.html" %}{% load le static compute_tags %}
+{% block title %}{% if cluster %}Edit {{ cluster.name }}{% else %}New cluster{% endif %}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'compute/page.css' %}">{% endblock %}
+{% block crumbs %}{% url 'compute:clusters' as s_url %}{% include "compute/_crumbs.html" with section="Clusters" section_url=s_url leaf=cluster.name|default:"New cluster" %}{% endblock %}
+{% block content %}
+<div class="pg-compute">
+<div class="head">
+  <div class="glyph">{% icon "layers" 30 %}</div>
+  <div><h1>{% if cluster %}Edit {{ cluster.name }}{% else %}New cluster{% endif %}</h1>
+    <p>{% if cluster %}Change the cluster's name, kind, site or Prometheus selector. Members and placements are managed on the cluster page.{% else %}A cluster groups physical servers that run VMs together (VMware, Proxmox, Hyper-V) or the nodes of a Kubernetes cluster.{% endif %}</p></div>
+</div>
+<form method="post" class="panel cm-form" novalidate>{% csrf_token %}
+  {% for e in form.non_field_errors %}<p class="err">{{ e }}</p>{% endfor %}
+  <div class="form-grid">
+    {% for f in form.visible_fields %}
+    <div class="field{% if f.name == 'description' or f.name == 'prometheus_selector' %} full{% endif %}">
+      <label for="{{ f.id_for_label }}">{{ f.label }}{% if f.field.required %} <span class="req">*</span>{% endif %}</label>{{ f }}
+      {% if f.help_text %}<span class="hint">{{ f.help_text }}</span>{% endif %}
+      {% for e in f.errors %}<span class="err">{{ e }}</span>{% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+  <p class="cm-note">For Kubernetes clusters the selector is required to collect kube-state-metrics through Prometheus (e.g. <code>cluster="prod-k8s"</code>). Only <code>label="value"</code> pairs are accepted; regex and negative matchers are rejected.</p>
+  <div class="cm-form-foot">
+    <a class="btn" href="{% if cluster %}{{ cluster.get_absolute_url }}{% else %}{% url 'compute:clusters' %}{% endif %}">Cancel</a>
+    <button class="btn primary" type="submit">{% if cluster %}Save cluster{% else %}Create cluster{% endif %}</button>
+  </div>
+</form>
+</div>
+{% endblock %}

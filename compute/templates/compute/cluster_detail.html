@@ -1,0 +1,145 @@
+{% extends "core/base.html" %}{% load le static compute_tags %}
+{% block title %}{{ cluster.name }}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'compute/page.css' %}">{% endblock %}
+{% block crumbs %}{% url 'compute:clusters' as s_url %}{% include "compute/_crumbs.html" with section="Clusters" section_url=s_url leaf=cluster.name %}{% endblock %}
+{% block content %}
+<div class="pg-compute">
+<div class="head">
+  <div class="glyph">{% icon "layers" 30 %}</div>
+  <div><h1>{{ cluster.name }}<span class="chip{% if cluster.is_kubernetes %} teal{% endif %}">{{ cluster.get_kind_display }}</span>{% if cluster.is_example %}<span class="chip mute">example</span>{% endif %}</h1>
+    <p>{{ cluster.description|default:"No description" }} · {{ cluster.site|default:"All Sites" }}{% if cluster.prometheus_selector %} · <code>{{ cluster.prometheus_selector }}</code>{% endif %}</p></div>
+  <div class="actions">
+    {% if cluster.is_kubernetes and can_manage %}<form method="post" action="{% url 'compute:cluster_refresh' cluster.pk %}">{% csrf_token %}<button class="btn" type="submit" title="Collect kube-state-metrics now">{% icon "refresh" 17 %}Collect now</button></form>{% endif %}
+    {% if can_manage %}<a class="btn" href="{% url 'compute:cluster_edit' cluster.pk %}">{% icon "edit" 17 %}Edit</a>{% endif %}
+    {% if can_delete %}<form method="post" action="{% url 'compute:cluster_delete' cluster.pk %}" data-confirm="Delete cluster {{ cluster.name }}? Its memberships are removed; VM placements lose their cluster but keep their host.">{% csrf_token %}<button class="btn" type="submit">{% icon "trash" 17 %}Delete</button></form>{% endif %}
+  </div>
+</div>
+{% include "compute/_tabs.html" with tab="clusters" %}
+
+<section class="kpis cm-kpis-4" aria-label="Summary">
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "server" 22 %}</div><div class="kpi-body"><div class="label">{% if cluster.is_kubernetes %}Nodes{% else %}Hosts{% endif %}</div><div class="value">{{ cap.members|length }}</div></div></div><div class="sub">{% if cluster.is_kubernetes %}Members recorded here{% else %}{{ cap.cpu_known }} with known CPU · {{ cap.mem_known }} with known RAM{% endif %}</div></div>
+  {% if cluster.is_kubernetes %}
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile {% if cluster.k8s_state == 'warning' %}s-warn{% elif cluster.k8s_state == 'ok' %}s-ok{% else %}s-mute{% endif %}">{% icon "hexagon" 22 %}</div><div class="kpi-body"><div class="label">State</div><div class="value">{{ cluster.get_k8s_state_display }}</div></div></div><div class="sub">{% if cluster.k8s_checked_at %}Collected {{ cluster.k8s_checked_at|ago }}{% else %}Never collected{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-ok">{% icon "check-circle" 22 %}</div><div class="kpi-body"><div class="label">Nodes Ready</div><div class="value">{% if summary %}{{ summary.nodes.ready }} <small>/ {{ summary.nodes.total }}</small>{% else %}–{% endif %}</div></div></div><div class="sub">{% if summary and summary.nodes.not_ready %}{{ summary.nodes.not_ready }} NotReady{% elif summary %}All Ready{% else %}From kube_node_status_condition{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-purple">{% icon "box" 22 %}</div><div class="kpi-body"><div class="label">Pods</div><div class="value">{% if summary %}{{ summary.pods_total }}{% else %}–{% endif %}</div></div></div><div class="sub">{% if summary %}{{ summary.pods.Running }} running · {{ summary.pods.Pending }} pending · {{ summary.pods.Failed }} failed{% else %}From kube_pod_status_phase{% endif %}</div></div>
+  {% else %}
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-ok">{% icon "cloud" 22 %}</div><div class="kpi-body"><div class="label">VMs</div><div class="value">{{ cap.vms }}</div></div></div><div class="sub">{{ cap.running }} running</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile {% if cap.cpu_ratio is None %}s-mute{% elif cap.cpu_ratio > 4 %}s-crit{% elif cap.cpu_ratio > 1.5 %}s-warn{% else %}s-ok{% endif %}">{% icon "cpu" 22 %}</div><div class="kpi-body"><div class="label">vCPU Overcommit</div><div class="value">{{ cap.cpu_ratio|ratio }}</div></div></div><div class="sub">{{ cap.vcpus|num }} vCPU allocated{% if cap.cores %} · {{ cap.cores|num }} cores{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile {% if cap.mem_ratio is None %}s-mute{% elif cap.mem_ratio > 1.5 %}s-crit{% elif cap.mem_ratio > 1 %}s-warn{% else %}s-ok{% endif %}">{% icon "memory" 22 %}</div><div class="kpi-body"><div class="label">RAM Overcommit</div><div class="value">{{ cap.mem_ratio|ratio }}</div></div></div><div class="sub">{{ cap.memory_gb|gb }} allocated{% if cap.mem_total_gb %} · {{ cap.mem_total_gb|gb }} physical{% endif %}</div></div>
+  {% endif %}
+</section>
+
+{% if cluster.is_kubernetes %}
+  {% if not cluster.prometheus_selector %}
+  <div class="cm-alert warn"><span>{% icon "alert" 16 %}</span><p><b>No Prometheus selector.</b> Enter label matchers such as <code>cluster="{{ cluster.name }}"</code> so kube-state-metrics series for this cluster can be found.{% if can_manage %} <a href="{% url 'compute:cluster_edit' cluster.pk %}">Edit cluster</a>.{% endif %}</p></div>
+  {% elif not prom_on %}
+  <div class="cm-alert"><span>{% icon "plug" 16 %}</span><p><b>Prometheus is not connected.</b> Set <code>LINKEDEYE_PROMETHEUS_URL</code>; the <code>compute.k8s</code> job then collects kube-state-metrics for this cluster every 5 minutes.</p></div>
+  {% elif cluster.k8s_error %}
+  <div class="cm-alert crit"><span>{% icon "alert" 16 %}</span><p><b>Last collection failed:</b> {{ cluster.k8s_error }}{% if cluster.k8s_checked_at %} ({{ cluster.k8s_checked_at|ago }}){% endif %}</p></div>
+  {% endif %}
+{% endif %}
+
+<section class="grid g-main">
+  <div class="stack">
+    <div class="panel" id="members">
+      <div class="panel-h"><h2>{% if cluster.is_kubernetes %}Nodes{% else %}Member hosts{% endif %} ({{ cap.members|length }})</h2></div>
+      {% if member_form %}
+      <form method="post" class="cm-inline" action="{% url 'compute:member_add' cluster.pk %}" novalidate>{% csrf_token %}
+        {% for f in member_form.visible_fields %}<div class="field"><label for="{{ f.id_for_label }}">{{ f.label }}</label>{{ f }}</div>{% endfor %}
+        <button class="btn primary sm" type="submit">{% icon "plus" 15 %}Add</button>
+      </form>
+      {% endif %}
+      {% if prom_on and prom_error %}<div class="cm-alert crit" style="margin-bottom:10px"><span>{% icon "alert" 16 %}</span><p>Prometheus query failed: {{ prom_error }}</p></div>{% endif %}
+      <div class="table-wrap dense"><table>
+        <thead><tr><th>Device</th><th>Role</th><th>Status</th><th class="num">Cores</th><th class="num">RAM</th>{% if not cluster.is_kubernetes %}<th class="num">VMs</th><th class="num">Allocated</th>{% endif %}<th>CPU</th><th>Memory</th><th>Actions</th></tr></thead>
+        <tbody>{% for m in cap.members %}<tr>
+          <td class="trunc"><a href="{{ m.device.get_absolute_url }}">{{ m.device.name }}</a><span class="sub mono">{{ m.device.mgmt_ip }} · {{ m.device.site|default:"All Sites" }}</span></td>
+          <td><span class="chip">{{ m.get_role_display }}</span></td>
+          <td>{% badge m.device.status %}</td>
+          <td class="num">{% if m.capacity_cores %}{{ m.capacity_cores|num }}{% if m.capacity_source == 'node_exporter' %}<span class="sub">node_exporter</span>{% endif %}{% else %}<span class="t-mute" title="Enter the host's cores or set its Prometheus instance">–</span>{% endif %}</td>
+          <td class="num">{% if m.capacity_mem %}{{ m.capacity_mem|gb }}{% else %}<span class="t-mute">–</span>{% endif %}</td>
+          {% if not cluster.is_kubernetes %}
+          <td class="num">{% if m.alloc.vms %}<a href="{% url 'compute:vms' %}?host={{ m.device_id }}">{{ m.alloc.vms }}</a>{% else %}<span class="t-mute">0</span>{% endif %}</td>
+          <td class="num">{% if m.alloc.vms %}{{ m.alloc.vcpus|num }} vCPU<span class="sub">{{ m.alloc.memory_gb|gb }}</span>{% else %}<span class="t-mute">–</span>{% endif %}</td>
+          {% endif %}
+          <td>{% if m.m %}{% meter m.m.cpu %}{% else %}<span class="t-mute">–</span>{% endif %}</td>
+          <td>{% if m.m %}{% meter m.m.memory %}{% else %}<span class="t-mute">–</span>{% endif %}</td>
+          <td><div class="row-actions">
+            {% if can_manage %}<a class="btn icon blue" href="{% url 'compute:member_edit' m.pk %}" title="Edit role / capacity" aria-label="Edit {{ m.device.name }}">{% icon "edit" 15 %}</a>{% endif %}
+            {% if can_delete %}<form method="post" action="{% url 'compute:member_delete' m.pk %}" data-confirm="Remove {{ m.device.name }} from {{ cluster.name }}?">{% csrf_token %}<button class="btn icon red" type="submit" title="Remove from cluster" aria-label="Remove {{ m.device.name }}">{% icon "trash" 15 %}</button></form>{% endif %}
+            {% if not can_manage and not can_delete %}<a class="btn icon" href="{{ m.device.get_absolute_url }}" title="View device" aria-label="View {{ m.device.name }}">{% icon "eye" 15 %}</a>{% endif %}
+          </div></td>
+        </tr>{% empty %}<tr><td colspan="{% if cluster.is_kubernetes %}8{% else %}10{% endif %}" class="empty">No members yet.{% if member_form %} Add the physical servers{% if cluster.is_kubernetes %} (or VMs){% endif %} that belong to this cluster above.{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+      {% if not prom_on %}<p class="cm-note">Live CPU / memory need Prometheus (<code>LINKEDEYE_PROMETHEUS_URL</code>) and a Prometheus instance on each device.</p>{% endif %}
+    </div>
+
+    {% if not cluster.is_kubernetes %}
+    <div class="panel" id="vms">
+      <div class="panel-h"><h2>Virtual machines ({{ page.paginator.count }})</h2><div class="right"><a class="view-all" href="{% url 'compute:vms' %}?cluster={{ cluster.pk }}">Open in VM list</a></div></div>
+      <div class="table-wrap dense"><table>
+        <thead><tr><th>Virtual machine</th><th>Power</th><th>Host</th><th class="num">vCPU</th><th class="num">RAM</th><th class="num">Disk</th><th>Guest OS</th></tr></thead>
+        <tbody>{% for p in page %}<tr>
+          <td class="trunc"><a href="{{ p.vm.get_absolute_url }}">{{ p.vm.name }}</a><span class="sub mono">{{ p.vm.mgmt_ip }}</span></td>
+          <td>{% power_badge p.power_state %}</td>
+          <td class="trunc">{% if p.host %}<a href="{{ p.host.get_absolute_url }}">{{ p.host.name }}</a>{% else %}<span class="t-mute">–</span>{% endif %}</td>
+          <td class="num">{{ p.vcpus|num }}</td><td class="num">{{ p.memory_gb|gb }}</td><td class="num">{{ p.disk_gb|gb }}</td>
+          <td class="trunc" title="{{ p.os }}">{{ p.os|default:"–" }}</td>
+        </tr>{% empty %}<tr><td colspan="7" class="empty">No VM is placed in this cluster yet. Open a VM under Virtual Machines and record its host or cluster.</td></tr>{% endfor %}</tbody></table></div>
+      {% include "core/_pager.html" with pager_noun="VMs" %}
+    </div>
+    {% else %}
+    <div class="panel" id="k8s">
+      <div class="panel-h"><h2>Workloads</h2>{% if summary %}<div class="right small t-mute">Collected {{ cluster.k8s_checked_at|ago }}</div>{% endif %}</div>
+      {% if summary %}
+      <div class="cm-k8s">
+        <div>
+          <div class="cm-stats">
+            <div class="cell"><b>{{ summary.namespaces }}</b><span>Namespaces</span></div>
+            <div class="cell"><b>{{ summary.deployments }}</b><span>Deployments</span></div>
+            <div class="cell"><b class="{% if summary.unavailable_count %}t-crit{% endif %}">{{ summary.unavailable_count }}</b><span>With unavailable replicas</span></div>
+          </div>
+          {% if summary.not_ready_nodes %}<p class="cm-note"><b>NotReady nodes:</b> {{ summary.not_ready_nodes|join:", " }}</p>{% endif %}
+          {% if summary.unavailable %}
+          <div class="table-wrap dense" style="margin-top:10px"><table><thead><tr><th>Namespace</th><th>Deployment</th><th class="num">Unavailable</th></tr></thead>
+            <tbody>{% for u in summary.unavailable %}<tr><td class="mono">{{ u.namespace }}</td><td class="mono">{{ u.deployment }}</td><td class="num t-crit">{{ u.replicas }}</td></tr>{% endfor %}</tbody></table></div>
+          {% endif %}
+        </div>
+        <div><div class="chart" data-chart="bars" data-src="k8s-pods" style="height:170px"></div><p class="cm-note">Pods by phase (kube_pod_status_phase).</p></div>
+      </div>
+      {% else %}
+      <div class="cm-empty">{% icon "hexagon" 26 %}<p>No kube-state-metrics summary yet.{% if cluster.k8s_error %} {{ cluster.k8s_error }}{% elif prom_on and cluster.prometheus_selector %} The <code>compute.k8s</code> job collects it every 5 minutes{% if can_manage %}, or use “Collect now”{% endif %}.{% endif %}</p></div>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="stack">
+    <div class="panel"><div class="panel-h"><h2>Details</h2></div>
+      <dl class="kv">
+        <dt>Kind</dt><dd>{{ cluster.get_kind_display }}</dd>
+        <dt>Site</dt><dd>{{ cluster.site|default:"All Sites" }}</dd>
+        <dt>Selector</dt><dd>{% if cluster.prometheus_selector %}<code>{{ cluster.prometheus_selector }}</code>{% else %}<span class="t-mute">none</span>{% endif %}</dd>
+        <dt>Tags</dt><dd>{% for t in cluster.tag_list %}<span class="chip mute">{{ t }}</span> {% empty %}<span class="t-mute">none</span>{% endfor %}</dd>
+        <dt>Created</dt><dd>{{ cluster.created_at|short_dt }}</dd>
+        <dt>Updated</dt><dd>{{ cluster.updated_at|ago }}</dd>
+      </dl>
+    </div>
+    {% if not cluster.is_kubernetes %}
+    <div class="panel"><div class="panel-h"><h2>Capacity</h2></div>
+      <div class="cm-cap">
+        <div class="cell"><div class="eyebrow">vCPU</div><div class="cm-ratio {{ cap.cpu_ratio|ratio_tone }}">{{ cap.cpu_ratio|ratio }}</div><div class="sub">{{ cap.vcpus|num }} allocated{% if cap.cores %} on {{ cap.cores|num }} physical cores ({{ cap.cpu_known }} of {{ cap.members|length }} hosts known){% else %} – host cores unknown{% endif %}</div></div>
+        <div class="cell"><div class="eyebrow">Memory</div><div class="cm-ratio {{ cap.mem_ratio|ratio_tone }}">{{ cap.mem_ratio|ratio }}</div><div class="sub">{{ cap.memory_gb|gb }} allocated{% if cap.mem_total_gb %} on {{ cap.mem_total_gb|gb }} physical ({{ cap.mem_known }} of {{ cap.members|length }} hosts known){% else %} – host memory unknown{% endif %}</div></div>
+      </div>
+      <p class="cm-note">Overcommit = allocated ÷ physical over hosts whose capacity is known (entered on the member, or node_exporter when Prometheus is connected). Disk provisioned: {{ cap.disk_gb|gb }}.</p>
+    </div>
+    {% else %}
+    <div class="panel"><div class="panel-h"><h2>Recent events</h2></div>
+      {% if events %}<ul class="cm-list">{% for e in events %}<li><div>{{ e.title }}<small>{{ e.message|truncatechars:140 }}</small></div>{% badge e.severity %}<span class="small t-mute">{{ e.occurred_at|ago }}</span></li>{% endfor %}</ul>
+      {% else %}<p class="cm-note">No degraded / recovered events for this cluster yet. The job emits one only when the state changes.</p>{% endif %}
+    </div>
+    {% endif %}
+  </div>
+</section>
+</div>
+{% if pod_bars %}{{ pod_bars|json_script:"k8s-pods" }}{% endif %}
+{% endblock %}

@@ -1,0 +1,201 @@
+{% extends "core/base.html" %}{% load le static telemetry_tags %}
+{% block title %}All metrics · {{ ci.name|default:instance }}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'telemetry/page.css' %}">{% endblock %}
+{% block crumbs %}{% url 'telemetry:host_detail' instance as parent %}{% include "telemetry/_crumbs.html" with crumb_parent=instance crumb_parent_url=parent crumb_here="All metrics" %}{% endblock %}
+{% block content %}
+<div class="pg-telemetry">
+<div class="head host-head">
+  <div class="glyph">{% icon "server" 30 %}</div>
+  <div style="min-width:0"><h1>{{ ci.name|default:instance }}</h1>
+    <div class="meta">
+      {% if host %}<span class="badge {{ host.health|health_tone }}">{{ host.health|health_label }}</span>{% endif %}
+      <span class="chip mute mono">{{ instance }}</span>
+      {% if host.job %}<span class="chip">job: {{ host.job }}</span>{% endif %}
+      {% if ci_url %}<a class="chip teal" href="{{ ci_url }}">CMDB: {{ ci.name }}</a>{% endif %}
+      {% if site %}<span class="chip purple">{{ site }}</span>{% endif %}
+      {% if full %}<span class="tm-meta">node_exporter via Prometheus · {{ full.query_count }} queries · step {{ full.step }}s</span>{% endif %}
+    </div></div>
+  <div class="actions">
+    <nav class="seg" aria-label="Time range">{% for k, l in ranges %}<a href="?range={{ k }}" class="{% if k == range_key %}on{% endif %}" title="{{ l }}">{{ k }}</a>{% endfor %}</nav>
+    <a class="btn" href="{% url 'telemetry:host_detail' instance %}?range={{ range_key }}">{% icon "chevron-left" 17 %}Overview</a>
+    {% if prom_configured %}<a class="btn" href="?range={{ range_key }}&amp;refresh=1">{% icon "refresh" 17 %}Refresh</a>{% endif %}
+  </div>
+</div>
+
+{% if not prom_configured %}
+  {% include "telemetry/_not_connected.html" with nc_title="Prometheus" nc_env="LINKEDEYE_PROMETHEUS_URL" nc_text="The full host view reads node_exporter metrics (node_cpu_seconds_total, node_memory_*, node_disk_*, node_network_* …) through Prometheus." %}
+{% elif error %}
+  {% include "telemetry/_error.html" with err_message=error %}
+{% elif not host %}
+  <div class="panel tm-nc" role="status"><div class="tile">{% icon "help" 22 %}</div>
+    <div><h2>Host not found in Prometheus</h2><p>No node_exporter target has <code>instance="{{ instance }}"</code> in a job matching <code>.*node.*</code>. It may have been removed from the scrape configuration. <a href="{% url 'telemetry:infrastructure' %}">Back to Infrastructure</a></p></div></div>
+{% else %}
+{% grade "cpu" host.cpu as gc %}{% grade "memory" host.memory as gm %}{% grade "disk" host.disk as gd %}{% grade "load" host.load_per_core as gl %}
+<div class="hm-layout">
+<div class="hm-main">
+
+<section id="summary" class="hm-section" aria-labelledby="h-summary">
+  <div class="hm-sec-h"><span class="eyebrow">Now</span><h2 id="h-summary">Summary</h2><span class="right">Instant values · charts cover {{ full.seconds|hduration }}</span></div>
+  <div class="kpis tm-kpis">
+    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "cpu" 22 %}</div><div class="kpi-body"><div class="label">CPU</div><div class="value t-{{ gc }}">{{ host.cpu|pct1 }}</div></div></div><div class="sub">{% if host.cores %}{{ host.cores|floatformat:0 }} cores{% else %}cores unknown{% endif %}</div></div>
+    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-purple">{% icon "memory" 22 %}</div><div class="kpi-body"><div class="label">Used RAM</div><div class="value t-{{ gm }}">{{ host.memory|pct1 }}</div></div></div><div class="sub">of {{ host.mem_total|hbytes }}</div></div>
+    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-warn">{% icon "hdd" 22 %}</div><div class="kpi-body"><div class="label">Root disk</div><div class="value t-{{ gd }}">{{ host.disk|pct1 }}</div></div></div><div class="sub">used on /</div></div>
+    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-mute">{% icon "gauge" 22 %}</div><div class="kpi-body"><div class="label">Load 1m</div><div class="value t-{{ gl }}">{{ host.load1|hnum }}</div></div></div><div class="sub">{{ host.load5|hnum }} · {{ host.load15|hnum }} (5m · 15m)</div></div>
+    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-ok">{% icon "network" 22 %}</div><div class="kpi-body"><div class="label">Network</div><div class="value">{{ host.rx|hrate|unit_small }}</div></div></div><div class="sub tm-wrap">in · out {{ host.tx|hrate }}</div></div>
+    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "activity" 22 %}</div><div class="kpi-body"><div class="label">Disk I/O</div><div class="value">{{ full.disk_read|hrate|unit_small }}</div></div></div><div class="sub tm-wrap">read · write {{ full.disk_write|hrate }}</div></div>
+    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-ok">{% icon "clock" 22 %}</div><div class="kpi-body"><div class="label">Uptime</div><div class="value">{{ host.uptime|hduration }}</div></div></div><div class="sub">{% if host.up == 0 %}<span class="t-crit">scrape down</span>{% else %}scrape up{% endif %}</div></div>
+  </div>
+</section>
+
+{% for sec in full.sections %}
+<section id="{{ sec.id }}" class="hm-section" aria-labelledby="h-{{ sec.id }}">
+  <div class="hm-sec-h"><span class="eyebrow">{{ sec.eyebrow }}</span><h2 id="h-{{ sec.id }}">{{ sec.title }}</h2>
+    <span class="right">{% if sec.missing %}{{ sec.missing|length }} of {{ sec.charts|length }} metric groups absent on this host{% else %}{{ sec.charts|length }} charts{% endif %}</span></div>
+  <div class="grid g-2">
+  {% for c in sec.charts %}
+    <div class="panel hm-chart" id="chart-{{ c.key }}">
+      <div class="panel-h"><h2>{{ c.title }}</h2>
+        <div class="right">{% if c.unit %}<span class="hm-unit">{{ c.unit }}</span>{% endif %}
+          <a class="hm-explore" href="{% url 'telemetry:explorer' %}?expr={{ c.explore_q|urlencode }}&amp;range={{ range_key }}" title="Open this query in the Metrics Explorer">{% icon "analytics" 14 %}Explore</a></div></div>
+      {% if c.has %}
+        <div class="chart tm-chart" data-chart="{{ c.kind }}" data-src="{{ c.dom_id }}"></div>
+        <div class="table-wrap dense hm-legend"><table>
+          <thead><tr><th>Series</th><th class="num">Last</th><th class="num">Mean</th><th class="num">Min</th><th class="num">Max</th></tr></thead>
+          <tbody>{% for s in c.legend %}<tr><td class="name"><i style="background:{{ s.color }}"></i>{{ s.name }}</td><td class="num">{{ s.last }}</td><td class="num">{{ s.mean }}</td><td class="num">{{ s.min }}</td><td class="num">{{ s.max }}</td></tr>{% endfor %}</tbody>
+        </table></div>
+        {% if c.truncated %}<p class="hm-more">Showing the {{ c.legend|length }} busiest of {{ c.total }} series; open Explore for all of them.</p>{% endif %}
+        {% if c.groups|length > 1 %}<div class="hm-groups">{% for g in c.groups %}<a class="chip" href="{% url 'telemetry:explorer' %}?expr={{ g.q|urlencode }}&amp;range={{ range_key }}" title="{{ g.q }}">{{ g.name }}</a>{% endfor %}</div>{% endif %}
+      {% else %}
+        <div class="hm-missing">{% icon "info" 16 %}<span>No <code>{{ c.metrics }}</code> for this host{% if c.hint %} – {{ c.hint }}{% endif %}.</span></div>
+      {% endif %}
+    </div>
+  {% endfor %}
+  </div>
+
+  {% if sec.id == "compute" %}
+  <div class="panel"><div class="panel-h"><h2>Per-core utilisation</h2><div class="right tm-meta">busiest first · 5 min rate</div></div>
+    {% if full.cores %}<div class="hm-cores">{% for c in full.cores %}{% grade "cpu" c.busy as g %}
+      <div class="core"><span class="lbl">cpu{{ c.cpu }}</span><span class="track"><i class="fill-{{ g }}" style="width:{{ c.busy|clamp100 }}%"></i></span><span class="val t-{{ g }}">{{ c.busy|pct1 }}</span></div>{% endfor %}</div>
+    {% else %}<div class="hm-missing">{% icon "info" 16 %}<span>No per-CPU <code>node_cpu_seconds_total</code> samples for this host.</span></div>{% endif %}</div>
+  {% elif sec.id == "storage" %}
+  <div class="panel"><div class="panel-h"><h2>Mount points ({{ full.mounts|length }})</h2><div class="right tm-meta">node_filesystem_* · pseudo filesystems hidden</div></div>
+    <div class="table-wrap dense tm-table"><table>
+      <thead><tr><th>Mount</th><th>Device</th><th>Type</th><th class="num">Size</th><th class="num">Free</th><th>Space used</th><th>Inodes used</th><th>Errors</th></tr></thead>
+      <tbody>{% for f in full.mounts %}{% grade "disk" f.inode_pct as gi %}
+        <tr><td class="mono">{{ f.mountpoint }}</td><td class="mono">{{ f.device }}</td><td>{{ f.fstype }}</td>
+          <td class="num">{{ f.size|hbytes }}</td><td class="num">{{ f.avail|hbytes }}</td>
+          <td><span class="metric"><span class="util"><i class="{{ f.grade }}" style="width:{{ f.used_pct|clamp100 }}%"></i></span><span class="t-{{ f.grade }}">{{ f.used_pct|pct1 }}</span></span></td>
+          <td>{% if f.inode_pct != None %}<span class="metric"><span class="util"><i class="{{ gi }}" style="width:{{ f.inode_pct|clamp100 }}%"></i></span><span class="t-{{ gi }}">{{ f.inode_pct|pct1 }}</span></span>{% else %}<span class="t-mute">no node_filesystem_files</span>{% endif %}</td>
+          <td>{% if f.error %}<span class="hm-state crit">device error</span>{% elif f.error_known %}<span class="hm-state ok">none</span>{% else %}<span class="t-mute">–</span>{% endif %}</td></tr>
+      {% empty %}<tr><td colspan="8" class="empty">No <code>node_filesystem_*</code> metrics for this host.</td></tr>{% endfor %}</tbody></table></div></div>
+  {% elif sec.id == "network" %}
+  <div class="panel"><div class="panel-h"><h2>Interfaces ({{ full.ifaces|length }})</h2><div class="right tm-meta">node_network_up / carrier / speed_bytes / mtu_bytes / info</div></div>
+    <div class="table-wrap dense tm-table"><table>
+      <thead><tr><th>Interface</th><th>Admin</th><th>Carrier</th><th>Operstate</th><th class="num">Speed</th><th class="num">MTU</th><th>Duplex</th><th>MAC</th></tr></thead>
+      <tbody>{% for i in full.ifaces %}
+        <tr><td class="mono">{{ i.device }}</td>
+          <td>{% if i.up == True %}<span class="hm-state ok">up</span>{% elif i.up == False %}<span class="hm-state crit">down</span>{% else %}<span class="t-mute">–</span>{% endif %}</td>
+          <td>{% if i.carrier == True %}<span class="hm-state ok">link</span>{% elif i.carrier == False %}<span class="hm-state crit">no link</span>{% else %}<span class="t-mute">–</span>{% endif %}</td>
+          <td>{{ i.operstate|default:"–" }}</td>
+          <td class="num">{% if i.speed %}{{ i.speed|hrate }}{% else %}–{% endif %}</td><td class="num">{{ i.mtu|hnum }}</td>
+          <td>{{ i.duplex|default:"–" }}</td><td class="mono">{{ i.address|default:"–" }}</td></tr>
+      {% empty %}<tr><td colspan="8" class="empty">No <code>node_network_up</code> / <code>node_network_info</code> metrics for this host (physical interfaces only; virtual bridges and veth pairs are hidden).</td></tr>{% endfor %}</tbody></table></div></div>
+  {% endif %}
+</section>
+{% endfor %}
+
+<section id="system" class="hm-section" aria-labelledby="h-system">
+  <div class="hm-sec-h"><span class="eyebrow">Inventory</span><h2 id="h-system">System info</h2></div>
+  <div class="grid g-2">
+    <div class="panel hm-kv"><div class="panel-h"><h2>Operating system</h2><div class="right tm-meta">node_uname_info · node_os_info</div></div>
+      <dl class="kv">
+        <dt>Node name</dt><dd>{{ full.system.nodename|default:"–" }}</dd>
+        <dt>OS</dt><dd>{{ full.system.os|default:"–" }}</dd>
+        <dt>Kernel</dt><dd>{{ full.system.kernel|default:"–" }}</dd>
+        <dt>Architecture</dt><dd>{{ full.system.arch|default:"–" }}</dd>
+        <dt>CPU cores</dt><dd>{% if full.system.cores %}{{ full.system.cores|floatformat:0 }}{% else %}–{% endif %}</dd>
+        <dt>Memory</dt><dd>{{ full.system.mem_total|hbytes }}</dd>
+        <dt>Boot time</dt><dd>{% if full.system.boot_time %}{{ full.system.boot_time|date:"d M Y H:i" }} ({{ host.uptime|hduration }} ago){% else %}<span class="t-mute">no node_boot_time_seconds</span>{% endif %}</dd>
+        <dt>Time zone</dt><dd>{% if full.system.timezone %}{{ full.system.timezone }} ({{ full.system.tz_text }}){% else %}<span class="t-mute">no node_time_zone_offset_seconds</span>{% endif %}</dd>
+      </dl></div>
+    <div class="panel hm-kv"><div class="panel-h"><h2>Hardware and exporter</h2><div class="right tm-meta">node_dmi_info · node_exporter_build_info</div></div>
+      <dl class="kv">
+        <dt>Vendor</dt><dd>{% if full.system.vendor %}{{ full.system.vendor }}{% else %}<span class="t-mute">no node_dmi_info (needs the dmi collector)</span>{% endif %}</dd>
+        <dt>Product</dt><dd>{{ full.system.product|default:"–" }}</dd>
+        <dt>BIOS</dt><dd>{{ full.system.bios|default:"–" }}</dd>
+        <dt>node_exporter</dt><dd>{% if full.system.exporter_version %}v{{ full.system.exporter_version }}{% if full.system.go_version %} · {{ full.system.go_version }}{% endif %}{% else %}<span class="t-mute">no node_exporter_build_info</span>{% endif %}</dd>
+        <dt>Scrape job</dt><dd>{{ host.job|default:"–" }}</dd>
+        <dt>Instance</dt><dd class="mono">{{ instance }}</dd>
+        <dt>CMDB item</dt><dd>{% if ci_url %}<a href="{{ ci_url }}">{{ ci.name }}</a>{% else %}<span class="t-mute">Not linked – set this instance as a CI's Prometheus instance</span>{% endif %}</dd>
+      </dl></div>
+  </div>
+</section>
+
+<section id="workloads" class="hm-section" aria-labelledby="h-workloads">
+  <div class="hm-sec-h"><span class="eyebrow">Placement</span><h2 id="h-workloads">Containers &amp; VMs</h2></div>
+  <div class="grid g-2">
+    <div class="panel"><div class="panel-h"><h2>Virtual machines on this host</h2><div class="right tm-meta">Compute module placements</div></div>
+      {% if not compute_installed %}
+        <div class="hm-missing">{% icon "info" 16 %}<span>The Compute module is not installed, so VM placement is not tracked.</span></div>
+      {% elif vms == None %}
+        <div class="hm-missing">{% icon "info" 16 %}<span>The Compute module is installed but its placement tables are not available yet (run migrations).</span></div>
+      {% elif vms %}
+        <div class="table-wrap dense tm-table"><table>
+          <thead><tr><th>VM</th><th>Power</th><th class="num">vCPU</th><th class="num">Memory</th><th class="num">Disk</th><th>Cluster</th><th>Guest OS</th></tr></thead>
+          <tbody>{% for v in vms %}
+            <tr><td>{% if v.url %}<a href="{{ v.url }}">{{ v.name }}</a>{% else %}{{ v.name }}{% endif %}{% if v.site %}<span class="sub">{{ v.site }}</span>{% endif %}</td>
+              <td><span class="hm-state {% if v.power_state == 'running' %}ok{% elif v.power_state == 'stopped' %}crit{% endif %}">{{ v.power }}</span></td>
+              <td class="num">{{ v.vcpus|default:"–" }}</td><td class="num">{% if v.memory_gb %}{{ v.memory_gb|floatformat:"-2" }} GB{% else %}–{% endif %}</td>
+              <td class="num">{% if v.disk_gb %}{{ v.disk_gb|floatformat:"-1" }} GB{% else %}–{% endif %}</td>
+              <td>{% if v.cluster_url %}<a href="{{ v.cluster_url }}">{{ v.cluster }}</a>{% else %}{{ v.cluster|default:"–" }}{% endif %}</td><td>{{ v.os|default:"–" }}</td></tr>
+          {% endfor %}</tbody></table></div>
+      {% else %}
+        <div class="hm-missing">{% icon "info" 16 %}<span>No VM placement names a device whose Prometheus instance is <code>{{ instance }}</code>.</span></div>
+      {% endif %}</div>
+    <div class="panel"><div class="panel-h"><h2>Containers (cAdvisor)</h2><div class="right tm-meta">container_cpu_usage_seconds_total · container_memory_working_set_bytes</div></div>
+      {% if full.containers %}
+        <div class="table-wrap dense tm-table"><table>
+          <thead><tr><th>Container</th><th>Image</th><th class="num">CPU</th><th class="num">Memory</th></tr></thead>
+          <tbody>{% for c in full.containers %}
+            <tr><td class="mono">{{ c.name }}</td><td class="wrap">{{ c.image|default:"–" }}</td><td class="num">{{ c.cpu|pct1 }}</td><td class="num">{{ c.memory|hbytes }}</td></tr>
+          {% endfor %}</tbody></table></div>
+      {% else %}
+        <div class="hm-missing">{% icon "info" 16 %}<span>No <code>container_cpu_usage_seconds_total{instance="{{ instance }}"}</code> in Prometheus – cAdvisor is not scraped for this host, or its series carry another instance label (cAdvisor usually listens on its own port).</span></div>
+      {% endif %}</div>
+  </div>
+</section>
+
+</div>
+
+<aside class="hm-toc" aria-label="Sections">
+  <span class="eyebrow">On this page</span>
+  <nav>{% for id, label in toc %}<a href="#{{ id }}" data-toc="{{ id }}">{{ label }}</a>{% endfor %}</nav>
+  <select aria-label="Jump to section" data-toc-select>{% for id, label in toc %}<option value="{{ id }}">{{ label }}</option>{% endfor %}</select>
+  <div class="hm-foot">{{ full.query_count }} Prometheus queries · {{ full.step }}s step · cached {{ cache_seconds }}s</div>
+</aside>
+</div>
+
+{% for sec in full.sections %}{% for c in sec.charts %}{% if c.has %}{{ c.data|json_script:c.dom_id }}{% endif %}{% endfor %}{% endfor %}
+{% endif %}
+</div>
+{% endblock %}
+{% block scripts %}<script>
+(function () {
+  var sel = document.querySelector('[data-toc-select]');
+  if (sel) sel.addEventListener('change', function () { if (sel.value) { location.hash = sel.value; } });
+  var links = document.querySelectorAll('.hm-toc nav a[data-toc]');
+  if (!links.length || !('IntersectionObserver' in window)) return;
+  var current = null;
+  function mark(id) {
+    if (id === current) return;
+    current = id;
+    links.forEach(function (a) { a.classList.toggle('on', a.dataset.toc === id); });
+    if (sel && sel.value !== id) sel.value = id;
+  }
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) { if (e.isIntersecting) mark(e.target.id); });
+  }, { rootMargin: '-80px 0px -60% 0px' });
+  document.querySelectorAll('.hm-section[id]').forEach(function (s) { io.observe(s); });
+  mark((location.hash || '#summary').slice(1));
+})();
+</script>{% endblock %}

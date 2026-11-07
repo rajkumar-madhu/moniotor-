@@ -1,0 +1,86 @@
+{% extends "core/base.html" %}{% load le static compute_tags %}
+{% block title %}Compute Overview{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'compute/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "compute/_crumbs.html" with section="Overview" %}{% endblock %}
+{% block content %}
+<div class="pg-compute">
+<div class="head">
+  <div class="glyph">{% icon "cpu" 30 %}</div>
+  <div><h1>Compute &amp; Virtualization</h1><p>Physical servers, virtual machines, hypervisor clusters and Kubernetes – built on the device inventory, with live host metrics from Prometheus when connected.</p></div>
+  <div class="actions">
+    {% if can_operate %}<a class="btn primary" href="{% url 'compute:cluster_create' %}">{% icon "plus" 17 %}Add cluster</a>{% endif %}
+  </div>
+</div>
+{% include "compute/_tabs.html" with tab="overview" %}
+
+{% if not srv.total and not vms_total and not clusters_total %}
+<div class="panel">
+  <div class="cm-empty">{% icon "cpu" 32 %}
+    <p><b>No servers or VMs yet.</b> Compute reads physical servers and virtual machines from <a href="{% url 'network:physical_servers' %}">Network Devices</a> (types “Physical Server” and “Virtual Machine”) – nothing is duplicated here. Add devices there, then group hosts into clusters and record where each VM runs.</p>
+    <p class="small">For a demo, <code>python manage.py seed_compute</code> creates example servers, VMs, placements and clusters (tagged “example”).</p>
+    {% if can_operate %}<div class="btns"><a class="btn primary sm" href="{% url 'network:create' %}?type=physical_server">{% icon "plus" 15 %}Add server</a><a class="btn sm" href="{% url 'compute:cluster_create' %}">{% icon "plus" 15 %}Add cluster</a></div>{% endif %}
+  </div>
+</div>
+{% endif %}
+
+<section class="kpis" aria-label="Summary">
+  <a class="kpi stacked kpi-link" href="{% url 'compute:servers' %}"><div class="kpi-top"><div class="tile s-info">{% icon "server" 22 %}</div><div class="kpi-body"><div class="label">Physical Servers</div><div class="value">{{ srv.total }}</div></div></div><div class="sub">{{ srv.up }} up · {{ srv.down }} down · {{ srv.unknown }} unknown</div></a>
+  <a class="kpi stacked kpi-link" href="{% url 'compute:vms' %}"><div class="kpi-top"><div class="tile s-ok">{% icon "cloud" 22 %}</div><div class="kpi-body"><div class="label">Virtual Machines</div><div class="value">{{ vms_total }}</div></div></div><div class="sub">{{ power.running }} running · {{ power.stopped }} stopped{% if power.suspended %} · {{ power.suspended }} suspended{% endif %}{% if no_data %} · {{ no_data }} no placement data{% endif %}</div></a>
+  <a class="kpi stacked kpi-link" href="{% url 'compute:clusters' %}"><div class="kpi-top"><div class="tile s-purple">{% icon "layers" 22 %}</div><div class="kpi-body"><div class="label">Clusters</div><div class="value">{{ clusters_total }}</div></div></div><div class="sub wrap" title="{{ kinds_text }}">{{ kinds_text }}</div></a>
+  <a class="kpi stacked kpi-link" href="{% url 'compute:servers' %}?guests=with"><div class="kpi-top"><div class="tile s-mute">{% icon "gauge" 22 %}</div><div class="kpi-body"><div class="label">VM Density</div><div class="value">{% if density is not None %}{{ density|floatformat:1 }} <small>VMs / host</small>{% else %}–{% endif %}</div></div></div><div class="sub">{% if density is not None %}{{ hosts_with }} host{{ hosts_with|pluralize }} with guests · max {{ max_density }}{% if hosts_without %} · {{ hosts_without }} without{% endif %}{% else %}No VM is placed on a host yet{% endif %}</div></a>
+  <a class="kpi stacked kpi-link" href="{% url 'compute:vms' %}?power=running"><div class="kpi-top"><div class="tile s-info">{% icon "memory" 22 %}</div><div class="kpi-body"><div class="label">Allocated</div><div class="value">{{ alloc_vcpus|num }} <small>vCPU</small></div></div></div><div class="sub">{{ alloc_mem|gb }} RAM · running and suspended VMs</div></a>
+  <a class="kpi stacked kpi-link" href="{% url 'compute:kubernetes' %}"><div class="kpi-top"><div class="tile {% if k8s_degraded %}s-warn{% else %}s-ok{% endif %}">{% icon "hexagon" 22 %}</div><div class="kpi-body"><div class="label">Kubernetes Degraded</div><div class="value">{{ k8s_degraded }}</div></div></div><div class="sub">{% if prometheus_on %}From kube-state-metrics (compute.k8s job){% else %}Prometheus not connected{% endif %}</div></a>
+</section>
+
+<section class="grid g-3 g-charts">
+  <div class="panel"><div class="panel-h"><h2>VM Power State</h2></div>
+    {% if vms_total %}
+    <div class="donut-wrap"><div class="chart" data-chart="donut" data-src="cm-power"></div>
+      <div class="donut-legend">{% for seg in power_donut.segments %}{% if seg.value or forloop.counter < 4 %}<span><i class="dot" style="background:{{ seg.color }}"></i>{{ seg.label }}</span><b>{{ seg.value }}</b>{% endif %}{% endfor %}</div></div>
+    <p class="cm-note">Power state comes from each VM's placement record; VMs without one count as “No placement data”.</p>
+    {% else %}<div class="cm-empty">{% icon "cloud" 26 %}<p>No virtual machines in the inventory yet.</p></div>{% endif %}
+  </div>
+  <div class="panel"><div class="panel-h"><h2>VMs per Host</h2><div class="right"><a class="view-all" href="{% url 'compute:servers' %}?guests=with">All hosts</a></div></div>
+    {% if per_host.labels %}<div class="chart" data-chart="bars" data-src="cm-per-host" style="height:200px"></div>
+    <p class="cm-note">Top {{ per_host.labels|length }} physical servers by placed VMs.</p>
+    {% else %}<div class="cm-empty">{% icon "server" 26 %}<p>No VM is placed on a physical server yet. Open a VM and record its host to populate this chart.</p></div>{% endif %}
+  </div>
+  <div class="panel"><div class="panel-h"><h2>Server Status</h2></div>
+    {% if srv.total %}
+    <div class="donut-wrap"><div class="chart" data-chart="donut" data-src="cm-status"></div>
+      <div class="donut-legend">{% for seg in status_donut.segments %}<span><i class="dot" style="background:{{ seg.color }}"></i>{{ seg.label }}</span><b>{{ seg.value }}</b>{% endfor %}</div></div>
+    <p class="cm-note">Reachability from the network device poll.</p>
+    {% else %}<div class="cm-empty">{% icon "server" 26 %}<p>No physical servers in the inventory yet.</p></div>{% endif %}
+  </div>
+</section>
+
+<section class="grid g-2">
+  <div class="panel"><div class="panel-h"><h2>Servers by Site</h2><div class="legend"><span><i class="dot" style="background:#0f7a55"></i>Up</span><span><i class="dot" style="background:#d92d20"></i>Down</span><span><i class="dot" style="background:#a8a398"></i>Unknown</span></div></div>
+    {% if has_site_bars %}<div class="chart" data-chart="bars" data-src="cm-sites" style="height:200px"></div>
+    {% else %}<div class="cm-empty">{% icon "bar" 26 %}<p>Add physical servers to see them by site.</p></div>{% endif %}
+  </div>
+  <div class="panel"><div class="panel-h"><h2>Clusters</h2><div class="right"><a class="view-all" href="{% url 'compute:clusters' %}">All clusters</a></div></div>
+    {% if top_clusters %}
+    <div class="table-wrap dense"><table>
+      <thead><tr><th>Cluster</th><th>Kind</th><th>Site</th><th class="num">Members</th><th class="num">VMs</th><th class="num">vCPU</th><th class="num">RAM</th></tr></thead>
+      <tbody>{% for c in top_clusters %}<tr>
+        <td class="trunc"><a href="{{ c.get_absolute_url }}">{{ c.name }}</a>{% if c.is_example %} <span class="chip mute">example</span>{% endif %}</td>
+        <td><span class="chip{% if c.is_kubernetes %} teal{% endif %}">{{ c.get_kind_display }}</span></td>
+        <td class="trunc">{{ c.site|default:"All Sites" }}</td>
+        <td class="num">{{ c.member_count }}</td>
+        <td class="num">{% if c.is_kubernetes %}<span class="t-mute">–</span>{% else %}{{ c.vm_count }}{% endif %}</td>
+        <td class="num">{% if c.is_kubernetes %}<span class="t-mute">–</span>{% else %}{{ c.vcpus|num }}{% endif %}</td>
+        <td class="num">{% if c.is_kubernetes %}<span class="t-mute">–</span>{% else %}{{ c.memory_gb|gb }}{% endif %}</td>
+      </tr>{% endfor %}</tbody></table></div>
+    {% else %}<div class="cm-empty">{% icon "layers" 26 %}<p>No clusters yet. A cluster groups hypervisor hosts (or Kubernetes nodes) that are physical servers in the inventory.</p>{% if can_operate %}<div class="btns"><a class="btn primary sm" href="{% url 'compute:cluster_create' %}">{% icon "plus" 15 %}Add cluster</a></div>{% endif %}</div>{% endif %}
+  </div>
+</section>
+
+<div class="panel"><div class="panel-h"><h2>Recent Compute Events</h2></div>
+  {% if events %}
+  <ul class="cm-list">{% for e in events %}<li><div>{{ e.title }}<small>{{ e.message|truncatechars:160 }}</small></div>{% badge e.severity %}<span class="small t-mute" title="{{ e.occurred_at|date:'d M Y H:i:s' }}">{{ e.occurred_at|ago }}</span></li>{% endfor %}</ul>
+  {% else %}<p class="cm-note">No events yet. Compute emits an event when a Kubernetes cluster degrades or recovers and when a VM's power state is changed.</p>{% endif %}
+</div>
+</div>
+{{ power_donut|json_script:"cm-power" }}{{ status_donut|json_script:"cm-status" }}{{ per_host|json_script:"cm-per-host" }}{{ site_bars|json_script:"cm-sites" }}
+{% endblock %}

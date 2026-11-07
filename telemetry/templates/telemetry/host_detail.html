@@ -17,6 +17,7 @@
   <div class="actions">
     <nav class="seg" aria-label="Time range">{% for k, l in ranges %}<a href="?range={{ k }}" class="{% if k == range_key %}on{% endif %}">{{ k }}</a>{% endfor %}</nav>
     <a class="btn" href="{% url 'telemetry:explorer' %}?expr={{ explore_q|urlencode }}&amp;range={{ range_key }}">{% icon "analytics" 17 %}Explore</a>
+    <a class="btn primary" href="{% url 'telemetry:host_metrics' instance %}?range={{ range_key }}">{% icon "grid" 17 %}All metrics</a>
   </div>
 </div>
 
