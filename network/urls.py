@@ -20,6 +20,7 @@ urlpatterns = [
     path("network/devices/<int:pk>/edit/", views.device_form, name="edit"),
     path("network/devices/<int:pk>/delete/", views.device_delete, name="delete"),
     path("network/devices/<int:pk>/check/", views.check_now, name="check"),
+    path("network/devices/<int:pk>/live/", views.live, name="live"),
     path("network/devices/<int:pk>/interfaces.csv", views.interfaces_csv, name="interfaces_export"),
     path("network/discovery/", views.discovery_view, name="discovery"),
     path("network/discovery/<int:pk>/", views.discovery_run, name="discovery_run"),

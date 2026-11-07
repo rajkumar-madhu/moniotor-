@@ -1769,3 +1769,112 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- live monitoring (live.js polls network:live) ---------- */
+.pg-network .nw-live[hidden],
+.pg-network .nw-live-notice[hidden] {
+  display: none;
+}
+
+.pg-network .nw-live {
+  margin-left: auto;
+}
+
+.pg-network .nw-live .nw-head-stat-val {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.pg-network .nw-live-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--chart-ok);
+  animation: nw-live-pulse 2s ease-out infinite;
+}
+
+.pg-network .nw-live[data-state="partial"] .nw-live-dot {
+  background: var(--chart-warn);
+}
+
+.pg-network .nw-live[data-state="paused"] .nw-live-dot {
+  background: var(--stone-2);
+  animation: none;
+}
+
+.pg-network .nw-live[data-state="error"] .nw-live-dot {
+  background: var(--chart-crit);
+  animation: none;
+}
+
+.pg-network .nw-live[data-state="error"] .nw-live-text {
+  color: var(--crit-ink);
+}
+
+.pg-network .nw-live-toggle {
+  padding: 2px 10px;
+  font-size: 12px;
+}
+
+.pg-network .nw-live-flash {
+  animation: nw-live-flash 1.2s ease-out;
+}
+
+@keyframes nw-live-pulse {
+  0% { box-shadow: 0 0 0 0 var(--ok-line); }
+  70% { box-shadow: 0 0 0 7px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+@keyframes nw-live-flash {
+  from { opacity: .25; }
+  to { opacity: 1; }
+}
+
+/* status icon follows the live tone class (live.js swaps t-ok / t-crit / t-mute) */
+.pg-network .nw-status .nw-st-ic {
+  display: none;
+}
+
+.pg-network .nw-status.t-ok .nw-st-ic.is-ok,
+.pg-network .nw-status.t-crit .nw-st-ic.is-crit,
+.pg-network .nw-status:not(.t-ok):not(.t-crit) .nw-st-ic.is-other {
+  display: inline-flex;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pg-network .nw-live-dot,
+  .pg-network .nw-live-flash {
+    animation: none;
+  }
+}
+
+/* graph range bar above the chart strip */
+.pg-network .nw-strip-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0 0 8px;
+  scroll-margin-top: 72px;
+}
+
+.pg-network .nw-strip-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.pg-network .nw-strip-title b {
+  color: var(--ink);
+}
+
+.pg-network .nw-strip-bar .seg {
+  margin-left: auto;
+}
