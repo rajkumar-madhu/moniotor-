@@ -1,0 +1,52 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}{{ zone.name }}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'ipam/page.css' %}">{% endblock %}
+{% block crumbs %}{% url 'ipam:dns' as list_url %}{% include "ipam/_crumbs.html" with section="DNS Zones" section_url=list_url leaf=zone.name %}{% endblock %}
+{% block content %}
+<div class="pg-ipam">
+<div class="head">
+  <div class="glyph bg-info">{% icon "globe" 30 %}</div>
+  <div><h1><span class="mono">{{ zone.name }}</span><span class="chip{% if zone.kind == 'reverse' %} purple{% endif %}">{{ zone.get_kind_display }}</span>{% if zone.is_example %}<span class="chip mute">example</span>{% endif %}</h1>
+    <p>{{ zone.description|default:"No description" }} · {{ zone.site_label }} · default TTL {{ zone.default_ttl }} s</p></div>
+  <div class="actions">
+    <a class="btn" href="{% url 'ipam:zone_records_export' zone.pk %}?{{ query.urlencode }}">{% icon "download" 17 %}Export CSV</a>
+    {% if can_edit %}<a class="btn" href="{% url 'ipam:zone_edit' zone.pk %}">{% icon "edit" 17 %}Edit zone</a>
+    <a class="btn primary" href="{% url 'ipam:record_create' zone.pk %}">{% icon "plus" 17 %}Add record</a>{% endif %}
+    {% if can_delete %}<form method="post" action="{% url 'ipam:zone_delete' zone.pk %}" data-confirm="Delete zone {{ zone.name }} and its {{ record_total }} record(s)?">{% csrf_token %}<button class="btn" type="submit">{% icon "trash" 17 %}Delete</button></form>{% endif %}
+  </div>
+</div>
+{% include "ipam/_tabs.html" with tab="dns" %}
+<div class="panel">
+  <div class="panel-h"><h2>Records ({{ page.paginator.count }})</h2>
+    <div class="right small t-mute">{% for t, n in type_counts %}<span class="chip">{{ t }} {{ n }}</span> {% endfor %}</div></div>
+  <form class="toolbar compact" method="get">
+    {% if request.GET.per %}<input type="hidden" name="per" value="{{ request.GET.per }}">{% endif %}
+    <label class="search">{% icon "search" 16 %}<input type="search" name="q" value="{{ request.GET.q }}" placeholder="Name, value or description…" aria-label="Search records"></label>
+    <select name="type" data-autosubmit aria-label="Record type"><option value="">All types</option>{% for v, l in types %}<option value="{{ v }}"{% if request.GET.type == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <a class="btn icon blue" href="{% url 'ipam:zone_detail' zone.pk %}" title="Clear filters" aria-label="Clear filters">{% icon "refresh" 16 %}</a>
+  </form>
+  <div class="table-wrap dense"><table>
+    <thead><tr><th>Name</th><th>Type</th><th>Value</th><th class="num">TTL</th><th>IPAM address</th><th>Description</th><th>Actions</th></tr></thead>
+    <tbody>
+    {% for r in page %}
+      <tr>
+        <td class="mono" title="{{ r.fqdn }}">{{ r.name }}</td>
+        <td><span class="chip">{{ r.rtype }}</span></td>
+        <td class="mono trunc" title="{{ r.value }}">{{ r.value }}</td>
+        <td class="num">{{ r.effective_ttl }}{% if r.ttl is None %} <span class="t-mute small">default</span>{% endif %}</td>
+        <td>{% if r.ip %}<a class="mono" href="{% url 'ipam:address_detail' r.ip_id %}">{{ r.ip.address }}</a> <span class="chip {% if r.ip.status == 'deprecated' %}warn{% else %}ok{% endif %}">{{ r.ip.get_status_display }}</span>{% elif r.free_target %}<span class="chip warn" title="Not recorded in IPAM">free address</span>{% if can_edit %} <a class="small" href="{% url 'ipam:address_create' %}?address={{ r.value|urlencode }}&amp;hostname={{ r.fqdn|urlencode }}">record it</a>{% endif %}{% else %}<span class="t-mute">–</span>{% endif %}</td>
+        <td class="trunc" title="{{ r.description }}">{{ r.description|default:"–" }}</td>
+        <td><div class="row-actions">
+          {% if can_edit %}<a class="btn icon blue" href="{% url 'ipam:record_edit' r.pk %}" title="Edit" aria-label="Edit {{ r.rtype }} {{ r.name }}">{% icon "edit" 15 %}</a>{% endif %}
+          {% if can_delete %}<form method="post" action="{% url 'ipam:record_delete' r.pk %}" data-confirm="Delete {{ r.rtype }} record {{ r.fqdn }}?">{% csrf_token %}<button class="btn icon red" type="submit" title="Delete" aria-label="Delete {{ r.rtype }} {{ r.name }}">{% icon "trash" 15 %}</button></form>{% endif %}
+          {% if not can_edit and not can_delete %}<span class="t-mute">–</span>{% endif %}
+        </div></td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="7" class="empty">{% if filtered %}No records match these filters.{% else %}No records in this zone yet.{% if can_edit %} <a href="{% url 'ipam:record_create' zone.pk %}">Add a record</a>.{% endif %}{% endif %}</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  {% include "core/_pager.html" with pager_noun="records" %}
+</div>
+</div>
+{% endblock %}

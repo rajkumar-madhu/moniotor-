@@ -1,0 +1,111 @@
+{% extends "core/base.html" %}{% load le static ipam_tags %}
+{% block title %}{{ subnet.cidr }}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'ipam/page.css' %}">{% endblock %}
+{% block crumbs %}{% url 'ipam:subnets' as subnets_url %}{% include "ipam/_crumbs.html" with section="Subnets" section_url=subnets_url leaf=subnet.cidr %}{% endblock %}
+{% block content %}
+<div class="pg-ipam">
+<div class="head">
+  <div class="glyph bg-info">{% icon "layers" 30 %}</div>
+  <div><h1><span class="mono">{{ subnet.cidr }}</span>{% if subnet.vrf %}<span class="chip purple">VRF {{ subnet.vrf }}</span>{% endif %}{% if subnet.role %}<span class="chip{% if subnet.is_container %} teal{% endif %}">{{ subnet.get_role_display }}</span>{% endif %}{% if subnet.is_example %}<span class="chip mute">example</span>{% endif %}</h1>
+    <p>{{ subnet.description|default:"No description" }} · {{ subnet.site_label }}{% if subnet.vlan %} · VLAN {{ subnet.vlan.vid }} {{ subnet.vlan.name }}{% endif %}</p></div>
+  <div class="actions">
+    <a class="btn" href="{% url 'ipam:addresses_export' %}?subnet={{ subnet.pk }}">{% icon "download" 17 %}Export addresses</a>
+    {% if can_edit %}<a class="btn" href="{% url 'ipam:subnet_edit' subnet.pk %}">{% icon "edit" 17 %}Edit</a>
+    {% if subnet.is_container %}<a class="btn" href="{% url 'ipam:subnet_create' %}?vrf={{ subnet.vrf|urlencode }}&amp;site={{ subnet.site|urlencode }}">{% icon "plus" 17 %}Add child subnet</a>{% endif %}
+    <a class="btn primary" href="{% url 'ipam:address_create' %}?vrf={{ subnet.vrf|urlencode }}{% if next_free %}&amp;address={{ next_free }}{% endif %}">{% icon "plus" 17 %}Add address</a>{% endif %}
+    {% if can_delete %}<form method="post" action="{% url 'ipam:subnet_delete' subnet.pk %}" data-confirm="Delete subnet {{ subnet.cidr }}? Its addresses move to the parent subnet (or are left without a subnet).">{% csrf_token %}<button class="btn" type="submit">{% icon "trash" 17 %}Delete</button></form>{% endif %}
+  </div>
+</div>
+{% include "ipam/_tabs.html" with tab="subnets" %}
+
+<section class="kpis ip-kpis-4" aria-label="Summary">
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "layers" 22 %}</div><div class="kpi-body"><div class="label">Size</div><div class="value">{{ size_text }}</div></div></div><div class="sub">{{ usable_text }} usable · IPv{{ subnet.version }} /{{ subnet.prefixlen }}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-ok">{% icon "tag" 22 %}</div><div class="kpi-body"><div class="label">Recorded</div><div class="value">{{ used|count }}</div></div></div><div class="bar"><i class="fill-{{ tone }}" style="width:{{ pct|bar }}%"></i></div><div class="sub">{{ pct|util }} utilised · {{ free_text }} free</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-purple">{% icon "arrow-right" 22 %}</div><div class="kpi-body"><div class="label">Next Free</div><div class="value mono kpi-ip">{{ next_free|default:"Full" }}</div></div></div><div class="sub">{% if subnet.is_container %}Outside child subnets{% else %}First unrecorded host address{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-mute">{% icon "share" 22 %}</div><div class="kpi-body"><div class="label">Child Subnets</div><div class="value">{{ kids|length }}</div></div></div><div class="sub">{% if coverage is not None %}{{ coverage|util }} of the range allocated{% elif subnet.is_container %}None yet{% else %}Only containers hold subnets{% endif %}</div></div>
+</section>
+
+<section class="grid g-main">
+  <div class="stack">
+    <div class="panel">
+      <div class="panel-h"><h2>Address Map</h2>{% if amap %}<div class="right small t-mute">{% if amap.mode == "address" %}One cell per address{% else %}One cell per /24 block{% endif %}</div>{% endif %}</div>
+      {% if amap %}
+        {% if amap.mode == "address" %}
+        <div class="amap-head"><span>{{ amap.cells.0.ip }}</span><span>{% with last=amap.cells|last %}{{ last.ip }}{% endwith %}</span></div>
+        <div class="amap{% if amap.cols > 16 %} wide{% endif %}" style="--cols:{{ amap.cols }}" role="list" aria-label="Address map">
+          {% for c in amap.cells %}{% if c.pk %}<a role="listitem" class="k-{{ c.kind }}" href="{% url 'ipam:address_detail' c.pk %}" title="{{ c.title }}" aria-label="{{ c.title }}"></a>{% elif c.add %}<a role="listitem" class="k-free" href="{% url 'ipam:address_create' %}?address={{ c.ip }}&amp;vrf={{ subnet.vrf|urlencode }}" title="{{ c.title }} – click to record it" aria-label="Record {{ c.ip }}"></a>{% elif c.child %}<a role="listitem" class="k-child" href="{% url 'ipam:subnet_detail' c.child %}" title="{{ c.title }}" aria-label="{{ c.title }}"></a>{% else %}<span role="listitem" class="k-{{ c.kind }}" title="{{ c.title }}"></span>{% endif %}{% endfor %}
+        </div>
+        <div class="amap-legend"><span><i class="sw-active"></i>Active</span><span><i class="sw-reserved"></i>Reserved</span><span><i class="sw-dhcp"></i>DHCP</span><span><i class="sw-deprecated"></i>Deprecated</span><span><i style="background:var(--ink)"></i>Gateway</span><span><i style="background:var(--stone-2)"></i>Network / broadcast</span>{% if kids %}<span><i style="background:var(--info-bg);border-color:var(--info-line)"></i>Child subnet</span>{% endif %}<span><i style="background:#fff;border-color:var(--line)"></i>Free</span></div>
+        {% else %}
+        <div class="amap blocks{% if amap.cols > 8 %} wide{% endif %}" style="--cols:{{ amap.cols }}" role="list" aria-label="Block map">
+          {% for c in amap.cells %}{% if c.child %}<a role="listitem" class="k-{{ c.kind }}" href="{% url 'ipam:subnet_detail' c.child %}" title="{{ c.title }}">{{ c.used }}</a>{% elif c.used %}<a role="listitem" class="k-{{ c.kind }}" href="{% url 'ipam:addresses' %}?within={{ c.ip|urlencode }}" title="{{ c.title }}">{{ c.used }}</a>{% else %}<span role="listitem" class="k-free" title="{{ c.title }}"></span>{% endif %}{% endfor %}
+        </div>
+        <div class="amap-legend"><span><i style="background:#fff;border-color:var(--line)"></i>No addresses</span><span><i style="background:var(--ok-bg);border-color:var(--ok-line)"></i>In use</span><span><i style="background:var(--warn-bg);border-color:var(--warn-line)"></i>≥ 75%</span><span><i style="background:var(--crit-bg);border-color:var(--crit-line)"></i>≥ 90%</span>{% if kids %}<span><i style="background:var(--info-bg);border-color:var(--info-line)"></i>Child subnet, empty</span>{% endif %}<span class="t-mute">Numbers = recorded addresses per /24</span></div>
+        {% endif %}
+      {% else %}
+        <div class="ip-empty">{% icon "grid" 26 %}<p>{{ map_note }}</p></div>
+      {% endif %}
+    </div>
+
+    <div class="panel" id="addresses">
+      <div class="panel-h"><h2>Addresses ({{ page.paginator.count }})</h2>
+        <div class="right"><a class="view-all" href="{% url 'ipam:addresses' %}?subnet={{ subnet.pk }}">Open in address list</a></div></div>
+      <nav class="seg" aria-label="Filter by status">
+        <a href="?#addresses" class="{% if not request.GET.status %}on{% endif %}">All</a>
+        {% for v, l in statuses %}<a href="?status={{ v }}#addresses" class="{% if request.GET.status == v %}on{% endif %}">{{ l }} <b>{{ status_counts|get:v }}</b></a>{% endfor %}
+      </nav>
+      <div class="table-wrap dense"><table>
+        <thead><tr><th>Address</th><th>Status</th><th>Hostname</th><th>Device / CI</th><th>Last seen</th>{% if subnet.is_container %}<th>Subnet</th>{% endif %}</tr></thead>
+        <tbody>{% for a in page %}<tr>
+          <td class="mono"><a href="{% url 'ipam:address_detail' a.pk %}">{{ a.address }}</a></td>
+          <td><span class="chip {{ a.status|stone }}">{{ a.get_status_display }}</span></td>
+          <td class="trunc" title="{{ a.hostname }}">{{ a.hostname|default:"–" }}</td>
+          <td class="trunc">{% if a.device %}<a href="{{ a.device.get_absolute_url }}">{{ a.device.name }}</a>{% endif %}{% if a.device and a.ci %} · {% endif %}{% if a.ci %}<a href="{{ a.ci.get_absolute_url }}">{{ a.ci.name }}</a>{% endif %}{% if not a.device and not a.ci %}<span class="t-mute">–</span>{% endif %}</td>
+          <td title="{{ a.last_seen|default_if_none:'' }}">{{ a.last_seen|ago }}</td>
+          {% if subnet.is_container %}<td class="mono">{% if a.subnet_id != subnet.pk and a.subnet %}<a href="{% url 'ipam:subnet_detail' a.subnet_id %}">{{ a.subnet.cidr }}</a>{% else %}this{% endif %}</td>{% endif %}
+        </tr>{% empty %}<tr><td colspan="{% if subnet.is_container %}6{% else %}5{% endif %}" class="empty">{% if request.GET.status %}No addresses with this status.{% else %}No addresses recorded in this subnet yet.{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+      {% include "core/_pager.html" with pager_noun="addresses" %}
+    </div>
+  </div>
+
+  <div class="stack">
+    <div class="panel">
+      <div class="panel-h"><h2>Next Free Address</h2></div>
+      {% if next_free %}
+      <div class="nextfree"><span class="ip">{{ next_free }}</span>
+        {% if can_edit %}<a class="btn sm" href="{% url 'ipam:address_create' %}?address={{ next_free }}&amp;vrf={{ subnet.vrf|urlencode }}">{% icon "edit" 14 %}Use in form</a>{% endif %}</div>
+      {% if can_edit %}
+      <form class="nextfree" method="post" action="{% url 'ipam:subnet_reserve' subnet.pk %}" style="margin-top:10px">{% csrf_token %}
+        <input type="text" name="hostname" maxlength="253" placeholder="Hostname (optional)" aria-label="Hostname for the reserved address">
+        <button class="btn primary sm" type="submit">{% icon "lock" 14 %}Reserve next free</button></form>
+      <p class="ip-note">Reserving records the address with status Reserved straight away, so nobody else takes it.</p>
+      {% endif %}
+      {% else %}<div class="ip-alert warn">{% icon "alert" 16 %}<span>No free address left in {{ subnet.cidr }}{% if kids %} outside its child subnets{% endif %}.</span></div>{% endif %}
+    </div>
+
+    <div class="panel">
+      <div class="panel-h"><h2>Details</h2></div>
+      <dl class="kv">
+        <dt>Network</dt><dd class="mono">{{ subnet.cidr }}</dd>
+        <dt>VRF</dt><dd>{{ subnet.vrf|default:"Global table" }}</dd>
+        <dt>Site</dt><dd>{{ subnet.site_label }}</dd>
+        <dt>Purpose</dt><dd>{{ subnet.get_role_display|default:"–" }}</dd>
+        <dt>VLAN</dt><dd>{% if subnet.vlan %}<a href="{% url 'ipam:subnets' %}?vlan={{ subnet.vlan_id }}">{{ subnet.vlan.vid }} · {{ subnet.vlan.name }}</a>{% else %}–{% endif %}</dd>
+        <dt>Gateway</dt><dd class="mono">{{ subnet.gateway|default:"–" }}</dd>
+        <dt>Parent</dt><dd>{% if parent %}<a class="mono" href="{% url 'ipam:subnet_detail' parent.pk %}">{{ parent.cidr }}</a>{% else %}–{% endif %}</dd>
+        <dt>Updated</dt><dd>{{ subnet.updated_at|short_dt }}</dd>
+      </dl>
+    </div>
+
+    <div class="panel">
+      <div class="panel-h"><h2>Child Subnets ({{ kids|length }})</h2>{% if can_edit and subnet.is_container %}<div class="right"><a class="view-all" href="{% url 'ipam:subnet_create' %}?vrf={{ subnet.vrf|urlencode }}&amp;site={{ subnet.site|urlencode }}">Add</a></div>{% endif %}</div>
+      {% if kids %}
+      <ul class="ip-list">{% for k in kids %}<li><div><a class="mono" href="{% url 'ipam:subnet_detail' k.pk %}">{{ k.cidr }}</a><small>{{ k.description|default:k.get_role_display|default:"–" }}</small></div>
+        <div class="ubar" style="min-width:0"><span class="util"><i class="fill-{{ k.tone }}" style="width:{{ k.pct|bar }}%"></i></span><b class="t-{{ k.tone }}">{{ k.pct|util }}</b></div></li>{% endfor %}</ul>
+      {% elif subnet.is_container %}<p class="ip-note">No child subnets yet.</p>
+      {% else %}<p class="ip-note">Only subnets with the purpose Container (supernet) can hold child subnets.</p>{% endif %}
+    </div>
+  </div>
+</section>
+</div>
+{% endblock %}

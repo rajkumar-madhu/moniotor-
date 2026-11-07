@@ -1,6 +1,41 @@
-from django.urls import path  # noqa: F401
+from django.urls import path
+
+from . import views
 
 app_name = "ipam"
-
-# Each app defines its full paths here (see docs/MODULES.md); the module builder fills this in.
-urlpatterns = []
+urlpatterns = [
+    path("ipam/", views.overview, name="overview"),
+    path("ipam/subnets/", views.subnets, name="subnets"),
+    path("ipam/subnets/export.csv", views.subnets_export, name="subnets_export"),
+    path("ipam/subnets/new/", views.subnet_form, name="subnet_create"),
+    path("ipam/subnets/<int:pk>/", views.subnet_detail, name="subnet_detail"),
+    path("ipam/subnets/<int:pk>/edit/", views.subnet_form, name="subnet_edit"),
+    path("ipam/subnets/<int:pk>/delete/", views.subnet_delete, name="subnet_delete"),
+    path("ipam/subnets/<int:pk>/reserve/", views.subnet_reserve, name="subnet_reserve"),
+    path("ipam/addresses/", views.addresses, name="addresses"),
+    path("ipam/addresses/export.csv", views.addresses_export, name="addresses_export"),
+    path("ipam/addresses/import/", views.addresses_import, name="addresses_import"),
+    path("ipam/addresses/new/", views.address_form, name="address_create"),
+    path("ipam/addresses/<int:pk>/", views.address_detail, name="address_detail"),
+    path("ipam/addresses/<int:pk>/edit/", views.address_form, name="address_edit"),
+    path("ipam/addresses/<int:pk>/delete/", views.address_delete, name="address_delete"),
+    path("ipam/vlans/", views.vlans, name="vlans"),
+    path("ipam/vlans/export.csv", views.vlans_export, name="vlans_export"),
+    path("ipam/vlans/new/", views.vlan_form, name="vlan_create"),
+    path("ipam/vlans/<int:pk>/edit/", views.vlan_form, name="vlan_edit"),
+    path("ipam/vlans/<int:pk>/delete/", views.vlan_delete, name="vlan_delete"),
+    path("ipam/dns/", views.dns_zones, name="dns"),
+    path("ipam/dns/export.csv", views.zones_export, name="zones_export"),
+    path("ipam/dns/new/", views.zone_form, name="zone_create"),
+    path("ipam/dns/<int:pk>/", views.zone_detail, name="zone_detail"),
+    path("ipam/dns/<int:pk>/edit/", views.zone_form, name="zone_edit"),
+    path("ipam/dns/<int:pk>/delete/", views.zone_delete, name="zone_delete"),
+    path("ipam/dns/<int:pk>/records.csv", views.zone_records_export, name="zone_records_export"),
+    path("ipam/dns/<int:zone_pk>/records/new/", views.record_form, name="record_create"),
+    path("ipam/dns/records/<int:pk>/edit/", views.record_form, name="record_edit"),
+    path("ipam/dns/records/<int:pk>/delete/", views.record_delete, name="record_delete"),
+    path("ipam/conflicts/", views.conflicts, name="conflicts"),
+    path("ipam/conflicts/export.csv", views.conflicts_export, name="conflicts_export"),
+    path("ipam/sync/", views.sync_now, name="sync"),
+    path("ipam/sync/<int:pk>/", views.sync_run, name="sync_run"),
+]

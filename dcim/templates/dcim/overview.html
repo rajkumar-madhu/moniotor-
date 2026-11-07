@@ -1,0 +1,102 @@
+{% extends "core/base.html" %}{% load le dcim_tags static %}
+{% block title %}Data Centre{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'dcim/page.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<span>Data Centre</span>{% icon "chevron-right" 14 %}<span>Overview</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-dcim">
+<div class="head">
+  <div class="glyph">{% icon "server" 30 %}</div>
+  <div><h1>Data Centre</h1><p>Space, power and cooling across rooms and racks{% if site %} at {{ site }}{% endif %}</p></div>
+  <div class="actions">
+    <a class="btn" href="{% url 'dcim:racks_export' %}{% if site %}?site={{ site|urlencode }}{% endif %}">{% icon "download" 17 %}Export racks</a>
+    {% if can_operate %}<a class="btn" href="{% url 'dcim:room_create' %}{% if site %}?site={{ site|urlencode }}{% endif %}">{% icon "plus" 17 %}Add room</a>
+    <a class="btn primary" href="{% url 'dcim:rack_create' %}">{% icon "plus" 17 %}Add rack</a>{% endif %}
+  </div>
+</div>
+{% include "dcim/_tabs.html" %}
+
+{% if not t.rooms %}
+<section class="panel dc-empty-hero">
+  {% icon "server" 34 %}
+  <h2>No rooms or racks{% if site %} at {{ site }}{% endif %} yet</h2>
+  <p>Start by adding a room (a data hall, server room or cage), then its racks. Mount items in the rack elevation, record power feeds and cooling units, and this page fills in with real capacity figures.</p>
+  <p class="t-mute small">For a demo, an administrator can run <code>manage.py seed_dcim</code> to create example-tagged records.</p>
+  {% if can_operate %}<div class="actions"><a class="btn primary" href="{% url 'dcim:room_create' %}">{% icon "plus" 16 %}Add room</a></div>{% endif %}
+</section>
+{% else %}
+<section class="kpis dc-kpis" aria-label="Summary">
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "grid" 22 %}</div><div class="kpi-body"><div class="label">Rooms</div><div class="value">{{ t.rooms }}</div></div></div><div class="sub">{{ t.items }} mounted item{{ t.items|pluralize }}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-purple">{% icon "server" 22 %}</div><div class="kpi-body"><div class="label">Racks</div><div class="value">{{ t.racks }}</div></div></div><div class="sub">{% if t.racks != t.active_racks %}{{ t.active_racks }} in service, {{ t.racks }} recorded{% else %}All in service{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-{{ t.u_pct|load_tone }}">{% icon "layers" 22 %}</div><div class="kpi-body"><div class="label">Space used</div><div class="value">{{ t.u_pct|pct0 }}</div></div></div><div class="sub">{{ t.u_used }} of {{ t.u_total }} U</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-{{ t.power_pct|load_tone }}">{% icon "zap" 22 %}</div><div class="kpi-body"><div class="label">Power used</div><div class="value">{% if t.power_pct is not None %}{{ t.power_pct|pct0 }}{% else %}{{ t.load_kw|kw }}{% endif %}</div></div></div><div class="sub">{% if t.budget_kw %}{{ t.load_kw|kw }} of {{ t.budget_kw|kw }} budget{% elif t.load_kw is not None %}No rack power budgets set{% else %}No feeds or item draw recorded{% endif %}{% if t.estimated %} · partly estimated{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-{% if t.negative_rooms %}{% if t.headroom_kw < 0 %}crit{% else %}warn{% endif %}{% else %}{{ t.headroom_kw|headroom_tone }}{% endif %}">{% icon "sun" 22 %}</div><div class="kpi-body"><div class="label">Cooling headroom</div><div class="value {% if t.headroom_kw is not None and t.headroom_kw < 0 %}t-crit{% endif %}">{{ t.headroom_kw|kw }}</div></div></div><div class="sub">{% if t.cooling_kw is not None %}{{ t.cooling_kw|kw }} active cooling{% if t.negative_rooms %} · {{ t.negative_rooms }} room{{ t.negative_rooms|pluralize }} short{% endif %}{% else %}No active cooling units recorded{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-{% if t.hot %}warn{% else %}ok{% endif %}">{% icon "flame" 22 %}</div><div class="kpi-body"><div class="label">Racks above 80%</div><div class="value">{{ t.hot|length }}</div></div></div><div class="sub">Power or space</div></div>
+</section>
+
+<section class="grid g-main">
+  <div class="stack">
+  <div class="panel">
+    <div class="panel-h"><h2>Top racks by utilisation</h2><div class="right"><a class="view-all" href="{% url 'dcim:racks' %}{% if site %}?site={{ site|urlencode }}{% endif %}">All racks {% icon "arrow-right" 14 %}</a></div></div>
+    <div class="table-wrap dense"><table>
+      <thead><tr><th>Rack</th><th>Room</th><th>Space</th><th>Power</th><th class="num">Load</th><th class="num">Budget</th></tr></thead>
+      <tbody>{% for r in top %}
+        <tr><td><a href="{% url 'dcim:rack_detail' r.pk %}">{{ r.name }}</a>{% if r.is_hot %} <span class="chip warn">hot</span>{% endif %}</td>
+          <td>{{ r.room_obj.name }}<div class="t-mute small">{{ r.site }}</div></td>
+          <td><div class="dc-cell">{% include "dcim/_bar.html" with pct=r.space_pct label="Space used" %}<span class="num">{{ r.u_used }}/{{ r.u_height }} U</span></div></td>
+          <td><div class="dc-cell">{% include "dcim/_bar.html" with pct=r.power_pct label="Power used" %}<span class="num">{{ r.power_pct|pct0 }}</span></div></td>
+          <td class="num" title="{{ r.load_source|default:'no data' }}">{{ r.load_kw|kw }}{% if r.load_source == "estimated" %}<span class="t-mute"> est.</span>{% endif %}</td>
+          <td class="num">{{ r.max_power_kw|kw }}</td></tr>
+      {% empty %}<tr><td colspan="6" class="empty">No racks in service yet.{% if can_operate %} <a href="{% url 'dcim:rack_create' %}">Add a rack</a>.{% endif %}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    <p class="dc-foot">Space counts every unit with an item on either face. Load comes from power feeds (live or manual); racks without feeds use the items' typical draw (“est.”).</p>
+  </div>
+  <div class="panel">
+    <div class="panel-h"><h2>Cooling headroom</h2><div class="right"><a class="view-all" href="{% url 'dcim:cooling' %}{% if site %}?site={{ site|urlencode }}{% endif %}">Cooling {% icon "arrow-right" 14 %}</a></div></div>
+    <div class="table-wrap dense borderless"><table>
+      <thead><tr><th>Room</th><th class="num">IT load</th><th class="num">Cooling</th><th class="num">Headroom</th></tr></thead>
+      <tbody>{% for room in room_rows %}
+        <tr><td title="{{ room.site }}">{{ room.name }}</td><td class="num">{{ room.load_kw|kw }}</td><td class="num">{{ room.cooling_capacity_kw|kw }}</td>
+          <td class="num t-{{ room.headroom_kw|headroom_tone }}">{% if room.headroom_kw is None %}<span class="t-mute">no units</span>{% else %}{{ room.headroom_kw|kw }}{% endif %}</td></tr>
+      {% empty %}<tr><td colspan="4" class="empty">No rooms.</td></tr>{% endfor %}</tbody></table></div>
+  </div>
+  </div>
+  <div class="stack">
+    <div class="panel"><div class="panel-h"><h2>Rack space</h2></div>
+      {% if t.u_total %}
+      <div class="donut-wrap"><div class="chart" data-chart="donut" data-src="dc-space"></div>
+        <div class="donut-legend">
+          <span><i class="dot dc-dot-used"></i>Used</span><b>{{ t.u_used }} U</b>
+          <span><i class="dot fill-mute"></i>Free</span><b>{{ t.u_free }} U</b>
+        </div></div>
+      {% else %}<div class="dc-empty">{% icon "layers" 26 %}<p>No racks in service.</p></div>{% endif %}
+    </div>
+    <div class="panel"><div class="panel-h nowrap"><h2>Power &amp; cooling by room</h2></div>
+      {% if has_power_chart %}
+      <div class="legend dc-legend"><span><i class="dc-dot-used"></i>IT load</span><span><i class="fill-stone"></i>Power budget</span><span><i class="dc-dot-teal"></i>Active cooling</span></div>
+      <div class="chart" data-chart="bars" data-src="dc-power" style="height:180px"></div>
+      {% else %}<div class="dc-empty">{% icon "zap" 26 %}<p>No power or cooling figures recorded yet.</p></div>{% endif %}
+    </div>
+  </div>
+</section>
+
+<section class="grid g-2">
+  <div class="panel">
+    <div class="panel-h"><h2>Not yet racked</h2><small>{{ unracked_count }} device{{ unracked_count|pluralize }}</small></div>
+    {% if unracked %}
+    <ul class="dc-list">{% for d in unracked %}
+      <li><a href="{{ d.get_absolute_url }}">{{ d.name }}</a><span class="t-mute">{{ d.get_device_type_display }}{% if d.site %} · {{ d.site }}{% endif %}</span></li>{% endfor %}</ul>
+    <p class="dc-foot">Physical network devices and servers from Network Devices that are not linked to a rack item. Link them when you add an item to a rack.</p>
+    {% else %}<div class="dc-empty">{% icon "check-circle" 26 %}<p>{% if unracked_count == 0 %}Every physical device in Network Devices is mounted in a rack, or none are recorded.{% endif %}</p></div>{% endif %}
+  </div>
+  <div class="panel">
+    <div class="panel-h"><h2>Recent DCIM events</h2></div>
+    {% if events %}
+    <ul class="dc-events">{% for e in events %}
+      <li>{% badge e.severity e.get_severity_display %}<div><b>{{ e.title }}</b><span class="t-mute small">{{ e.occurred_at|ago }}{% if e.site %} · {{ e.site }}{% endif %}</span></div></li>{% endfor %}</ul>
+    {% else %}<div class="dc-empty">{% icon "bell" 26 %}<p>No power or cooling alerts. Racks above 90% of their power budget and rooms short of cooling raise a warning here.</p></div>{% endif %}
+  </div>
+</section>
+{{ space_donut|json_script:"dc-space" }}{{ power_chart|json_script:"dc-power" }}
+{% endif %}
+</div>
+{% endblock %}

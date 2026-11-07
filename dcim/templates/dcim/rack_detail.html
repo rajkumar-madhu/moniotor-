@@ -1,0 +1,111 @@
+{% extends "core/base.html" %}{% load le dcim_tags static %}
+{% block title %}Rack {{ rack.name }}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'dcim/page.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'dcim:overview' %}">Data Centre</a>{% icon "chevron-right" 14 %}<a href="{% url 'dcim:racks' %}">Rooms &amp; Racks</a>{% icon "chevron-right" 14 %}<a href="{{ room.get_absolute_url }}">{{ room.name }}</a>{% icon "chevron-right" 14 %}<span>{{ rack.name }}</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-dcim">
+<div class="head">
+  <div class="glyph">{% icon "server" 30 %}</div>
+  <div><h1>Rack {{ rack.name }}</h1>
+    <p>{{ room.name }}{% if room.floor %} · floor {{ room.floor }}{% endif %} · {{ rack.site }} · {{ rack.u_height }}U ·
+      {% if rack.status == "active" %}{% badge "active" "Active" %}{% elif rack.status == "decommissioned" %}{% badge "inactive" "Decommissioned" %}{% else %}{% badge "info" rack.get_status_display %}{% endif %}
+      {% if rack.is_example %}<span class="chip warn">example</span>{% endif %}</p></div>
+  <div class="actions">
+    <a class="btn" href="{% url 'dcim:items_export' %}?rack={{ rack.pk }}">{% icon "download" 17 %}Export items</a>
+    {% if can_manage %}<a class="btn" href="{% url 'dcim:rack_edit' rack.pk %}">{% icon "edit" 17 %}Edit rack</a>
+    <a class="btn primary" href="{% url 'dcim:item_create' rack.pk %}">{% icon "plus" 17 %}Add item</a>{% endif %}
+  </div>
+</div>
+
+<section class="kpis dc-kpis" aria-label="Rack summary">
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-{{ rack.space_pct|load_tone }}">{% icon "layers" 22 %}</div><div class="kpi-body"><div class="label">Space used</div><div class="value">{{ rack.space_pct|pct0 }}</div></div></div><div class="sub">{{ rack.u_used }} of {{ rack.u_height }} U · {{ rack.u_free }} free</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-{{ rack.power_pct|load_tone }}">{% icon "zap" 22 %}</div><div class="kpi-body"><div class="label">Power load</div><div class="value">{{ rack.load_kw|kw }}</div></div></div><div class="sub">{% if rack.max_power_kw %}{{ rack.power_pct|pct0 }} of {{ rack.max_power_kw|kw }} budget{% else %}No power budget set{% endif %}{% if rack.load_source %} · {{ rack.load_source }}{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "plug" 22 %}</div><div class="kpi-body"><div class="label">Feeds</div><div class="value">{{ feeds|length }}</div></div></div><div class="sub">{% if rack.feed_capacity_kw %}{{ rack.feed_capacity_kw|kw }} feed capacity{% else %}No power feeds recorded{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-{{ rack.cooling_pct|load_tone }}">{% icon "sun" 22 %}</div><div class="kpi-body"><div class="label">Cooling budget</div><div class="value">{{ rack.cooling_pct|pct0 }}</div></div></div><div class="sub">{% if rack.max_cooling_kw %}of {{ rack.max_cooling_kw|kw }} heat rejection{% else %}No cooling budget set{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-purple">{% icon "box" 22 %}</div><div class="kpi-body"><div class="label">Items</div><div class="value">{{ items|length }}</div></div></div><div class="sub">{% if rack.estimated_kw is not None %}{{ rack.estimated_kw|kw }} typical draw{% else %}No item draw recorded{% endif %}</div></div>
+</section>
+
+<section class="grid dc-detail">
+  <div class="panel dc-elev-panel">
+    <div class="panel-h"><h2>Rack elevation</h2><small>U{{ rack.u_height }} at the top, U1 at the bottom{% if can_manage %} · choose a free unit to add an item there{% endif %}</small></div>
+    <div class="dc-elevs">
+    {% for face_name, face_key, slots in faces %}
+      <figure class="dc-elev" style="--u: {{ rack.u_height }}">
+        <figcaption>{{ face_name }}</figcaption>
+        <div class="dc-elev-body">
+          <div class="dc-nums" aria-hidden="true">{% for n in unums %}<span>{{ n }}</span>{% endfor %}</div>
+          <ol class="dc-slots" aria-label="{{ face_name }} of rack {{ rack.name }}, from U{{ rack.u_height }} down to U1">
+          {% for s in slots %}{% if s.item %}
+            <li class="dc-item k-{{ s.item.kind }}{% if s.item.face == 'both' %} full{% endif %}{% if s.span == 1 %} s1{% endif %}" style="grid-row: {{ s.row }} / span {{ s.span }}">
+              <span class="sr">{% if s.span == 1 %}U{{ s.top }}{% else %}U{{ s.bottom }} to U{{ s.top }}{% endif %}, {{ s.item.get_kind_display }}{% if s.item.face == 'both' %}, full depth{% endif %}: </span>
+              {% if s.item.device %}<a class="nm" href="{{ s.item.device.get_absolute_url }}" title="{{ s.item.name }} – network device {{ s.item.device.name }}">{{ s.item.name }}</a>
+              {% elif s.item.ci %}<a class="nm" href="{{ s.item.ci.get_absolute_url }}" title="{{ s.item.name }} – configuration item {{ s.item.ci.name }}">{{ s.item.name }}</a>
+              {% elif can_manage %}<a class="nm" href="{% url 'dcim:item_edit' s.item.pk %}" title="{{ s.item.name }}">{{ s.item.name }}</a>
+              {% else %}<span class="nm" title="{{ s.item.name }}">{{ s.item.name }}</span>{% endif %}
+              {% if s.span > 1 %}<span class="meta" aria-hidden="true">{{ s.item.get_kind_display }}{% if s.item.power_draw_w %} · {{ s.item.power_draw_w }} W{% endif %}</span>{% endif %}
+              {% if can_manage %}<a class="ed" href="{% url 'dcim:item_edit' s.item.pk %}" aria-label="Edit {{ s.item.name }}" title="Edit">{% icon "edit" 13 %}</a>{% endif %}
+            </li>
+          {% else %}
+            <li class="dc-free" style="grid-row: {{ s.row }}">{% if can_manage %}<a href="{% url 'dcim:item_create' rack.pk %}?u={{ s.top }}&amp;face={{ face_key }}" aria-label="U{{ s.top }} free – add an item here ({{ face_name|lower }})"><span aria-hidden="true">{% icon "plus" 12 %}U{{ s.top }}</span></a>{% else %}<span class="sr">U{{ s.top }} free</span>{% endif %}</li>
+          {% endif %}{% endfor %}
+          </ol>
+          <div class="dc-nums" aria-hidden="true">{% for n in unums %}<span>{{ n }}</span>{% endfor %}</div>
+        </div>
+      </figure>
+    {% endfor %}
+    </div>
+    <div class="legend dc-kind-legend">{% for v, l in kinds %}<span><i class="dc-k k-{{ v }}"></i>{{ l }}</span>{% endfor %}<span><i class="dc-k full"></i>Full depth</span></div>
+  </div>
+
+  <div class="stack">
+    <div class="panel">
+      <div class="panel-h"><h2>Power feeds</h2><div class="right">{% if can_manage %}<a class="btn sm" href="{% url 'dcim:feed_create' %}?rack={{ rack.pk }}&amp;next={{ request.path|urlencode }}">{% icon "plus" 14 %}Feed</a>{% endif %}</div></div>
+      {% if feeds %}
+      <div class="table-wrap dense borderless"><table>
+        <thead><tr><th>Feed</th><th class="num">Load</th><th class="num">Capacity</th><th class="num">Headroom</th><th><span class="sr">Actions</span></th></tr></thead>
+        <tbody>{% for f in feeds %}
+          <tr><td>{{ f.name }} <span class="t-mute small">{{ f.get_kind_display }}</span>{% if f.last_error %}<div class="t-crit small" title="{{ f.last_error }}">{{ f.last_error|truncatechars:60 }}</div>{% endif %}</td>
+            <td class="num">{{ f.load_kw|kw }}{% if f.source == "live" %}<span class="t-ok"> live</span>{% elif f.source == "manual" %}<span class="t-mute"> manual</span>{% endif %}</td>
+            <td class="num">{{ f.capacity_kw|kw }}</td>
+            <td class="num t-{% if f.headroom_kw is not None and f.headroom_kw < 0 %}crit{% else %}ok{% endif %}">{{ f.headroom_kw|kw }}</td>
+            <td>{% if can_manage %}<a class="btn icon blue" href="{% url 'dcim:feed_edit' f.pk %}?next={{ request.path|urlencode }}" aria-label="Edit feed {{ f.name }}" title="Edit">{% icon "edit" 14 %}</a>{% endif %}</td></tr>
+        {% endfor %}</tbody></table></div>
+      {% else %}<div class="dc-empty">{% icon "plug" 24 %}<p>No power feeds recorded.{% if rack.estimated_kw is not None %} Load is estimated from the items' typical draw.{% endif %}</p></div>{% endif %}
+    </div>
+    <div class="panel">
+      <div class="panel-h"><h2>Rack details</h2></div>
+      <dl class="kv">
+        <dt>Room</dt><dd><a href="{{ room.get_absolute_url }}">{{ room.name }}</a></dd>
+        <dt>Site</dt><dd>{{ rack.site }}</dd>
+        <dt>Power budget</dt><dd>{{ rack.max_power_kw|kw }}</dd>
+        <dt>Cooling budget</dt><dd>{{ rack.max_cooling_kw|kw }}</dd>
+        <dt>Room cooling</dt><dd>{% if room.cooling_capacity_kw is not None %}<span class="t-{{ room.headroom_kw|headroom_tone }}">{{ room.headroom_kw|kw }} headroom</span> of {{ room.cooling_capacity_kw|kw }}{% else %}<span class="t-mute">no active cooling units</span>{% endif %}</dd>
+        {% if rack.notes %}<dt>Notes</dt><dd>{{ rack.notes|linebreaksbr }}</dd>{% endif %}
+        <dt>Updated</dt><dd>{{ rack.updated_at|date:"d M Y H:i" }}</dd>
+      </dl>
+    </div>
+    {% if events %}
+    <div class="panel">
+      <div class="panel-h"><h2>Power alerts</h2></div>
+      <ul class="dc-events">{% for e in events %}<li>{% badge e.severity e.get_severity_display %}<div><b>{{ e.title }}</b><span class="t-mute small">{{ e.occurred_at|ago }}</span></div></li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-h"><h2>Items ({{ items|length }})</h2></div>
+  <div class="table-wrap dense"><table>
+    <thead><tr><th>Units</th><th>Name</th><th>Kind</th><th>Face</th><th>Linked to</th><th class="num">Draw</th><th>Notes</th><th><span class="sr">Actions</span></th></tr></thead>
+    <tbody>{% for it in items %}
+      <tr><td class="num">{{ it.u_label }}</td><td>{{ it.name }}</td><td>{{ it.get_kind_display }}</td><td>{{ it.get_face_display }}</td>
+        <td>{% if it.device %}<a href="{{ it.device.get_absolute_url }}">{{ it.device.name }}</a> {% badge it.device.status %}{% endif %}{% if it.ci %}{% if it.device %}<br>{% endif %}<a href="{{ it.ci.get_absolute_url }}">{{ it.ci.name }}</a> <span class="t-mute small">CI</span>{% endif %}{% if not it.device and not it.ci %}<span class="t-mute">–</span>{% endif %}</td>
+        <td class="num">{% if it.power_draw_w %}{{ it.power_draw_w }} W{% else %}–{% endif %}</td>
+        <td class="dc-notes" title="{{ it.notes }}">{{ it.notes|default:"–" }}</td>
+        <td><div class="row-actions">{% if can_manage %}<a class="btn icon blue" href="{% url 'dcim:item_edit' it.pk %}" title="Edit" aria-label="Edit {{ it.name }}">{% icon "edit" 15 %}</a>{% endif %}
+          {% if can_delete %}<form method="post" action="{% url 'dcim:item_delete' it.pk %}" data-confirm="Remove “{{ it.name }}” from {{ rack.name }}?">{% csrf_token %}<button class="btn icon red" type="submit" title="Remove" aria-label="Remove {{ it.name }}">{% icon "trash" 15 %}</button></form>{% endif %}</div></td></tr>
+    {% empty %}<tr><td colspan="8" class="empty">The rack is empty.{% if can_manage %} Choose a free unit in the elevation or <a href="{% url 'dcim:item_create' rack.pk %}">add an item</a>.{% endif %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+</div>
+{% endblock %}

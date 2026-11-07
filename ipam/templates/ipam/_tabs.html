@@ -1,0 +1,8 @@
+{% load le %}<nav class="tabs ip-tabs" aria-label="IPAM sections">
+  <a href="{% url 'ipam:overview' %}{% if site_filter %}?site={{ site_filter|urlencode }}{% endif %}" class="{% if tab == 'overview' %}on{% endif %}">{% icon "grid" 15 %}Overview</a>
+  <a href="{% url 'ipam:subnets' %}{% if site_filter %}?site={{ site_filter|urlencode }}{% endif %}" class="{% if tab == 'subnets' %}on{% endif %}">{% icon "layers" 15 %}Subnets</a>
+  <a href="{% url 'ipam:addresses' %}{% if site_filter %}?site={{ site_filter|urlencode }}{% endif %}" class="{% if tab == 'addresses' %}on{% endif %}">{% icon "tag" 15 %}IP Addresses</a>
+  <a href="{% url 'ipam:vlans' %}{% if site_filter %}?site={{ site_filter|urlencode }}{% endif %}" class="{% if tab == 'vlans' %}on{% endif %}">{% icon "network" 15 %}VLANs</a>
+  <a href="{% url 'ipam:dns' %}{% if site_filter %}?site={{ site_filter|urlencode }}{% endif %}" class="{% if tab == 'dns' %}on{% endif %}">{% icon "globe" 15 %}DNS Zones</a>
+  <a href="{% url 'ipam:conflicts' %}{% if site_filter %}?site={{ site_filter|urlencode }}{% endif %}" class="{% if tab == 'conflicts' %}on{% endif %}">{% icon "alert" 15 %}Conflicts</a>
+</nav>

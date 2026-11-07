@@ -1,0 +1,29 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}{{ title }}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'ipam/page.css' %}">{% endblock %}
+{% block crumbs %}{% if kind == "subnet" %}{% url 'ipam:subnets' as s_url %}{% include "ipam/_crumbs.html" with section="Subnets" section_url=s_url leaf=title %}{% elif kind == "address" %}{% url 'ipam:addresses' as s_url %}{% include "ipam/_crumbs.html" with section="IP Addresses" section_url=s_url leaf=title %}{% elif kind == "vlan" %}{% url 'ipam:vlans' as s_url %}{% include "ipam/_crumbs.html" with section="VLANs" section_url=s_url leaf=title %}{% else %}{% url 'ipam:dns' as s_url %}{% include "ipam/_crumbs.html" with section="DNS Zones" section_url=s_url leaf=title %}{% endif %}{% endblock %}
+{% block content %}
+<div class="pg-ipam">
+<div class="head">
+  <div class="glyph bg-info">{% icon icon 30 %}</div>
+  <div><h1>{{ title }}</h1><p>{{ intro }}</p></div>
+</div>
+<form method="post" class="panel ip-form" novalidate>{% csrf_token %}
+  {% for e in form.non_field_errors %}<p class="err">{{ e }}</p>{% endfor %}
+  <div class="form-grid">
+    {% for f in form.visible_fields %}
+    <div class="field{% if f.name == 'description' %} full{% endif %}">
+      <label for="{{ f.id_for_label }}">{{ f.label }}{% if f.field.required %} <span class="req">*</span>{% endif %}</label>{{ f }}
+      {% if f.help_text %}<span class="hint">{{ f.help_text }}</span>{% endif %}
+      {% for e in f.errors %}<span class="err">{{ e }}</span>{% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+  {% for name, values in datalists.items %}<datalist id="{{ name }}">{% for v in values %}<option value="{{ v }}">{% endfor %}</datalist>{% endfor %}
+  <div class="ip-form-foot">
+    <a class="btn" href="{{ cancel }}">Cancel</a>
+    <button class="btn primary" type="submit">{{ submit }}</button>
+  </div>
+</form>
+</div>
+{% endblock %}

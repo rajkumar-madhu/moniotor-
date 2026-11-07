@@ -1,0 +1,81 @@
+{% extends "core/base.html" %}{% load le dcim_tags static %}
+{% block title %}Power{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'dcim/page.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'dcim:overview' %}">Data Centre</a>{% icon "chevron-right" 14 %}<span>Power</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-dcim">
+<div class="head">
+  <div class="glyph">{% icon "zap" 30 %}</div>
+  <div><h1>Power</h1><p>Feeds per rack with capacity, measured or live load and headroom, summed per room and site</p></div>
+  <div class="actions">
+    <a class="btn" href="{% url 'dcim:power_export' %}{% if site %}?site={{ site|urlencode }}{% endif %}">{% icon "download" 17 %}Export feeds</a>
+    {% if can_operate and prom_configured and query_count %}<form method="post" action="{% url 'dcim:readings_run' %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn" type="submit">{% icon "refresh" 17 %}Read now</button></form>{% endif %}
+    {% if can_add_feed %}<a class="btn primary" href="{% url 'dcim:feed_create' %}">{% icon "plus" 17 %}Add feed</a>{% endif %}
+  </div>
+</div>
+{% include "dcim/_tabs.html" %}
+{% include "dcim/_prom.html" with noun="feed(s)" noun_one="power feed" %}
+
+<section class="kpis dc-kpis" aria-label="Power summary">
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "plug" 22 %}</div><div class="kpi-body"><div class="label">Feed capacity</div><div class="value">{{ capacity_kw|kw }}</div></div></div><div class="sub">{{ feed_count }} feed{{ feed_count|pluralize }} on {{ rack_count }} rack{{ rack_count|pluralize }}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-purple">{% icon "zap" 22 %}</div><div class="kpi-body"><div class="label">Measured load</div><div class="value">{{ load_kw|kw }}</div></div></div><div class="sub">{% if feed_count %}{{ measured_count }} of {{ feed_count }} feeds measured · {{ live_count }} live{% else %}No feeds recorded{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-{{ load_pct|load_tone }}">{% icon "gauge" 22 %}</div><div class="kpi-body"><div class="label">Feed utilisation</div><div class="value">{{ load_pct|pct0 }}</div></div></div><div class="sub">{% if load_pct is not None %}Measured load of total capacity{% else %}Needs measured feeds{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-{{ headroom_kw|headroom_tone }}">{% icon "activity" 22 %}</div><div class="kpi-body"><div class="label">Headroom</div><div class="value">{{ headroom_kw|kw }}</div></div></div><div class="sub">Capacity minus measured load</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-{% if hot_feeds %}warn{% else %}ok{% endif %}">{% icon "flame" 22 %}</div><div class="kpi-body"><div class="label">Feeds above 80%</div><div class="value">{{ hot_feeds|length }}</div></div></div><div class="sub">Of their own capacity</div></div>
+</section>
+
+<form class="toolbar compact dc-toolbar" method="get">
+  <label class="search">{% icon "search" 16 %}<input type="search" name="q" value="{{ q }}" placeholder="Search racks, rooms or feeds…" aria-label="Search racks, rooms or feeds"></label>
+  <select name="site" data-autosubmit aria-label="Site"><option value="">All sites</option><option value="All Sites" {% if site == "All Sites" %}selected{% endif %}>Global (All Sites)</option>{% for s in sites %}<option {% if site == s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select>
+  <button class="btn" type="submit">{% icon "filter" 15 %}Filter</button>
+  {% if q or site %}<a class="btn icon" href="{% url 'dcim:power' %}" title="Clear filters" aria-label="Clear filters">{% icon "x" 16 %}</a>{% endif %}
+</form>
+
+{% for g in site_groups %}
+<section class="panel dc-site" aria-labelledby="site-h-{{ forloop.counter }}">
+  <div class="panel-h">
+    <h2 id="site-h-{{ forloop.counter }}">{{ g.name }}</h2>
+    <div class="right dc-sums"><span>Load <b>{{ g.load_kw|kw }}</b></span><span>Feed capacity <b>{{ g.feed_capacity_kw|kw }}</b></span><span>Rack budgets <b>{{ g.budget_kw|kw }}</b></span></div>
+  </div>
+  <div class="table-wrap dense"><table class="dc-power-table">
+    <thead><tr><th>Rack</th><th>Feed</th><th>Kind</th><th class="num">Capacity</th><th class="num">Load</th><th>Source</th><th class="num">Headroom</th><th>Utilisation</th><th>Last read</th><th><span class="sr">Actions</span></th></tr></thead>
+    {% for room in g.rooms %}
+    <tbody>
+      <tr class="dc-group"><th colspan="10" scope="colgroup"><a href="{{ room.get_absolute_url }}">{{ room.name }}</a>
+        <span class="dc-group-sums">load {{ room.load_kw|kw }} · feeds {{ room.feed_capacity_kw|kw }} · budget {{ room.power_budget_kw|kw }}{% if room.estimated %} · partly estimated{% endif %}</span></th></tr>
+      {% for r in room.power_rows %}
+        {% for f in r.feed_list %}
+        <tr>
+          {% if forloop.first %}<td rowspan="{{ r.feed_list|length }}" class="dc-rackcell"><a href="{% url 'dcim:rack_detail' r.pk %}">{{ r.name }}</a><div class="t-mute small">{{ r.load_kw|kw }}{% if r.max_power_kw %} of {{ r.max_power_kw|kw }}{% endif %}</div></td>{% endif %}
+          <td>{{ f.name }}{% if f.notes %}<div class="t-mute small dc-notes" title="{{ f.notes }}">{{ f.notes }}</div>{% endif %}</td>
+          <td>{{ f.get_kind_display }}</td>
+          <td class="num">{{ f.capacity_kw|kw }}</td>
+          <td class="num">{{ f.load_kw|kw }}</td>
+          <td>{% if f.source == "live" %}<span class="chip ok">live</span>{% elif f.source == "manual" %}<span class="chip mute">manual</span>{% else %}<span class="t-mute">–</span>{% endif %}
+            {% if f.prometheus_query and f.last_error %}<span class="chip crit" title="{{ f.last_error }}">query failed</span>{% elif f.prometheus_query and not prom_configured %}<span class="chip warn" title="Set LINKEDEYE_PROMETHEUS_URL">not read</span>{% endif %}</td>
+          <td class="num t-{% if f.headroom_kw is not None and f.headroom_kw < 0 %}crit{% elif f.headroom_kw is not None %}ok{% else %}mute{% endif %}">{{ f.headroom_kw|kw }}</td>
+          <td><div class="dc-cell">{% include "dcim/_bar.html" with pct=f.load_pct label="Feed utilisation" %}<span class="num">{{ f.load_pct|pct0 }}</span></div></td>
+          <td class="ts">{% if f.prometheus_query %}{{ f.last_read_at|ago }}{% else %}<span class="t-mute">manual</span>{% endif %}</td>
+          <td>{% if r.can_manage %}<a class="btn icon blue" href="{% url 'dcim:feed_edit' f.pk %}" title="Edit" aria-label="Edit feed {{ f.name }}">{% icon "edit" 15 %}</a>{% endif %}</td>
+        </tr>
+        {% empty %}
+        <tr class="dc-nofeed"><td class="dc-rackcell"><a href="{% url 'dcim:rack_detail' r.pk %}">{{ r.name }}</a></td>
+          <td colspan="9" class="t-mute">No feeds recorded{% if r.estimated_kw is not None %} — load estimated from item draw: {{ r.estimated_kw|kw }}{% endif %}.{% if r.can_manage %} <a href="{% url 'dcim:feed_create' %}?rack={{ r.pk }}">Add a feed</a>.{% endif %}</td></tr>
+        {% endfor %}
+      {% empty %}
+        <tr><td colspan="10" class="t-mute">No racks in this room{% if q %} match the search{% endif %}.</td></tr>
+      {% endfor %}
+    </tbody>
+    {% endfor %}
+  </table></div>
+</section>
+{% empty %}
+<section class="panel dc-empty-hero">
+  {% icon "zap" 34 %}
+  {% if q or site %}<h2>Nothing matches these filters</h2><p><a href="{% url 'dcim:power' %}">Clear the filters</a>.</p>
+  {% else %}<h2>No rooms or racks yet</h2><p>Power feeds belong to racks. Add a room and its racks under Rooms &amp; Racks, then record each rack's PDUs, UPS outputs or utility feeds here.</p>
+  <div class="actions"><a class="btn" href="{% url 'dcim:racks' %}">Rooms &amp; Racks</a></div>{% endif %}
+</section>
+{% endfor %}
+</div>
+{% endblock %}

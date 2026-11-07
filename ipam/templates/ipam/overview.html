@@ -1,0 +1,95 @@
+{% extends "core/base.html" %}{% load le static ipam_tags %}
+{% block title %}IPAM Overview{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'ipam/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "ipam/_crumbs.html" with section="Overview" %}{% endblock %}
+{% block content %}
+<div class="pg-ipam">
+<div class="head">
+  <div class="glyph bg-info">{% icon "layers" 30 %}</div>
+  <div><h1>IP Address Management</h1><p>Subnets, addresses, VLANs and DNS zones{% if site_filter %} · {{ site_filter }} and global records{% endif %}</p></div>
+  <div class="actions">
+    {% if can_operate %}
+    <form method="post" action="{% url 'ipam:sync' %}">{% csrf_token %}<button class="btn" type="submit" title="Create or update addresses from network device management IPs and discovery results">{% icon "refresh" 17 %}Sync from devices</button></form>
+    <a class="btn primary" href="{% url 'ipam:subnet_create' %}">{% icon "plus" 17 %}Add subnet</a>
+    {% endif %}
+  </div>
+</div>
+{% include "ipam/_tabs.html" with tab="overview" %}
+
+{% if not total %}
+<div class="panel">
+  <div class="ip-empty">{% icon "layers" 32 %}
+    <p><b>No subnets yet.</b> IPAM starts with subnets: add the networks you use (IPv4 or IPv6, optionally per VRF), then record addresses in them or
+      sync them from your network devices' management addresses and discovery results.</p>
+    <p class="small">For a demo, <code>python manage.py seed_ipam</code> creates example VLANs, subnets, addresses and DNS zones (marked “example”).</p>
+    {% if can_operate %}<div class="btns"><a class="btn primary sm" href="{% url 'ipam:subnet_create' %}">{% icon "plus" 15 %}Add subnet</a>
+      <a class="btn sm" href="{% url 'ipam:vlan_create' %}">{% icon "plus" 15 %}Add VLAN</a>
+      <a class="btn sm" href="{% url 'ipam:zone_create' %}">{% icon "plus" 15 %}Add DNS zone</a></div>{% endif %}
+  </div>
+</div>
+{% endif %}
+
+<section class="kpis" aria-label="Summary">
+  <a class="kpi stacked kpi-link" href="{% url 'ipam:subnets' %}"><div class="kpi-top"><div class="tile s-info">{% icon "layers" 22 %}</div><div class="kpi-body"><div class="label">Subnets</div><div class="value">{{ total }}</div></div></div><div class="sub">{{ v4 }} IPv4 · {{ v6 }} IPv6{% if containers %} · {{ containers }} container{{ containers|pluralize }}{% endif %}</div></a>
+  <a class="kpi stacked kpi-link" href="{% url 'ipam:addresses' %}"><div class="kpi-top"><div class="tile s-ok">{% icon "tag" 22 %}</div><div class="kpi-body"><div class="label">IPv4 Addresses Used</div><div class="value">{{ used_v4|count }} <small>/ {{ usable_v4|count }}</small></div></div></div>
+    {% if pct_v4 is not None %}<div class="bar" title="{{ pct_v4|util }} of usable IPv4 addresses in leaf subnets"><i class="fill-{{ pct_v4|tone }}" style="width:{{ pct_v4|bar }}%"></i></div>{% endif %}
+    <div class="sub">{% if pct_v4 is not None %}{{ pct_v4|util }} of usable · {% endif %}{{ address_total }} address{{ address_total|pluralize:"es" }} recorded</div></a>
+  <a class="kpi stacked kpi-link" href="{% url 'ipam:subnets' %}"><div class="kpi-top"><div class="tile {% if full %}s-crit{% else %}s-ok{% endif %}">{% icon "gauge" 22 %}</div><div class="kpi-body"><div class="label">Subnets ≥ 90% Full</div><div class="value">{{ full }}</div></div></div><div class="sub">IPv4 leaf subnets near exhaustion</div></a>
+  <a class="kpi stacked kpi-link" href="{% url 'ipam:conflicts' %}"><div class="kpi-top"><div class="tile {% if conflicts %}s-warn{% else %}s-ok{% endif %}">{% icon "alert" 22 %}</div><div class="kpi-body"><div class="label">Conflicts</div><div class="value">{{ conflicts }}</div></div></div><div class="sub">Duplicate, unplaced or dangling addresses</div></a>
+  <a class="kpi stacked kpi-link" href="{% url 'ipam:vlans' %}"><div class="kpi-top"><div class="tile s-purple">{% icon "network" 22 %}</div><div class="kpi-body"><div class="label">VLANs</div><div class="value">{{ vlan_total }}</div></div></div><div class="sub">Across sites</div></a>
+  <a class="kpi stacked kpi-link" href="{% url 'ipam:dns' %}"><div class="kpi-top"><div class="tile s-mute">{% icon "globe" 22 %}</div><div class="kpi-body"><div class="label">DNS Zones</div><div class="value">{{ zone_total }}</div></div></div><div class="sub">{{ record_total }} record{{ record_total|pluralize }}</div></a>
+</section>
+
+<section class="grid g-3 g-charts">
+  <div class="panel"><div class="panel-h"><h2>IPv4 Address Space</h2></div>
+    {% if usable_v4 %}
+    <div class="donut-wrap"><div class="chart" data-chart="donut" data-src="ip-donut"></div>
+      <div class="donut-legend">
+        {% for seg in donut.segments %}<span><i class="dot sw-{{ seg.key }}"></i>{{ seg.label }}</span><b>{{ seg.value|count }}</b>{% endfor %}
+      </div></div>
+    <p class="ip-note">Recorded addresses in IPv4 leaf subnets against their usable size; containers are not counted twice.</p>
+    {% else %}<div class="ip-empty">{% icon "layers" 26 %}<p>No IPv4 leaf subnets yet, so there is no address space to chart.</p></div>{% endif %}
+  </div>
+  <div class="panel"><div class="panel-h"><h2>Most Utilised Subnets</h2><div class="right"><a class="view-all" href="{% url 'ipam:subnets' %}">All subnets</a></div></div>
+    {% if top %}
+    <div class="ip-top">{% for s, u, p, t in top %}
+      <div class="hbar"><a href="{% url 'ipam:subnet_detail' s.pk %}" title="{{ s }}{% if s.description %} – {{ s.description }}{% endif %}">{{ s.cidr }}</a>
+        <div class="track"><i class="fill-{{ t }}" style="width:{{ p|bar }}%"></i></div>
+        <b class="t-{{ t }}">{{ p|util }} <small>{{ u|count }}/{{ s.usable|count }}</small></b></div>
+    {% endfor %}</div>
+    {% else %}<div class="ip-empty">{% icon "gauge" 26 %}<p>No addresses are recorded in any subnet yet. Add addresses, import a CSV or sync from devices.</p></div>{% endif %}
+  </div>
+  <div class="panel"><div class="panel-h"><h2>Utilisation Distribution</h2><div class="legend square"><span><i class="fill-ok"></i>&lt; 75%</span><span><i class="fill-warn"></i>75–90%</span><span><i class="fill-crit"></i>≥ 90%</span></div></div>
+    {% if has_v4_leaf %}<div class="chart" data-chart="bars" data-src="ip-dist" style="height:180px"></div>
+    <p class="ip-note">Number of IPv4 leaf subnets per utilisation band.</p>
+    {% else %}<div class="ip-empty">{% icon "bar" 26 %}<p>Add IPv4 subnets to see how full they are.</p></div>{% endif %}
+  </div>
+</section>
+
+<section class="grid g-2">
+  <div class="panel"><div class="panel-h"><h2>Conflicts &amp; Sync</h2><div class="right"><a class="view-all" href="{% url 'ipam:conflicts' %}">View conflicts</a></div></div>
+    <ul class="ip-list">
+      {% for k, label, n in by_kind %}<li><a href="{% url 'ipam:conflicts' %}?kind={{ k }}">{{ label }}</a>{% if n %}<span class="badge warn">{% ficon "alert" 14 %}{{ n }}</span>{% else %}<span class="badge ok">{% ficon "check-circle" 14 %}None</span>{% endif %}</li>{% endfor %}
+    </ul>
+    <h3 class="small t-mute" style="margin:14px 0 6px;font-weight:600">Recent syncs from devices</h3>
+    {% if runs %}
+    <ul class="ip-list">{% for r in runs %}<li><div><a href="{% url 'ipam:sync_run' r.pk %}">{{ r.ran_at|short_dt }}</a> <small>{{ r.get_trigger_display }} · {{ r.actor_name }}</small></div>
+      <span class="small">{{ r.created }} new · {{ r.updated }} updated</span>{% if r.new_conflicts %}<span class="chip warn">{{ r.new_conflicts }} new conflict{{ r.new_conflicts|pluralize }}</span>{% endif %}</li>{% endfor %}</ul>
+    {% else %}<p class="ip-note">No sync has run yet. “Sync from devices” records network device management IPs and discovery results that fall inside known subnets; the worker (<code>manage.py run_probes</code>) also runs it every hour.</p>{% endif %}
+  </div>
+  <div class="panel"><div class="panel-h"><h2>Recently Changed Addresses</h2><div class="right"><a class="view-all" href="{% url 'ipam:addresses' %}">All addresses</a></div></div>
+    {% if recent %}
+    <div class="table-wrap dense"><table>
+      <thead><tr><th>Address</th><th>Hostname</th><th>Status</th><th>Subnet</th><th>Changed</th></tr></thead>
+      <tbody>{% for a in recent %}<tr>
+        <td class="mono"><a href="{% url 'ipam:address_detail' a.pk %}">{{ a.address }}</a>{% if a.vrf %} <span class="chip mute">{{ a.vrf }}</span>{% endif %}</td>
+        <td class="trunc" title="{{ a.hostname }}">{{ a.hostname|default:"–" }}</td>
+        <td><span class="chip {{ a.status|stone }}">{{ a.get_status_display }}</span></td>
+        <td class="mono">{% if a.subnet %}<a href="{% url 'ipam:subnet_detail' a.subnet_id %}">{{ a.subnet.cidr }}</a>{% else %}<span class="t-crit">none</span>{% endif %}</td>
+        <td title="{{ a.updated_at|date:'d M Y H:i:s' }}">{{ a.updated_at|ago }}</td></tr>{% endfor %}</tbody></table></div>
+    {% else %}<div class="ip-empty">{% icon "tag" 26 %}<p>No addresses recorded yet.</p></div>{% endif %}
+  </div>
+</section>
+</div>
+{{ donut|json_script:"ip-donut" }}{{ dist|json_script:"ip-dist" }}
+{% endblock %}

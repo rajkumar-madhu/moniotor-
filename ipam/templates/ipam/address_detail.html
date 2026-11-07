@@ -1,0 +1,48 @@
+{% extends "core/base.html" %}{% load le static ipam_tags %}
+{% block title %}{{ a.address }}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'ipam/page.css' %}">{% endblock %}
+{% block crumbs %}{% url 'ipam:addresses' as list_url %}{% include "ipam/_crumbs.html" with section="IP Addresses" section_url=list_url leaf=a.address %}{% endblock %}
+{% block content %}
+<div class="pg-ipam">
+<div class="head">
+  <div class="glyph bg-info">{% icon "tag" 30 %}</div>
+  <div><h1><span class="mono">{{ a.address }}</span><span class="chip {{ a.status|stone }}">{{ a.get_status_display }}</span>{% if a.vrf %}<span class="chip purple">VRF {{ a.vrf }}</span>{% endif %}{% if a.is_example %}<span class="chip mute">example</span>{% endif %}</h1>
+    <p>{{ a.hostname|default:"No hostname" }}{% if a.description %} · {{ a.description }}{% endif %}</p></div>
+  <div class="actions">
+    {% if can_edit %}<a class="btn primary" href="{% url 'ipam:address_edit' a.pk %}">{% icon "edit" 17 %}Edit</a>{% endif %}
+    {% if can_delete %}<form method="post" action="{% url 'ipam:address_delete' a.pk %}" data-confirm="Delete {{ a.address }}?">{% csrf_token %}<button class="btn" type="submit">{% icon "trash" 17 %}Delete</button></form>{% endif %}
+  </div>
+</div>
+{% include "ipam/_tabs.html" with tab="addresses" %}
+<section class="grid g-2">
+  <div class="panel"><div class="panel-h"><h2>Details</h2></div>
+    <dl class="kv">
+      <dt>Address</dt><dd class="mono">{{ a.address }} <span class="t-mute">IPv{{ a.version }}</span></dd>
+      <dt>Status</dt><dd>{{ a.get_status_display }}</dd>
+      <dt>Subnet</dt><dd>{% if a.subnet %}<a class="mono" href="{% url 'ipam:subnet_detail' a.subnet_id %}">{{ a.subnet.cidr }}</a>{% if a.subnet.description %} <span class="t-mute">{{ a.subnet.description }}</span>{% endif %}{% else %}<span class="t-crit">No subnet – the subnet that held it was deleted</span>{% endif %}</dd>
+      <dt>VRF</dt><dd>{{ a.vrf|default:"Global table" }}</dd>
+      <dt>Site</dt><dd>{{ a.site|default:"All Sites" }}</dd>
+      <dt>Hostname</dt><dd>{{ a.hostname|default:"–" }}</dd>
+      <dt>Network device</dt><dd>{% if a.device %}<a href="{{ a.device.get_absolute_url }}">{{ a.device.name }}</a> {% badge a.device.status %}{% else %}–{% endif %}</dd>
+      <dt>Configuration item</dt><dd>{% if a.ci %}<a href="{{ a.ci.get_absolute_url }}">{{ a.ci.name }}</a>{% else %}–{% endif %}</dd>
+      <dt>Source</dt><dd>{{ a.get_source_display }}</dd>
+      <dt>Last seen</dt><dd>{% if a.last_seen %}{{ a.last_seen|short_dt }} ({{ a.last_seen|ago }}){% else %}Never – not reported by a device or discovery{% endif %}</dd>
+      <dt>Created</dt><dd>{{ a.created_at|short_dt }}</dd>
+      <dt>Updated</dt><dd>{{ a.updated_at|short_dt }}</dd>
+    </dl>
+  </div>
+  <div class="stack">
+    <div class="panel"><div class="panel-h"><h2>DNS Records</h2></div>
+      {% if records %}
+      <ul class="ip-list">{% for r in records %}<li><div><b class="mono">{{ r.fqdn }}</b><small>{{ r.rtype }} → {{ r.value }}</small></div><a class="view-all" href="{% url 'ipam:zone_detail' r.zone_id %}">{{ r.zone.name }}</a></li>{% endfor %}</ul>
+      {% else %}<p class="ip-note">No A, AAAA or PTR record in a known zone points at this address.</p>{% endif %}
+    </div>
+    <div class="panel"><div class="panel-h"><h2>History</h2></div>
+      {% if history %}
+      <ul class="ip-list">{% for h in history %}<li><div><b>{{ h.action|capfirst }}</b> by {{ h.actor_name }}<small>{{ h.occurred_at|short_dt }}</small></div></li>{% endfor %}</ul>
+      {% else %}<p class="ip-note">No changes recorded in the audit log.</p>{% endif %}
+    </div>
+  </div>
+</section>
+</div>
+{% endblock %}
