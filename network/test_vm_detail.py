@@ -1,4 +1,4 @@
-"""Virtual machine detail Overview, sample metrics, and stub tabs."""
+"""Virtual machine detail Overview, guest metrics (never invented), and stub tabs."""
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
@@ -52,20 +52,24 @@ class VmDetailViewTests(TestCase):
         self.c = Client()
         self.c.force_login(self.viewer)
 
-    def test_vm_overview_sample_mode(self):
-        r = self.c.get(reverse("network:detail", args=[self.vm.pk]) + "?sample=1")
+    def test_vm_overview_without_metrics_never_invents_numbers(self):
+        r = self.c.get(reverse("network:detail", args=[self.vm.pk]) + "?sample=1")   # the old demo switch is ignored
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "CPU usage")
-        self.assertContains(r, "24.6")
+        self.assertNotContains(r, "24.6")
+        self.assertNotContains(r, "27 days")
+        self.assertNotContains(r, "Sample data")
+        self.assertNotContains(r, "vcsa.")
+        self.assertContains(r, "Guest metrics not connected")
+        self.assertContains(r, "LINKEDEYE_PROMETHEUS_URL")
         self.assertContains(r, "VM Information")
         self.assertContains(r, "VM Actions")
         self.assertContains(r, "Hypervisor control is read-only")
-        self.assertContains(r, "Showing")
-        self.assertContains(r, "sample")
         self.assertContains(r, 'id="vm-info"')
         self.assertContains(r, "Open Console")
         self.assertContains(r, "Performance")
         self.assertContains(r, "Snapshots")
+        self.assertContains(r, "Compute-01")          # inventory from key:value tags
         self.assertNotContains(r, 'id="front-panel"')
 
     def test_vm_uses_vm_tabs_not_network_tabs(self):
@@ -77,15 +81,16 @@ class VmDetailViewTests(TestCase):
         self.assertNotContains(r, ">Hardware<")
 
     def test_invalid_tab_falls_back_to_overview(self):
-        r = self.c.get(reverse("network:detail", args=[self.vm.pk]) + "?tab=not-a-tab&sample=1")
+        r = self.c.get(reverse("network:detail", args=[self.vm.pk]) + "?tab=not-a-tab")
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "CPU usage")
 
-    def test_performance_tab_sample_charts(self):
+    def test_performance_tab_without_prometheus_is_not_connected(self):
         r = self.c.get(reverse("network:detail", args=[self.vm.pk]) + "?tab=performance&sample=1&perf_range=1h")
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "Guest performance")
-        self.assertContains(r, 'id="nw-vm-perf-cpu"')
+        self.assertContains(r, "Not connected.")
+        self.assertNotContains(r, 'id="nw-vm-perf-cpu"')
 
     def test_stub_tab_returns_empty_state(self):
         r = self.c.get(reverse("network:detail", args=[self.vm.pk]) + "?tab=snapshots")
