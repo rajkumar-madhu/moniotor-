@@ -5,7 +5,7 @@ from django.shortcuts import render
 from core import prometheus
 from core.access import require, scope_by_site, visible_sites
 
-from .. import hosts as svc, hosts_full as full, palette as pal
+from .. import discovery as disc, hosts as svc, hosts_full as full, palette as pal
 from ..fmt import finite, human_duration, human_rate
 from ..models import Alert
 from .common import csv_response, matches, paginate, perms, prom_context, query_without_page
@@ -96,6 +96,8 @@ def infrastructure(request):
             "center": {"value": str(summary["total"]), "label": "Hosts"}},
         "top_cpu": svc.top(hosts, "cpu"), "top_memory": svc.top(hosts, "memory"), "top_disk": svc.top(hosts, "disk"),
         "thresholds": svc.thresholds(),
+        # discovered hosts that are not in the CMDB yet (the Discovery page is where they are reviewed)
+        "undiscovered": disc.unlinked_host_count(request.user),
     })
     return render(request, "telemetry/infrastructure.html", ctx)
 

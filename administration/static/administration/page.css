@@ -205,3 +205,27 @@ td.adm-roles .chip { margin: 2px 4px 2px 0; }
 .adm-list { columns: 1; }
 .adm-list li { padding: 1px 0; }
 .adm-help p.adm-note { margin-top: 12px; }
+
+/* ---------- monitoring onboarding checklist (top of Integrations) ---------- */
+.pg-admin .adm-onboard { display: flex; flex-direction: column; gap: 10px; }
+.pg-admin .adm-onboard-intro { margin: 0; color: var(--ink-2); font-size: 13.5px; max-width: 900px; }
+.pg-admin .util.adm-onboard-bar { width: 100%; height: 6px; margin: 0; }
+.pg-admin .adm-onboard-bar i.fill-ok { background: var(--ok); }
+.pg-admin .adm-onboard-bar i.fill-info { background: var(--primary); }
+.pg-admin .adm-onboard-steps { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 2px; }
+.pg-admin .adm-onboard-steps li { display: flex; gap: 12px; align-items: center; padding: 10px 2px; border-top: 1px solid var(--line-soft); min-width: 0; }
+.pg-admin .adm-onboard-steps li:first-child { border-top: 0; }
+.pg-admin .adm-onboard-steps .mark { flex: none; width: 22px; display: grid; place-items: center; }
+.pg-admin .adm-onboard-steps .mark .num { width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--line-strong); color: var(--muted);
+  font: 600 11px/18px var(--mono); font-style: normal; text-align: center; display: block; }
+.pg-admin .adm-onboard-steps .body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pg-admin .adm-onboard-steps .body b { font-size: 13.5px; }
+.pg-admin .adm-onboard-steps li.done .body b { color: var(--ink-2); }
+.pg-admin .adm-onboard-steps .what { color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.pg-admin .adm-onboard-steps .btn { flex: none; }
+.pg-admin .adm-discover { flex-wrap: wrap; }
+.pg-admin .adm-discover .adm-last a { margin-left: 6px; }
+@media (max-width: 860px) {
+  .pg-admin .adm-onboard-steps li { flex-wrap: wrap; }
+  .pg-admin .adm-onboard-steps .btn { margin-left: 34px; }
+}

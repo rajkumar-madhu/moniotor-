@@ -1,4 +1,4 @@
-"""Minimal Prometheus HTTP API client (instant/range queries, targets, alerts).
+"""Minimal Prometheus HTTP API client (instant/range queries, targets, alerts, rules).
 
 Only used when settings.PROMETHEUS_URL is set. Queries go server-side; the
 browser never talks to Prometheus. Errors raise PrometheusError with a
@@ -77,3 +77,8 @@ def targets():
 
 def alerts():
     return _get("/api/v1/alerts").get("alerts", [])
+
+
+def rules():
+    """Rule groups from /api/v1/rules (alerting and recording rules with their state)."""
+    return _get("/api/v1/rules").get("groups", [])

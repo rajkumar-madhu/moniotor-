@@ -1,9 +1,9 @@
 from django.shortcuts import render
 
 from core import prometheus
-from core.access import require
+from core.access import require, visible_sites
 
-from .. import palette as pal, targets as svc
+from .. import discovery as disc, palette as pal, targets as svc
 from .common import csv_response, matches, paginate, perms, prom_context, query_without_page
 from .infra import visible_rows
 
@@ -12,7 +12,7 @@ HEALTHS = [("up", "Up"), ("down", "Down"), ("unknown", "Unknown")]
 
 @require("view")
 def prometheus_targets(request):
-    ctx = {**prom_context(), **perms(request), "error": ""}
+    ctx = {**prom_context(), **perms(request), "error": "", "rules_error": "", "rule_groups": [], "rules_restricted": False}
     refresh = request.GET.get("refresh") == "1"
     rows, stats = [], None
     if ctx["prom_configured"]:
@@ -23,6 +23,16 @@ def prometheus_targets(request):
             ctx["error"] = str(e)
         if not ctx["error"]:
             stats = svc.server_stats(use_cache=not refresh)
+        # alert / recording rules live in Prometheus' configuration: read-only, cached, never persisted
+        # Rules carry no site, and their expressions name instances and labels of every site, so they are shown
+        # only to users who may see every site (a site-limited user would learn about the other sites from them).
+        if visible_sites(request.user) is not None:
+            ctx["rules_restricted"] = True
+        else:
+            try:
+                ctx["rule_groups"] = disc.rule_groups(use_cache=not refresh)
+            except prometheus.PrometheusError as e:
+                ctx["rules_error"] = str(e)
     jobs = svc.jobs_summary(rows)
     kpis = svc.kpis(rows)
     q, health, job = request.GET.get("q", ""), request.GET.get("health", ""), request.GET.get("job", "")
@@ -42,6 +52,8 @@ def prometheus_targets(request):
             groups.append({"job": r["job"], "summary": counts.get(r["job"]), "rows": []})
         groups[-1]["rows"].append(r)
     ctx.update({
+        "rule_kpis": disc.rule_kpis(ctx["rule_groups"]), "discovery_run": disc.last_run(),
+        "discovered": disc.unlinked_host_count(request.user),
         "kpis": kpis, "stats": stats, "jobs": jobs, "page": page, "groups": groups, "healths": HEALTHS,
         "down_targets": [r for r in rows if r["health"] == "down"][:8],
         "query": query_without_page(request, "refresh"), "filtered": bool(q or health or job),

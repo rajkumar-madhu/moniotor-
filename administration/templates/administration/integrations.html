@@ -11,6 +11,24 @@
 </div>
 {% include "administration/_tabs.html" with tab="integrations" %}
 
+<section class="panel adm-onboard" aria-labelledby="onboard-h">
+  <div class="panel-h"><h2 id="onboard-h">Monitoring Onboarding</h2>
+    <div class="right">
+      <span class="chip {% if checklist.complete %}ok{% elif checklist.done %}warn{% else %}mute{% endif %}">{{ checklist.done }} of {{ checklist.total }} done</span>
+    </div></div>
+  <p class="adm-onboard-intro">Once Prometheus is connected, LinkedEye discovers its targets by itself every 5 minutes. These are the steps that make alerts reach a human.</p>
+  <div class="util adm-onboard-bar" aria-hidden="true"><i class="{% if checklist.complete %}fill-ok{% else %}fill-info{% endif %}" style="width:{{ checklist.pct }}%"></i></div>
+  <ol class="adm-onboard-steps">
+    {% for s in checklist.steps %}
+    <li class="{% if s.done %}done{% endif %}">
+      <span class="mark">{% if s.done %}{% ficon "check-circle" 18 "t-ok" %}{% else %}<i class="num">{{ forloop.counter }}</i>{% endif %}</span>
+      <span class="body"><b>{{ s.label }}</b><span class="what">{{ s.detail }}{% if s.when %} · {{ s.when|ago }}{% endif %}</span></span>
+      {% if s.url %}<a class="btn sm{% if not s.done %} ghost-primary{% endif %}" href="{{ s.url }}">{{ s.cta }}{% icon "chevron-right" 13 %}</a>{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+</section>
+
 <section class="adm-int-grid">
   {% for it in items %}
   <article class="panel adm-int{% if not it.configured %} off{% endif %}" id="{{ it.key }}">
@@ -41,6 +59,18 @@
         </div>
       </form>
     </details>
+    {% endif %}
+
+    {% if it.discover and discovery_run_url %}
+    <div class="adm-int-f adm-discover">
+      <div class="adm-last">{% if it.discovery.last_run %}Last discovery {{ it.discovery.last_run.started_at|ago }}:
+        <span class="{% if it.discovery.last_run.ok %}t-ok{% else %}t-crit{% endif %}">{{ it.discovery.last_run.summary }}</span>
+        {% else %}<span class="t-mute">Discovery has not run yet – it runs every 5 minutes.</span>{% endif %}
+        {% if it.discovery.unlinked and discovery_url %}<a href="{{ discovery_url }}">Review {{ it.discovery.unlinked }} host(s) not in the CMDB</a>{% endif %}</div>
+      <form method="post" action="{{ discovery_run_url }}">{% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button class="btn sm" type="submit">{% icon "radar" 13 %}Discover now</button></form>
+    </div>
     {% endif %}
 
     {% if it.testable %}

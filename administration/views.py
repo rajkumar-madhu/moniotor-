@@ -818,7 +818,9 @@ def integrations(request):
             slug = it["key"]
             it["edit_form"] = integration_form(slug, initial=services.integration_form_initial(slug))
     history = IntegrationTest.objects.filter(tenant_key=settings.LINKEDEYE_TENANT)[:15]
-    ctx = {"items": items, "history": history,
+    ctx = {"items": items, "history": history, "checklist": services.onboarding_checklist(),
+           "discovery_url": services._reverse("telemetry:discovery") or "",
+           "discovery_run_url": services._reverse("telemetry:discovery_run") or "",
            "n_configured": sum(1 for i in items if i["configured"]), "n_total": len(items)}
     return render(request, "administration/integrations.html", ctx)
 

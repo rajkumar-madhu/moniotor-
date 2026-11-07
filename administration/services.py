@@ -247,14 +247,22 @@ def integrations():
     items = []
 
     prom = ic.prometheus_url()
+    disc = discovery_status()
+    auto = [label for flag, label in ((ic.prometheus_autocreate_ci(), "CMDB items"),
+                                      (ic.prometheus_autocreate_devices(), "devices"),
+                                      (ic.prometheus_autoregister_exporters(), "exporters")) if flag]
     items.append({
         "key": "prometheus", "name": "Prometheus", "icon": "activity", "configured": bool(prom),
-        "purpose": "Metrics, targets and alerts for the Monitoring pages.",
+        "purpose": "Metrics, targets, alert rules and target discovery for the Monitoring pages.",
         "env": ["LINKEDEYE_PROMETHEUS_URL", "LINKEDEYE_PROMETHEUS_TIMEOUT"],
         "details": [("Server", safe_url(prom) or "–"), ("Timeout", f"{ic.prometheus_timeout():g} s"),
-                    ("Source", "Console" if ic.has_override("prometheus") else "Environment")],
+                    ("Source", "Console" if ic.values_for_form("prometheus").get("url") else "Environment"),
+                    ("Site label", ic.prometheus_site_label()),
+                    ("Auto-create", ", ".join(auto) if auto else "Off"),
+                    ("Discovered targets", disc["summary"]),
+                    ("Last discovery", disc["when"])],
         "testable": True, "test_label": "Run 'up' query", "last_test": tests.get("prometheus"),
-        "editable": True,
+        "editable": True, "discover": bool(prom), "discovery": disc,
     })
 
     am = ic.alertmanager_webhook_token()
@@ -359,8 +367,114 @@ def integrations():
         it.setdefault("test_key", it["key"])
         it.setdefault("warning", False)
         it.setdefault("editable", False)
+        it.setdefault("discover", False)
         it["test_enabled"] = it["testable"] and (channels > 0 if it["test_key"] == "notify" else it["configured"])
     return items
+
+
+# ------------------------------------------------------------------ Prometheus discovery (telemetry.discovery)
+def discovery_status():
+    """What discovery has gathered so far: counts, the last run and its error. Cheap queries only."""
+    out = {"available": False, "targets": 0, "hosts": 0, "unlinked": 0, "last_run": None, "error": "",
+           "summary": "–", "when": "Never"}
+    DT = _opt_model("telemetry", "DiscoveredTarget")
+    if DT is None:
+        return out
+    try:
+        present = DT.objects.for_tenant().present()
+        out["targets"] = present.count()
+        out["hosts"] = present.hosts().count()
+        out["unlinked"] = present.unlinked_hosts().count()
+        run = _opt_model("telemetry", "DiscoveryRun").objects.filter(tenant_key=tenant()).order_by("-started_at").first()
+    except Exception:   # telemetry not migrated yet
+        return out
+    out["available"] = True
+    out["last_run"] = run
+    out["error"] = (run.error if run is not None and not run.ok else "") or ""
+    out["summary"] = (f"{out['targets']} target(s), {out['hosts']} host(s), {out['unlinked']} not in the CMDB"
+                      if out["targets"] else "None yet")
+    if run is not None:
+        out["when"] = run.started_at
+    return out
+
+
+def _opt_model(app_label, name):
+    try:
+        return apps.get_model(app_label, name)
+    except LookupError:
+        return None
+
+
+def onboarding_checklist():
+    """"Is Prometheus actually feeding the product?" – the steps an operator must finish after connecting it.
+
+    Each step is {key, label, done, detail, url, cta}. Only cheap queries: counts and one row lookup each."""
+    from administration import integration_config as ic
+
+    prom = ic.prometheus_url()
+    disc = discovery_status()
+    integrations_url = _reverse("administration:integrations") or ""
+    steps = [{
+        "key": "prometheus", "label": "Prometheus connected", "done": bool(prom),
+        "detail": safe_url(prom) if prom else "Set the server URL on the Prometheus card below.",
+        "url": f"{integrations_url}#prometheus", "cta": "Connect Prometheus",
+    }, {
+        "key": "targets", "label": "Targets discovered", "done": bool(prom) and disc["targets"] > 0,
+        "detail": (f"{disc['targets']} target(s) across {disc['hosts']} host(s)" if disc["targets"]
+                   else ("Discovery has not found a target yet – run it now."
+                         if prom else "Connect Prometheus first.")),
+        "url": _reverse("telemetry:discovery") or f"{integrations_url}#prometheus", "cta": "Open Discovery",
+    }]
+
+    CI = _opt_model("cmdb", "ConfigurationItem")
+    in_cmdb = total_hosts = 0
+    if CI is not None and disc["available"]:
+        try:
+            total_hosts = disc["hosts"]
+            in_cmdb = total_hosts - disc["unlinked"]
+        except Exception:
+            total_hosts = in_cmdb = 0
+    steps.append({
+        "key": "cmdb", "label": "Hosts in the CMDB", "done": bool(total_hosts) and disc["unlinked"] == 0,
+        "detail": (f"{in_cmdb} of {total_hosts} discovered host(s)" if total_hosts
+                   else "Nothing to add yet – discover targets first."),
+        "url": _reverse("telemetry:discovery") or "", "cta": "Review hosts",
+    })
+
+    am = ic.alertmanager_webhook_token()
+    steps.append({
+        "key": "alertmanager", "label": "Alertmanager webhook configured", "done": bool(am),
+        "detail": ("Bearer token set – point Alertmanager at "
+                   f"{_reverse('telemetry:alertmanager_webhook') or '/api/v1/alertmanager/'}") if am
+                  else "No bearer token: Alertmanager cannot post alerts here.",
+        "url": f"{integrations_url}#alertmanager", "cta": "Set the token",
+    })
+
+    channels = notify_channels()
+    steps.append({
+        "key": "channels", "label": "Notification channel configured", "done": channels > 0,
+        "detail": (f"{channels} channel(s): webhooks and/or e-mail" if channels
+                   else "Nobody is notified when an alert fires."),
+        "url": f"{integrations_url}#webhooks", "cta": "Add a channel",
+    })
+
+    Alert = _opt_model("telemetry", "Alert")
+    first_alert = None
+    if Alert is not None:
+        try:
+            first_alert = Alert.objects.filter(tenant_key=tenant()).order_by("created_at").values_list(
+                "created_at", flat=True).first()
+        except Exception:
+            first_alert = None
+    steps.append({
+        "key": "alert", "label": "First alert received", "done": first_alert is not None,
+        "detail": "Alertmanager has posted an alert." if first_alert is not None
+                  else "No alert has arrived yet (nothing may be firing).",
+        "url": _reverse("telemetry:alertmanager") or "", "cta": "Open Alert Manager", "when": first_alert,
+    })
+    done = sum(1 for s in steps if s["done"])
+    return {"steps": steps, "done": done, "total": len(steps), "complete": done == len(steps),
+            "pct": round(100.0 * done / len(steps))}
 
 
 def integration_form_initial(slug):
@@ -770,6 +884,7 @@ SITE_NAME_FIELDS = [
     ("observe", "Exporter", "site", "Exporters"),
     ("observe", "LogEntry", "site", "Log entries"),
     ("telemetry", "Alert", "site", "Alerts"),
+    ("telemetry", "DiscoveredTarget", "site", "Discovered Prometheus targets"),
     ("servicedesk", "Ticket", "site", "Tickets"),
     ("automation", "Runbook", "site", "Runbooks"),
     ("automation", "Rule", "site", "Workflow rules"),
