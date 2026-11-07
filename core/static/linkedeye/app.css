@@ -213,8 +213,37 @@ td a { font-weight: 500; }
 /* ---------- legends / charts ---------- */
 .chart { width: 100%; position: relative; }
 .chart svg { display: block; width: 100%; overflow: visible; }
-.chart .tip { position: absolute; pointer-events: none; background: var(--bg); color: var(--ink); border: 1px solid var(--brand); font-size: 12px; padding: 6px 8px; border-radius: 6px;
-  white-space: nowrap; transform: translate(-50%, -110%); z-index: 3; }
+.chart .tip { position: absolute; left: 0; top: 0; pointer-events: none; background: var(--bg); color: var(--ink); border: 1px solid var(--brand); font-size: 12px; padding: 6px 8px; border-radius: 6px;
+  white-space: nowrap; z-index: 3; max-width: calc(100% - 8px); box-shadow: var(--shadow-pop); }
+.chart .tip b { display: block; margin-bottom: 3px; }
+.chart .tip .row { display: flex; align-items: center; gap: 6px; line-height: 1.5; }
+.chart .tip .row i { flex: none; width: 8px; height: 8px; border-radius: 2px; }
+.chart .tip .row .n { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.chart .tip .row .v { margin-left: auto; padding-left: 10px; font-variant-numeric: tabular-nums; font-weight: 600; }
+/* interactive axes charts: crosshair cursor, horizontal drags zoom while vertical touch drags still scroll the page */
+.chart svg.axes { cursor: crosshair; touch-action: pan-y pinch-zoom; user-select: none; -webkit-user-select: none; }
+.chart:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 6px; }
+.chart .chart-sel { fill: var(--brand); fill-opacity: .12; stroke: var(--brand); stroke-width: 1; pointer-events: none; }
+.chart-kinds { position: absolute; top: 0; right: 0; z-index: 2; display: inline-flex; gap: 1px; padding: 2px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); opacity: .78; transition: opacity .15s; }
+.chart:hover .chart-kinds, .chart-kinds:focus-within { opacity: 1; }
+.chart-kinds button { appearance: none; border: 0; background: none; color: var(--muted); font: 600 10.5px/1 var(--font); letter-spacing: .03em; text-transform: uppercase; padding: 4px 7px; border-radius: 5px; cursor: pointer; }
+@media (pointer: coarse) { .chart-kinds button { padding: 7px 9px; } .chart-zoom-reset { padding: 8px 10px; } }   /* finger-sized, still inside the 30px strip above the plot */
+.chart-kinds button:hover { color: var(--ink); }
+.chart-kinds button[aria-pressed="true"] { background: var(--active-fill); color: var(--active-ink); }
+.chart-kinds button:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.chart-zoom-reset { position: absolute; left: 56px; top: 14px; z-index: 2; appearance: none; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink-2); font: 600 11px/1 var(--font); padding: 4px 8px; cursor: pointer; box-shadow: var(--shadow); }
+.chart-zoom-reset:hover { color: var(--ink); border-color: var(--brand); }
+.chart-zoom-reset:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.chart-zoom-reset[hidden], .chart-kinds[hidden] { display: none; }
+/* bound legend rows ([data-chart-legend] > [data-series]): click toggles (.off), hover highlights (.hl) */
+[data-chart-legend] [data-series] { cursor: pointer; transition: opacity .12s, background-color .12s; }
+[data-chart-legend] [data-series].off { opacity: .42; }
+[data-chart-legend] [data-series].off .name, [data-chart-legend] [data-series].off [data-col="name"] { text-decoration: line-through; text-decoration-color: var(--muted); }
+[data-chart-legend] [data-series].hl { background: var(--panel-2); }
+[data-chart-legend] [data-series].hl td, [data-chart-legend] [data-series].hl .name { color: var(--ink); }
+[data-chart-legend] [data-series]:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.chart svg.gauge text { font-family: var(--font); }
+.chart svg.gauge text.num { font-family: var(--serif); }
 .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--ink-2); }
 .legend i, .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
 .donut-wrap { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
