@@ -297,14 +297,17 @@ def _labels(ts_list, seconds):
 
 
 def align(series_list, seconds):
-    """[(name, color, [(ts, v)])] -> chart.js data with a shared time axis (missing points are gaps)."""
+    """[(name, color, [(ts, v)])] -> chart.js data with a shared time axis (missing points are gaps).
+
+    `ts` carries the epoch seconds of every point (charts.js syncs hover and zoom across charts by nearest ts)."""
     stamps = sorted({t for _n, _c, vals in series_list for t, _v in vals})
     labels, tips = _labels(stamps, seconds)
     out = []
     for name, color, vals in series_list:
         m = {t: (round(v, 4) if finite(v) else None) for t, v in vals}
         out.append({"name": name, "color": color, "values": [m.get(t) for t in stamps]})
-    return {"labels": labels, "tipLabels": tips, "series": out}
+    ts = [int(t) if float(t).is_integer() else float(t) for t in stamps]
+    return {"labels": labels, "tipLabels": tips, "ts": ts, "series": out}
 
 
 def step_for(seconds, points=240):

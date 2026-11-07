@@ -3,7 +3,9 @@
 <head>
   <script>
     (function () {
-      var k = 'linkedeye-theme', t = localStorage.getItem(k);
+      var t = null;
+      // a private window, or blocked site data, makes localStorage throw on access: fall back to the light theme
+      try { t = localStorage.getItem('linkedeye-theme'); } catch (e) { t = null; }
       if (t !== 'dark' && t !== 'light') { t = 'light'; }
       document.documentElement.setAttribute('data-theme', t);
       document.documentElement.style.backgroundColor = t === 'dark' ? '#0e1116' : '#f4f1ea';

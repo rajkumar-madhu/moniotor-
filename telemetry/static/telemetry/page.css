@@ -288,3 +288,37 @@
   .pg-telemetry .tm-bulk-site select { flex: 1 1 auto; max-width: none; }
   .pg-telemetry .tm-actions select { max-width: none; flex: 1 1 auto; }
 }
+
+/* ---------- host metrics: Live mode, gauges, sparklines, interactive legend (charts.js v2 contract) ---------- */
+.pg-telemetry .hm-help { margin: 8px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+.pg-telemetry .hm-live { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pg-telemetry #hm-live[aria-pressed="true"] { background: var(--ok-bg); border-color: var(--ok-line); color: var(--ok-ink); }
+.pg-telemetry #hm-live[aria-pressed="true"] .ic { animation: hm-pulse 2s ease-in-out infinite; }
+@keyframes hm-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .pg-telemetry #hm-live .ic { animation: none; } }
+.pg-telemetry .hm-updated { color: var(--muted); font: 500 11.5px var(--mono); letter-spacing: .03em; white-space: nowrap; }
+.pg-telemetry .hm-updated:empty { display: none; }
+.pg-telemetry .hm-live-err { display: inline-block; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--crit-line); background: var(--crit-bg); color: var(--crit-ink);
+  font-size: 12px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-telemetry .hm-live-err[hidden] { display: none; }
+/* gauge tiles: label on top, the 3/4 arc with the value inside, delta text under it (drawn by charts.js) */
+.pg-telemetry .hm-kpi-gauge { gap: 4px; align-items: stretch; }
+.pg-telemetry .hm-kpi-gauge .label { display: flex; align-items: center; gap: 6px; }
+.pg-telemetry .hm-kpi-gauge .label .ic { color: var(--muted); }
+.pg-telemetry .hm-kpi-gauge .hm-gauge { height: 108px; }
+.pg-telemetry .hm-kpi-gauge .sub { text-align: center; }
+.pg-telemetry .hm-vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.pg-telemetry .hm-spark { height: 26px; margin-top: 6px; }
+/* legend rows are controls: click hides a series, shift-click isolates it (charts.js adds .off) */
+.pg-telemetry .hm-legend tbody tr[data-series] { cursor: pointer; }
+.pg-telemetry .hm-legend tbody tr[data-series]:hover td { background: var(--panel-2); }
+.pg-telemetry .hm-legend tbody tr.off td { opacity: .45; }
+.pg-telemetry .hm-legend tbody tr.off td.name { text-decoration: line-through; }
+.pg-telemetry .hm-legend td[data-col="last"] { font-variant-numeric: tabular-nums; }
+/* the global .table-wrap rule ends in overflow:hidden, which silently cuts Min/Max off the wider legends
+   in a narrow panel (phone width): give the legend back its horizontal scroller. */
+.pg-telemetry .hm-legend { overflow-x: auto; }
+@media (max-width: 860px) {
+  .pg-telemetry .hm-kpi-gauge .hm-gauge { height: 96px; }
+  .pg-telemetry .hm-live-err { max-width: 100%; }
+}

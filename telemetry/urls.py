@@ -6,8 +6,9 @@ app_name = "telemetry"
 
 urlpatterns = [
     path("monitoring/infrastructure/", views.infrastructure, name="infrastructure"),
-    # before host_detail: <path:instance> would otherwise swallow ".../metrics/"
+    # before host_detail: <path:instance> would otherwise swallow ".../metrics/" and ".../metrics.json"
     path("monitoring/infrastructure/<path:instance>/metrics/", views.host_metrics, name="host_metrics"),
+    path("monitoring/infrastructure/<path:instance>/metrics.json", views.host_metrics_json, name="host_metrics_json"),
     path("monitoring/infrastructure/<path:instance>/", views.host_detail, name="host_detail"),
     path("monitoring/discovery/", views.discovery, name="discovery"),
     path("monitoring/discovery/run/", views.discovery_run, name="discovery_run"),
