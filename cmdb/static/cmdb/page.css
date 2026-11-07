@@ -517,3 +517,8 @@
   .pg-heat .hm-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 420px) { .pg-heat .hm-overview { grid-template-columns: minmax(0, 1fr); } }
+
+/* discovery banner (hosts Prometheus scrapes that have no configuration item yet) */
+.pg-cmdb .cm-banner { margin: 0; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--info-line); background: var(--info-bg);
+  color: var(--info-ink); font-size: 13px; display: flex; gap: 8px; align-items: flex-start; }
+.pg-cmdb .cm-banner .ic { margin-top: 2px; flex: none; }

@@ -15,6 +15,10 @@
 </div>
 {% with section="items" %}{% include "cmdb/_cmdb_nav.html" %}{% endwith %}
 
+{% if undiscovered %}
+<p class="cm-banner" role="status">{% icon "radar" 15 %}<span><b>{{ undiscovered }}</b> host{{ undiscovered|pluralize }} Prometheus scrapes {{ undiscovered|pluralize:"is,are" }} not in the CMDB yet. <a href="{{ discovery_url }}">Review</a></span></p>
+{% endif %}
+
 <section class="kpis cm-kpis" aria-label="Summary">
   <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "database" 22 %}</div><div class="kpi-body"><div class="label">Configuration Items</div><div class="value">{{ total }}</div></div></div><div class="sub">{{ type_counts|length }} type{{ type_counts|length|pluralize }} in use</div></div>
   <div class="kpi stacked"><div class="kpi-top"><div class="tile s-ok">{% icon "check" 22 %}</div><div class="kpi-body"><div class="label">Active</div><div class="value">{{ active }}</div></div></div><div class="sub">{{ maintenance }} in maintenance · {{ retired }} retired</div></div>

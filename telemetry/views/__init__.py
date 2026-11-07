@@ -1,4 +1,5 @@
 from .alerts import acknowledge, alert_detail, alert_list, unacknowledge  # noqa: F401
+from .discovery import discovery, discovery_action, discovery_detail, discovery_run  # noqa: F401
 from .explorer import delete_query, explorer, save_query  # noqa: F401
 from .infra import host_detail, host_metrics, host_metrics_json, infrastructure  # noqa: F401
 from .nagios import nagios_status  # noqa: F401

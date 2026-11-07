@@ -43,3 +43,7 @@ def targets():
 
 def alerts():
     return _dict_rows(_call(prometheus.alerts))
+
+
+def rules():
+    return _dict_rows(_call(prometheus.rules))
