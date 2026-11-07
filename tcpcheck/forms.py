@@ -122,5 +122,7 @@ class TcpCheckForm(forms.ModelForm):
 
 class SlaForm(forms.Form):
     kind = forms.ChoiceField(choices=SlaTarget.KINDS)
-    object_id = forms.IntegerField(min_value=1)
+    # the smallest target primary key type is a 32-bit AutoField: anything larger cannot exist, and the database
+    # rejects it as out of range instead of returning no row
+    object_id = forms.IntegerField(min_value=1, max_value=2**31 - 1)
     target = forms.DecimalField(min_value=Decimal("50"), max_value=Decimal("100"), max_digits=6, decimal_places=3)

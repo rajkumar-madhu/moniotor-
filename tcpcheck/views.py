@@ -1,6 +1,8 @@
 import csv
+import re
 from datetime import timedelta
 from decimal import Decimal
+from urllib.parse import urlparse
 
 from django.apps import apps
 from django.conf import settings
@@ -26,6 +28,7 @@ RUN_ALL_WORKERS = 32        # "Run Check Now" waits for the whole batch: probe i
 SORT_CHOICES = [("uptime", "lowest uptime"), ("sla", "SLA breaches"), ("name", "name"), ("type", "type"), ("site", "site")]
 FORM_FIELDS = ["name", "host", "port", "interval_seconds", "site", "tags", "expect_banner", "degraded_ms",
                "timeout_seconds", "description", "enabled"]
+PORT_RE = re.compile(r"[0-9]{1,5}")
 
 
 # ------------------------------------------------------------------ helpers
@@ -92,7 +95,9 @@ def _filtered(request, qs):
         qs = qs.filter(site=g["site"])
     if g.get("status") in Status.values:
         qs = qs.filter(last_status=g["status"])
-    if g.get("port", "").isdigit():
+    # ASCII digits only (str.isdigit() accepts '²', which int() rejects) and a real port number, so a shared link
+    # with a bad filter never breaks the page
+    if PORT_RE.fullmatch(g.get("port", "")) and 1 <= int(g["port"]) <= 65535:
         qs = qs.filter(port=int(g["port"]))
     if g.get("enabled") in ("0", "1"):
         qs = qs.filter(enabled=g["enabled"] == "1")
@@ -231,7 +236,8 @@ def delete(request, pk):
     SlaTarget.objects.filter(tenant_key=settings.LINKEDEYE_TENANT, kind="tcp", object_id=pk).delete()
     messages.success(request, f"Deleted “{name}” and its check history.")
     nxt = _next(request, reverse("tcpcheck:index"))
-    if nxt.rstrip("/").endswith(f"/telnet/{pk}"):
+    # any page of the deleted check (detail, edit, run, history) would now be a 404: go to the list instead
+    if urlparse(nxt).path.startswith(reverse("tcpcheck:detail", args=[pk])):
         nxt = reverse("tcpcheck:index")
     return redirect(nxt)
 
@@ -302,25 +308,27 @@ def detail(request, pk):
         "trend": stats.response_trend([check.pk]), "avg24": stats.avg_response([check.pk]),
         "daily": daily, "has_daily": has_daily, "sla_target": sla_target, "sla_state": sla_state,
         "sla_text": uptime.sla_text(sla_target),
-        "events": events, "related": _related(check), "statuses": Status.choices,
+        "events": events, "related": _related(check, request.user), "statuses": Status.choices,
         "result_count": check.results.count(),
     })
 
 
-def _related(check):
-    """Network device / CMDB CI that share this check's host, when those modules are installed."""
+def _related(check, user):
+    """Network device / CMDB CI that share this check's host, when those modules are installed. Scoped to the
+    user's sites, as the Network and CMDB modules scope them: a check on "All Sites" must not reveal a record of a
+    site the viewer cannot see."""
     out = []
     try:
-        Device = apps.get_model("network", "Device")
-        for d in Device.objects.filter(tenant_key=settings.LINKEDEYE_TENANT).filter(
-                Q(mgmt_ip=check.host) | Q(name__iexact=check.host))[:3]:
+        from network.services import devices_for
+        for d in devices_for(user).filter(Q(mgmt_ip=check.host) | Q(name__iexact=check.host))[:3]:
             out.append({"kind": "Network device", "name": d.name, "status": getattr(d, "status", ""),
                         "url": d.get_absolute_url() if hasattr(d, "get_absolute_url") else ""})
     except Exception:
         pass
     try:
-        from cmdb.services import find_ci
-        ci = find_ci(check.host)
+        from cmdb.services import ci_queryset
+        cis = ci_queryset(user)
+        ci = cis.filter(name=check.host).first() or cis.filter(name__iexact=check.host).first()
         if ci is not None:
             out.append({"kind": "Configuration item", "name": ci.name, "status": getattr(ci, "status", ""),
                         "url": ci.get_absolute_url() if hasattr(ci, "get_absolute_url") else ""})

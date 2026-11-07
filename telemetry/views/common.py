@@ -62,6 +62,13 @@ def _is_number(s):
         return False
 
 
+def is_pk(value):
+    """A request parameter that can be a primary key: ASCII digits only (str.isdigit() accepts '²', which int()
+    rejects) and within the integer range of the database."""
+    s = str(value or "")
+    return s.isascii() and s.isdigit() and len(s) <= 18
+
+
 def matches(q, *fields):
     q = (q or "").strip().lower()
     return not q or any(q in str(f or "").lower() for f in fields)
