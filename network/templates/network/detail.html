@@ -1,26 +1,10 @@
 {% extends "core/base.html" %}{% load le static network_tags %}
 {% block title %}{{ device.name }}{% endblock %}
-{% block page_css %}<link rel="stylesheet" href="{% static 'network/page.css' %}">{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'network/page.css' %}"><link rel="stylesheet" href="{% static 'network/device-card.css' %}">{% endblock %}
 {% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'network:all' %}">Network Devices</a>{% icon "chevron-right" 14 %}<a href="{{ device.type_list_url }}">{{ device.type_plural }}</a>{% if device.vendor %}{% icon "chevron-right" 14 %}<a href="{{ device.type_list_url }}?vendor={{ device.vendor|urlencode }}">{{ device.vendor }}</a>{% endif %}{% icon "chevron-right" 14 %}<span>{% if is_vm %}VM details{% else %}{{ device.name }}{% endif %}</span></nav>{% endblock %}
 {% block content %}
 <div class="pg-network nw-detail{% if is_vm %} nw-vm{% endif %}">
 <div class="head nw-head">
-  <div class="nw-device nw-device-hero{% if device.product_image_url %} has-img{% endif %}" {% if not device.product_image_url %}aria-hidden="true"{% endif %}>
-    <span class="nw-device-lbl">{{ device.vendor|default:device.get_device_type_display }}</span>
-    {% if device.product_image_url %}
-    {% if device.product_page_url %}
-    <a class="nw-device-thumb" href="{{ device.product_page_url }}" target="_blank" rel="noopener noreferrer" title="Open vendor product page" aria-label="Product photo — open datasheet">
-      <img src="{{ device.product_image_url }}" alt="" width="72" height="48" loading="lazy" decoding="async">
-    </a>
-    {% else %}
-    <a class="nw-device-thumb" href="{{ device.product_image_url }}" target="_blank" rel="noopener noreferrer" title="Open full image" aria-label="Product photo — expand">
-      <img src="{{ device.product_image_url }}" alt="" width="72" height="48" loading="lazy" decoding="async">
-    </a>
-    {% endif %}
-    {% else %}
-    <span class="nw-device-box">{% icon device.type_icon 24 %}<i></i><i></i><i></i><i></i></span>
-    {% endif %}
-  </div>
   <div class="nw-title">
     <h1>{{ device.name }} <span class="nw-live-badge">{% if is_vm %}{% badge device.status vm_power %}{% else %}{% badge device.status %}{% endif %}</span>{% if device.is_example %} <span class="sample-pill" title="Created by manage.py seed_network">Example record</span>{% endif %}{% if not device.enabled %} <span class="chip mute">Monitoring disabled</span>{% endif %}</h1>
     {% if is_vm %}
@@ -60,6 +44,8 @@
     </div>
   </div>
 </div>
+
+<section class="nw-card-band" aria-label="Photo and live data">{% include "network/_device_card.html" with device=device card=card variant="hero" live_attrs=True %}</section>
 
 <section class="nw-head-stats" aria-label="Key facts">
   <div class="nw-head-stat"><span class="nw-head-stat-lbl">Last seen</span><span class="nw-head-stat-val" title="{{ device.last_seen|default_if_none:'' }}">{% if device.last_seen %}<span data-live="last_seen_at">{{ device.last_seen|short_dt }}</span> <span class="nw-head-stat-ago">(<span data-live="last_seen">{{ device.last_seen|ago }}</span>)</span>{% else %}<span class="t-mute">—</span>{% endif %}</span></div>
@@ -124,6 +110,7 @@
 {% endif %}
 {% if tab == "overview" and ports %}{{ port_data|json_script:"nw-ports" }}<script src="{% static 'network/front-panel.js' %}" defer></script>{% endif %}
 <script src="{% static 'network/live.js' %}" defer></script>
+<script src="{% static 'network/device-card.js' %}" defer></script>
 <script>
 document.addEventListener('click', function (e) {
   document.querySelectorAll('.pg-network details.row-menu[open]').forEach(function (d) { if (!d.contains(e.target)) d.removeAttribute('open'); });

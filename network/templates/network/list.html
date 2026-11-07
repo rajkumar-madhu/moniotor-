@@ -1,6 +1,6 @@
 {% extends "core/base.html" %}{% load le static network_tags %}
 {% block title %}{{ title }}{% endblock %}
-{% block page_css %}<link rel="stylesheet" href="{% static 'network/page.css' %}">{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'network/page.css' %}"><link rel="stylesheet" href="{% static 'network/device-card.css' %}">{% endblock %}
 {% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'network:all' %}">Network Devices</a>{% if device_type %}{% icon "chevron-right" 14 %}<span>{{ title }}</span>{% else %}{% icon "chevron-right" 14 %}<span>All Devices</span>{% endif %}</nav>{% endblock %}
 {% block content %}
 <div class="pg-network">
@@ -50,12 +50,15 @@
   <div class="panel">
     <div class="panel-h"><h2>{% if device_type %}{{ title }}{% else %}Devices{% endif %} ({{ page.paginator.count }})</h2>
       <div class="right">
+        <span class="dc-live" id="dc-live" data-url="{{ cards_url }}" data-interval="{{ live_interval }}" hidden><i class="dc-live-dot" aria-hidden="true"></i><span class="dc-live-text">Live</span></span>
+        <span class="seg dc-viewseg" role="group" aria-label="Layout"><a href="{{ view_links.table }}" class="{% if view_mode == 'table' %}on{% endif %}"{% if view_mode == 'table' %} aria-current="true"{% endif %}>Table</a><a href="{{ view_links.cards }}" class="{% if view_mode == 'cards' %}on{% endif %}"{% if view_mode == 'cards' %} aria-current="true"{% endif %}>Cards</a></span>
         {% if can_operate and counts.total %}<form method="post" action="{% url 'network:check_all' %}">{% csrf_token %}{% if device_type %}<input type="hidden" name="type" value="{{ device_type }}">{% endif %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn primary sm" type="submit" >{% icon "radar" 15 %}Check All Now</button></form>{% endif %}
         <a class="btn sm ghost-primary" href="{% url 'network:export' %}?{{ export_query }}">{% icon "download" 15 %}CSV</a>
       </div></div>
     <form class="toolbar compact" method="get">
       {% if request.GET.per %}<input type="hidden" name="per" value="{{ request.GET.per }}">{% endif %}
       {% if request.GET.sort %}<input type="hidden" name="sort" value="{{ request.GET.sort }}">{% endif %}
+      {% if view_mode == "cards" %}<input type="hidden" name="view" value="cards">{% endif %}
       <label class="search">{% icon "search" 16 %}<input type="search" name="q" value="{{ request.GET.q }}" placeholder="Search name, IP, vendor, model, serial, tag…" aria-label="Search devices"></label>
       {% if not device_type %}<select name="type" data-autosubmit aria-label="Type"><option value="">All Types</option>{% for v, l in types %}<option value="{{ v }}"{% if request.GET.type == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>{% endif %}
       <select name="status" data-autosubmit aria-label="Status"><option value="">All Status</option>{% for v, l in statuses %}<option value="{{ v }}"{% if request.GET.status == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
@@ -64,6 +67,10 @@
       <select name="env" data-autosubmit aria-label="Environment"><option value="">All Environments</option>{% for v, l in envs %}<option value="{{ v }}"{% if request.GET.env == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
       <a class="btn icon blue" href="{{ list_url }}" title="Clear filters" aria-label="Clear filters">{% icon "refresh" 16 %}</a>
     </form>
+    {% if view_mode == "cards" %}
+    {% if page %}<div class="dc-grid">{% for d in page %}{% include "network/_device_card.html" with device=d card=d.card variant="tile" %}{% endfor %}</div>
+    {% else %}<p class="empty">{% if counts.total %}No devices match these filters.{% else %}No {{ title|lower }} yet.{% if can_operate %} <a href="{{ create_url }}">Add a device</a> or <a href="{% url 'network:discovery' %}">run a discovery</a>.{% endif %}{% endif %}</p>{% endif %}
+    {% else %}
     <div class="table-wrap dense nw-table"><table>
       <thead><tr>
         <th>{% sort_link query "name" request.GET.sort "Name" %}</th>
@@ -80,7 +87,7 @@
       <tbody>
       {% for d in page %}
         <tr>
-          <td class="nm"><a href="{% url 'network:detail' d.pk %}" title="{{ d.name }}">{{ d.name }}</a>{% if d.is_example %} <span class="chip mute" title="Created by seed_network">example</span>{% endif %}{% if not d.enabled %} <span class="chip mute">disabled</span>{% endif %}</td>
+          <td class="nm"><div class="dc-cell">{% include "network/_device_card.html" with device=d card=d.card variant="thumb" %}<span class="nm-text"><a href="{% url 'network:detail' d.pk %}" title="{{ d.name }}">{{ d.name }}</a>{% if d.is_example %} <span class="chip mute" title="Created by seed_network">example</span>{% endif %}{% if not d.enabled %} <span class="chip mute">disabled</span>{% endif %}</span></div></td>
           {% if not device_type %}<td><a class="t-ink" href="{{ d.type_list_url }}">{{ d.get_device_type_display }}</a></td>{% endif %}
           <td class="vm" title="{{ d.vendor }} {{ d.model }}">{{ d.vendor|default:"–" }}{% if d.model %} <span class="t-mute">{{ d.model }}</span>{% endif %}</td>
           <td class="mono">{{ d.mgmt_ip }}<span class="t-mute">:{{ d.check_port }}</span></td>
@@ -108,6 +115,7 @@
         <tr><td colspan="{{ list_colspan }}" class="empty">{% if counts.total %}No devices match these filters.{% else %}No {{ title|lower }} yet.{% if can_operate %} <a href="{{ create_url }}">Add a device</a> or <a href="{% url 'network:discovery' %}">run a discovery</a>.{% endif %}{% endif %}</td></tr>
       {% endfor %}
       </tbody></table></div>
+    {% endif %}
     {% include "core/_pager.html" with pager_noun="devices" %}
     <p class="nw-note">Reachability: TCP connect to the management address every 60 s (manage.py run_probes). Interfaces: {% if prometheus_on %}Prometheus snmp_exporter.{% else %}Prometheus not connected – set LINKEDEYE_PROMETHEUS_URL.{% endif %}{% if prometheus_on %} Guest columns: instant <code>node_exporter</code> metrics per <code>prometheus_instance</code> (batched query on this page).{% endif %}</p>
   </div>
@@ -115,4 +123,5 @@
 </section>
 </div>
 {{ donut|json_script:"nw-donut" }}
+<script src="{% static 'network/device-card.js' %}" defer></script>
 {% endblock %}

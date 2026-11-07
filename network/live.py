@@ -38,6 +38,79 @@ def _pct(v):
     return "–" if v is None else f"{v:.1f}%"
 
 
+# ---------------------------------------------------------------- device card
+CARD_STALE = 15 * 60                  # seconds; stored SNMP figures older than this are no data, not "current"
+NO_DATA = "No data"
+SERVER_TYPES = (DeviceType.PHYSICAL_SERVER, DeviceType.VIRTUAL_MACHINE)
+
+
+def _num(v):
+    return v if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and abs(v) != float("inf") else None
+
+
+def _level(v, warn, crit):
+    return "" if v is None else "crit" if v >= crit else "warn" if v >= warn else ""
+
+
+def card_data(devices, guest=None, now=None):
+    """What the device card shows, per device pk: {"values": formatted strings, "tones": tone per key, "figures":
+    raw numbers or None, "status": device status}.
+
+    Every figure is real or absent. A metric that is not collected (no Prometheus, no instance, the exporter's module
+    lacks the series, the stored value is older than CARD_STALE) is None and shown as "No data": never as 0. Servers
+    and VMs read node_exporter live (one batched query set for the whole page); network gear reads what the SNMP
+    job stored with the interface rates. `guest` may carry vm_metrics.batch_guest_instants() output the caller already
+    has."""
+    devices = list(devices)
+    now = now or timezone.now()
+    # nothing is collected for a disabled device, so it is neither queried nor shown with figures
+    servers = [d for d in devices if d.enabled and d.device_type in SERVER_TYPES and (d.prometheus_instance or "").strip()]
+    if guest is None:
+        guest = vm_metrics.batch_guest_instants(servers) if servers else {}
+    extras = vm_metrics.batch_guest_extras(servers) if servers else {}
+    traffic = services.traffic_totals([d.pk for d in devices])
+    out = {}
+    for d in devices:
+        fresh = bool(d.metrics_updated_at and (now - d.metrics_updated_at).total_seconds() <= CARD_STALE)
+        g, x = guest.get(d.pk) or {}, extras.get(d.pk) or {}
+        t = traffic.get(d.pk) or {}
+        t_fresh = bool(t.get("at") and (now - t["at"]).total_seconds() <= CARD_STALE)
+        stored = (lambda v: _num(v) if fresh else None)
+        fig = {k: None for k in ("cpu", "memory", "temp", "in", "out", "uptime")} if not d.enabled else {
+            "cpu": _num(g.get("cpu")) if _num(g.get("cpu")) is not None else stored(d.cpu_pct),
+            "memory": _num(g.get("memory")) if _num(g.get("memory")) is not None else stored(d.memory_pct),
+            "temp": _num(x.get("temp")) if _num(x.get("temp")) is not None else stored(d.temperature_c),
+            "in": _num(x.get("rx_mbps")) if _num(x.get("rx_mbps")) is not None else (_num(t.get("in")) if t_fresh else None),
+            "out": _num(x.get("tx_mbps")) if _num(x.get("tx_mbps")) is not None else (_num(t.get("out")) if t_fresh else None),
+            "uptime": d.uptime_seconds if fresh and d.status != "down" and d.uptime_seconds is not None else None,
+        }
+        status_label = vm_metrics.guest_power_label(d) if d.device_type == DeviceType.VIRTUAL_MACHINE else d.get_status_display()
+        values = {
+            "status": status_label,
+            "uptime": d.uptime_short if fig["uptime"] is not None else NO_DATA,
+            "cpu": NO_DATA if fig["cpu"] is None else f"{fig['cpu']:.0f}%" if fig["cpu"] >= 10 else f"{fig['cpu']:.1f}%",
+            "memory": NO_DATA if fig["memory"] is None else f"{fig['memory']:.0f}%" if fig["memory"] >= 10 else f"{fig['memory']:.1f}%",
+            "temp": NO_DATA if fig["temp"] is None else f"{fig['temp']:.0f} °C",
+            "in": NO_DATA if fig["in"] is None else mbps(fig["in"]),
+            "out": NO_DATA if fig["out"] is None else mbps(fig["out"]),
+        }
+        tones = {"status": tone(d.status),
+                 "uptime": "mute" if fig["uptime"] is None else "",
+                 "in": "mute" if fig["in"] is None else "", "out": "mute" if fig["out"] is None else "",
+                 "cpu": "mute" if fig["cpu"] is None else _level(fig["cpu"], 80, 90),
+                 "memory": "mute" if fig["memory"] is None else _level(fig["memory"], 85, 95),
+                 "temp": "mute" if fig["temp"] is None else _level(fig["temp"], 60, 75)}
+        out[d.pk] = {"status": d.status, "values": values, "tones": tones, "figures": fig}
+    return out
+
+
+def card_values(card):
+    """The card's entries as flat data-live keys (card_cpu, card_cpu_tone ...) for the detail snapshot."""
+    vals = {f"card_{k}": v for k, v in card["values"].items()}
+    tones = {f"card_{k}": v for k, v in card["tones"].items()}
+    return vals, tones
+
+
 def _avail_tone(v):
     return avail_tone(v).removeprefix("t-")
 
@@ -111,6 +184,10 @@ def device_snapshot(device, range_key=metrics.DEFAULT_RANGE, port_index=None):
         notes += [m for m in (traffic_msg, errors_msg) if m and m != metrics.NOT_CONFIGURED]
         ports = port_data(panel_ports(interfaces))
 
+    card = card_data([device], guest={device.pk: g} if is_vm and guest else None)[device.pk]
+    card_vals, card_tones = card_values(card)
+    values.update(card_vals)
+    tones.update(card_tones)
     values["uptime_short"] = device.uptime_short or "–"
     values["uptime_display"] = device.uptime_display or ""
     latest = services.events_for(device, 1)
@@ -118,6 +195,7 @@ def device_snapshot(device, range_key=metrics.DEFAULT_RANGE, port_index=None):
     return {
         "generated_at": timezone.now().isoformat(),
         "status": device.status,
+        "figures": card["figures"],
         "values": values, "tones": tones, "charts": charts, "ports": ports, "notes": notes,
         "latest_event": {"id": latest.pk, "title": latest.title, "severity": latest.severity,
                          "ago": ago(latest.occurred_at)} if latest else None,

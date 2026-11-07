@@ -1,6 +1,6 @@
 {% extends "core/base.html" %}{% load le static compute_tags %}
 {% block title %}Servers{% endblock %}
-{% block page_css %}<link rel="stylesheet" href="{% static 'compute/page.css' %}">{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'compute/page.css' %}"><link rel="stylesheet" href="{% static 'network/device-card.css' %}">{% endblock %}
 {% block crumbs %}{% include "compute/_crumbs.html" with section="Servers" %}{% endblock %}
 {% block content %}
 <div class="pg-compute">
@@ -31,7 +31,7 @@
 
 <div class="panel">
   <div class="panel-h"><h2>Servers ({{ page.paginator.count }})</h2>
-    <div class="right"><a class="btn sm ghost-primary" href="{% url 'compute:servers_export' %}?{{ query.urlencode }}">{% icon "download" 15 %}CSV</a></div></div>
+    <div class="right"><span class="dc-live" id="dc-live" data-url="{{ cards_url }}" data-interval="{{ live_interval }}" hidden><i class="dc-live-dot" aria-hidden="true"></i><span class="dc-live-text">Live</span></span><a class="btn sm ghost-primary" href="{% url 'compute:servers_export' %}?{{ query.urlencode }}">{% icon "download" 15 %}CSV</a></div></div>
   <form class="toolbar compact" method="get">
     {% if request.GET.per %}<input type="hidden" name="per" value="{{ request.GET.per }}">{% endif %}
     <label class="search">{% icon "search" 16 %}<input type="search" name="q" value="{{ request.GET.q }}" placeholder="Name, IP, vendor, model, tag or instance…" aria-label="Search servers"></label>
@@ -47,7 +47,7 @@
     <tbody>
     {% for d in rows %}
       <tr>
-        <td class="trunc"><a href="{{ d.get_absolute_url }}" title="{{ d.name }} – open device">{{ d.name }}</a>{% if d.is_example %} <span class="chip mute" title="Example record">example</span>{% endif %}<span class="sub mono">{{ d.mgmt_ip }}{% if d.vendor or d.model %} · {{ d.vendor }} {{ d.model }}{% endif %}</span></td>
+        <td class="dc-td">{% include "network/_device_card.html" with device=d card=d.card variant="row" %}</td>
         <td class="trunc">{{ d.site|default:"–" }}</td>
         <td>{% badge d.status %}</td>
         <td class="trunc">{% for m in d.memberships %}<a href="{{ m.cluster.get_absolute_url }}" title="{{ m.get_role_display }}">{{ m.cluster.name }}</a>{% if not forloop.last %}, {% endif %}{% empty %}<span class="t-mute">–</span>{% endfor %}</td>
@@ -63,7 +63,8 @@
     {% endfor %}
     </tbody></table></div>
   {% include "core/_pager.html" with pager_noun="servers" %}
-  <p class="cm-note">Allocated = vCPU and RAM of running and suspended VMs placed on the host. CPU / memory / disk are live node_exporter values (shared 30 s cache with Infrastructure).</p>
+  <p class="cm-note">Photo and the live figures beside the name: a real photo when one is stored for the device, otherwise a dashed-frame illustration; every figure is read live (no data is shown as “No data”, never 0). Allocated = vCPU and RAM of running and suspended VMs placed on the host. CPU / memory / disk are live node_exporter values (shared 30 s cache with Infrastructure).</p>
 </div>
 </div>
+<script src="{% static 'network/device-card.js' %}" defer></script>
 {% endblock %}

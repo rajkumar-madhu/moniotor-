@@ -2,8 +2,9 @@
 from django import forms
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from . import discovery
-from .catalog import resolve_product_urls
+from . import discovery, images
+from .catalog import best_row
+from .imaging import ImageError
 from .models import Device, DeviceType, Environment, NetworkProductImage
 
 TEXT = {"class": "in"}
@@ -31,11 +32,52 @@ def normalise_tags(text):
     return ", ".join(seen)
 
 
+class FieldImageError(ImageError):
+    """An ImageError that belongs to one form field."""
+
+    def __init__(self, field, message):
+        super().__init__(message)
+        self.field = field
+
+
+IMAGE_ACCEPT = "image/png,image/jpeg,image/webp"
+TYPE_LABELS = dict(DeviceType.choices)
+
+
+def image_from_sources(cd, user, row=None):
+    """The stored photo chosen in a form: an upload, a web address fetched once, or a catalog row's photo. None when
+    none was given; FieldImageError when two were given or one was refused."""
+    upload, url = cd.get("image_file"), (cd.get("image_url") or "").strip()
+    if sum(bool(x) for x in (upload, url, row)) > 1:
+        raise FieldImageError("image_file", "Use one way to set the photo: upload a file, fetch an address, or pick from the catalog.")
+    try:
+        if upload:
+            return images.store_upload(upload, user)[0]
+        if url:
+            return images.fetch_and_store(url, user)[0]
+    except ImageError as e:
+        raise FieldImageError("image_file" if upload else "image_url", str(e)) from None
+    return row.image if row else None
+
+
 class DeviceForm(forms.ModelForm):
     site = forms.ChoiceField(required=False)
+    # the photo: at most one of these is used; none keeps the current photo
+    image_file = forms.FileField(
+        required=False, label="Upload a photo",
+        widget=forms.FileInput(attrs={"accept": IMAGE_ACCEPT}),
+        help_text="PNG, JPEG or WebP, up to 2 MB and 4096 × 4096 px. SVG and GIF are not accepted.")
+    image_url = forms.CharField(
+        required=False, max_length=500, label="Fetch from a web address",
+        widget=forms.URLInput(attrs={"placeholder": "https://…/photo.png", "autocomplete": "off", "data-prod-fetch": "1"}),
+        help_text="LinkedEye downloads the photo once, now, and stores its own copy. The link is not kept or shown to viewers.")
+    catalog_row = forms.ModelChoiceField(
+        queryset=NetworkProductImage.objects.none(), required=False, label="Pick from the product catalog",
+        empty_label="No catalog photo")
+    clear_image = forms.BooleanField(required=False, label="Remove the current photo")
 
     GROUPS = [
-        ("Identity", ["name", "device_type", "vendor", "model", "serial", "firmware", "product_image_url", "product_page_url"]),
+        ("Identity", ["name", "device_type", "vendor", "model", "serial", "firmware", "product_page_url"]),
         ("Monitoring", ["mgmt_ip", "check_port", "prometheus_instance", "enabled"]),
         ("Placement & ownership", ["site", "role", "environment", "contact"]),
         ("Notes", ["tags", "description"]),
@@ -67,17 +109,48 @@ class DeviceForm(forms.ModelForm):
         self.fields["check_port"].widget.attrs.update({"min": 1, "max": 65535})
         self.fields["product_image_url"].required = False
         self.fields["product_page_url"].required = False
+        self.fields["product_image_url"].label = "Linked image URL (legacy)"
         self.fields["product_image_url"].help_text = (
-            "Filled from the product catalog when vendor and model match, or paste any HTTPS image URL."
-        )
-        self.product_catalog = list(
-            NetworkProductImage.objects.filter(tenant_key=settings.LINKEDEYE_TENANT)
-            .values("vendor", "device_type", "model_key", "product_image_url", "product_page_url")
-        )
+            "Only used when the device has no stored photo, and the browser then loads it from that site. "
+            "Prefer uploading or fetching a photo above.")
+        rows = (NetworkProductImage.objects.filter(tenant_key=settings.LINKEDEYE_TENANT, image__isnull=False)
+                .select_related("image").defer("image__data").order_by("vendor", "device_type", "model_key"))
+        self.fields["catalog_row"].queryset = rows
+        self.fields["catalog_row"].label_from_instance = lambda r: (
+            f"{r.vendor} {r.model_key or '(any model)'}" + (f" · {TYPE_LABELS.get(r.device_type, r.device_type)}" if r.device_type else ""))
+        self.product_catalog = [
+            {"id": r.pk, "vendor": r.vendor, "device_type": r.device_type, "model_key": r.model_key,
+             "image_url": r.image.url if r.image_id else "", "product_image_url": r.product_image_url, "product_page_url": r.product_page_url}
+            for r in NetworkProductImage.objects.filter(tenant_key=settings.LINKEDEYE_TENANT)
+            .select_related("image").defer("image__data")
+        ]
+
+    def resolve_image(self, user):
+        """Decide what happens to the device photo, after is_valid(). Returns ("keep", None), ("set", DeviceImage) or
+        ("clear", None); raises FieldImageError(field, message) when an upload or download is refused. Uploads and
+        downloads are validated and stored here (network.images), so nothing reaches the database unchecked."""
+        cd = self.cleaned_data
+        chosen = image_from_sources(cd, user, cd.get("catalog_row"))
+        if chosen is not None:
+            return "set", chosen
+        if cd.get("clear_image"):
+            return "clear", None
+        # a device that has no photo yet, and is new or whose vendor / model / type just changed, gets the matching
+        # catalog photo for free (an existing photo is never replaced behind your back)
+        if not self.instance.image_id and (not self.instance.pk or {"vendor", "model", "device_type"} & set(self.changed_data)):
+            match = best_row(tenant_key=settings.LINKEDEYE_TENANT, device_type=cd.get("device_type") or "",
+                             vendor=cd.get("vendor") or "", model=cd.get("model") or "", with_image=True)
+            if match is not None and match.image_id != self.instance.image_id:
+                return "set", match.image
+        return "keep", None
 
     @property
     def groups(self):
         return [(title, [self[f] for f in names]) for title, names in self.GROUPS]
+
+    @property
+    def photo_fields(self):
+        return [self["image_file"], self["image_url"], self["catalog_row"]]
 
     def clean_name(self):
         name = self.cleaned_data["name"].strip()
@@ -103,13 +176,14 @@ class DeviceForm(forms.ModelForm):
         m = (cleaned.get("model") or "").strip()
         dt = cleaned.get("device_type") or ""
         if v:
-            img_url, page_url = resolve_product_urls(
-                tenant_key=settings.LINKEDEYE_TENANT, device_type=dt, vendor=v, model=m,
-            )
-            if not (cleaned.get("product_image_url") or "").strip() and img_url:
-                cleaned["product_image_url"] = img_url
-            if not (cleaned.get("product_page_url") or "").strip() and page_url:
-                cleaned["product_page_url"] = page_url
+            # a catalog row that still only has the legacy link fills the link fields (rows with a stored photo
+            # attach that photo instead, see resolve_image)
+            row = best_row(tenant_key=settings.LINKEDEYE_TENANT, device_type=dt, vendor=v, model=m)
+            if row is not None and not row.image_id:
+                if not (cleaned.get("product_image_url") or "").strip() and row.product_image_url:
+                    cleaned["product_image_url"] = row.product_image_url
+            if row is not None and not (cleaned.get("product_page_url") or "").strip() and row.product_page_url:
+                cleaned["product_page_url"] = row.product_page_url
         return cleaned
 
 
@@ -148,3 +222,56 @@ class ApproveForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["site"].choices = site_choices(self.initial.get("site", ""))
+
+
+class CatalogForm(forms.ModelForm):
+    """One product catalog row. The photo is uploaded or fetched once and stored; the row never hotlinks."""
+    device_type = forms.ChoiceField(required=False, label="Device type", choices=[("", "Any type")] + list(DeviceType.choices))
+    image_file = forms.FileField(required=False, label="Upload a photo", widget=forms.FileInput(attrs={"accept": IMAGE_ACCEPT}),
+                                 help_text="PNG, JPEG or WebP, up to 2 MB and 4096 × 4096 px.")
+    image_url = forms.CharField(required=False, max_length=500, label="Fetch from a web address",
+                                widget=forms.URLInput(attrs={"placeholder": "https://…/photo.png", "autocomplete": "off"}),
+                                help_text="Downloaded once through the safe fetcher (https only, public addresses only) and stored.")
+
+    class Meta:
+        model = NetworkProductImage
+        fields = ["vendor", "device_type", "model_key", "product_page_url", "notes"]
+        widgets = {
+            "vendor": forms.TextInput(attrs={"placeholder": "e.g. Arista", "list": "cat-vendors"}),
+            "model_key": forms.TextInput(attrs={"placeholder": "e.g. DCS-7280 (empty = vendor default)"}),
+            "product_page_url": forms.URLInput(attrs={"placeholder": "https://…/datasheet"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        row = self.instance
+        if row.pk and not row.image_id and row.product_image_url:
+            # an older row that only has a hotlink: offer to fetch it once and store a copy
+            self.fields["image_url"].initial = row.product_image_url
+            self.fields["image_url"].help_text = ("This row only linked to the picture. Save to download it once and "
+                                                  "store LinkedEye's own copy.")
+
+    def clean_vendor(self):
+        return self.cleaned_data["vendor"].strip()
+
+    def clean_model_key(self):
+        return self.cleaned_data["model_key"].strip()
+
+    def clean(self):
+        cleaned = super().clean()
+        v, dt, m = cleaned.get("vendor"), cleaned.get("device_type") or "", cleaned.get("model_key") or ""
+        if v:
+            dup = NetworkProductImage.objects.filter(tenant_key=settings.LINKEDEYE_TENANT, vendor__iexact=v, device_type=dt,
+                                                     model_key__iexact=m)
+            if self.instance.pk:
+                dup = dup.exclude(pk=self.instance.pk)
+            if dup.exists():
+                self.add_error("model_key", "The catalog already has a row for this vendor, type and model.")
+        has_image = bool(self.instance.image_id)
+        if not (has_image or cleaned.get("image_file") or (cleaned.get("image_url") or "").strip()):
+            self.add_error("image_file", "Add a photo: upload a file or fetch an address.")
+        return cleaned
+
+    def resolve_image(self, user):
+        """The new stored photo, or None to keep the current one; raises FieldImageError. Call after is_valid()."""
+        return image_from_sources(self.cleaned_data, user)

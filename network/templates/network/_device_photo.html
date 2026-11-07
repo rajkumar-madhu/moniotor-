@@ -1,21 +1,13 @@
-{% load le network_tags %}
-<div class="nw-photo{% if device.product_image_url %} has-img{% endif %}{% if compact_header %} nw-photo-compact{% endif %}">
-  <span class="nw-photo-lbl">{{ device.vendor|default:device.get_device_type_display }} {{ device.model }}</span>
-  {% if device.product_image_url %}
-  {% if compact_header %}
-  <p class="nw-photo-compact-ref">{% if device.product_page_url %}<a href="{{ device.product_page_url }}" target="_blank" rel="noopener noreferrer">{% icon "search" 14 %} Product datasheet</a>{% else %}<a href="{{ device.product_image_url }}" target="_blank" rel="noopener noreferrer">{% icon "search" 14 %} Full-size photo</a>{% endif %} <span class="t-mute small">(thumbnail above)</span></p>
-  {% elif device.product_page_url %}
-  <a class="nw-photo-frame" href="{{ device.product_page_url }}" target="_blank" rel="noopener noreferrer" title="Open vendor product page">
-    <img src="{{ device.product_image_url }}" alt="{{ device.vendor }} {{ device.model }} product photo" loading="lazy" decoding="async">
-    <span class="nw-photo-zoom">{% icon "search" 16 %} Product page</span>
-  </a>
-  {% else %}
-  <a class="nw-photo-frame" href="{{ device.product_image_url }}" target="_blank" rel="noopener noreferrer" title="Open full image">
-    <img src="{{ device.product_image_url }}" alt="{{ device.vendor }} {{ device.model }} product photo" loading="lazy" decoding="async">
-    <span class="nw-photo-zoom">{% icon "search" 16 %} Expand</span>
-  </a>
-  {% endif %}
-  {% else %}
-  <span class="nw-appliance" aria-hidden="true">{% icon device.type_icon 24 %}<i></i><i></i><i></i><i></i><i></i><i></i></span>
-  {% endif %}
+{% load le network_tags %}{% comment %}
+  The photo block of the Device Information panel. The photo itself is shown in the header card, so here: the label and
+  where it came from (stored copy, linked picture or illustration) and the vendor link.
+{% endcomment %}
+<div class="nw-photo nw-photo-compact">
+  <span class="nw-photo-lbl">{{ device.photo_label }}</span>
+  <p class="nw-photo-compact-ref">
+    {% if device.image_id %}{% icon "image" 14 %} Stored photo ({{ device.image.get_source_display|lower }}, {{ device.image.width }}×{{ device.image.height }}).
+    {% elif device.product_image_url %}{% icon "image" 14 %} Linked picture. <span class="t-mute small">The browser loads it from the vendor’s site; edit the device to store a copy.</span>
+    {% else %}{% icon "image" 14 %} No photo: showing a {{ device|art_label|lower }} illustration.{% endif %}
+    {% if device.product_page_url %}<a href="{{ device.product_page_url }}" target="_blank" rel="noopener noreferrer">{% icon "search" 14 %} Product datasheet</a>{% endif %}
+  </p>
 </div>

@@ -4,7 +4,7 @@ from datetime import timedelta
 from urllib.parse import urlencode
 
 from django.conf import settings
-from django.db.models import Avg, Count, Q
+from django.db.models import Avg, Count, Max, Q, Sum
 from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
@@ -19,7 +19,8 @@ def tenant():
 
 
 def devices_for(user, request=None):
-    qs = Device.objects.filter(tenant_key=tenant())
+    # the photo row is joined without its bytes so cards can link to it without loading a blob per device
+    qs = Device.objects.filter(tenant_key=tenant()).select_related("image").defer("image__data")
     qs = scope_by_site(qs, user)
     if request is not None:
         from core.client_scope import active_client
@@ -71,6 +72,16 @@ def interface_counts(device_ids):
     rows = (Interface.objects.filter(device_id__in=list(device_ids)).order_by().values("device_id")
             .annotate(total=Count("id"), up=Count("id", filter=Q(oper_status="up"))))
     return {r["device_id"]: (r["up"], r["total"]) for r in rows}
+
+
+def traffic_totals(device_ids):
+    """{device_id: {"in", "out", "at"}}: the sum of the physical ports' stored inbound / outbound Mbps and when the
+    newest rate was stored. Logical interfaces (LAG, VLAN, loopback ...) are left out so traffic is not counted twice.
+    A rate is None, never 0, when no port reported one."""
+    rows = (Interface.objects.filter(device_id__in=list(device_ids)).exclude(if_type__in=Interface.LOGICAL_TYPES)
+            .order_by().values("device_id")
+            .annotate(i=Sum("in_mbps"), o=Sum("out_mbps"), at=Max("updated_at")))
+    return {r["device_id"]: {"in": r["i"], "out": r["o"], "at": r["at"]} for r in rows}
 
 
 def _sum_or_none(values):
