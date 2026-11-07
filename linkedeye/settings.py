@@ -48,6 +48,9 @@ INSTALLED_APPS = [
     "administration",
     "reports",
     "agent",
+    "ipam",
+    "dcim",
+    "compute",
 ]
 
 MIDDLEWARE = [

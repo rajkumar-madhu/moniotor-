@@ -1,0 +1,1 @@
+{% load dcim_tags %}<span class="dc-bar{% if wide %} wide{% endif %}" role="img" aria-label="{{ label }}: {% if pct is None %}no data{% else %}{{ pct|pct0 }}{% endif %}"><i class="fill-{{ pct|load_tone }}" style="width:{{ pct|pctw }}%"></i></span>

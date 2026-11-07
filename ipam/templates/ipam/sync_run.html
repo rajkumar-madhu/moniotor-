@@ -1,0 +1,42 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}IPAM sync {{ run.ran_at|short_dt }}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'ipam/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "ipam/_crumbs.html" with section="Sync from devices" leaf=run.ran_at|short_dt %}{% endblock %}
+{% block content %}
+<div class="pg-ipam">
+<div class="head">
+  <div class="glyph bg-info">{% icon "refresh" 30 %}</div>
+  <div><h1>Sync from devices</h1><p>{{ run.get_trigger_display }} run by {{ run.actor_name|default:"system" }} · {{ run.ran_at|date:"d M Y H:i:s" }} ({{ run.ran_at|ago }}){% if scoped %} · limited to {{ run.sites|join:", " }}{% endif %}</p></div>
+  <div class="actions">
+    <a class="btn" href="{% url 'ipam:conflicts' %}">{% icon "alert" 17 %}Conflicts</a>
+    {% if can_operate %}<form method="post" action="{% url 'ipam:sync' %}">{% csrf_token %}<button class="btn primary" type="submit">{% icon "refresh" 17 %}Sync again</button></form>{% endif %}
+  </div>
+</div>
+{% include "ipam/_tabs.html" with tab="" %}
+<section class="kpis" aria-label="Result">
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-ok">{% icon "plus" 22 %}</div><div class="kpi-body"><div class="label">Created</div><div class="value">{{ run.created }}</div></div></div><div class="sub">New address records</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "edit" 22 %}</div><div class="kpi-body"><div class="label">Updated</div><div class="value">{{ run.updated }}</div></div></div><div class="sub">Device link, hostname or last seen</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-mute">{% icon "check" 22 %}</div><div class="kpi-body"><div class="label">Unchanged</div><div class="value">{{ run.unchanged }}</div></div></div><div class="sub">Already up to date</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-warn">{% icon "x" 22 %}</div><div class="kpi-body"><div class="label">Skipped</div><div class="value">{{ run.skipped }}</div></div></div><div class="sub">Outside subnets, taken or not permitted</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile {% if run.conflicts %}s-crit{% else %}s-ok{% endif %}">{% icon "alert" 22 %}</div><div class="kpi-body"><div class="label">Conflicts</div><div class="value">{{ run.conflicts }}</div></div></div><div class="sub">{{ run.new_conflicts }} new since the previous run</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-purple">{% icon "server" 22 %}</div><div class="kpi-body"><div class="label">Not an IP</div><div class="value">{{ not_ip }}</div></div></div><div class="sub">Devices managed by host name</div></div>
+</section>
+<section class="grid g-2">
+{% for key, label, tone, items in sections %}
+  <div class="panel"><div class="panel-h"><h2>{{ label }} ({{ items|length }})</h2></div>
+    {% if items %}
+    <div class="table-wrap dense"><table>
+      <thead><tr><th>Address</th><th>From</th><th>Site</th>{% if key == "updated" %}<th>Changed</th>{% elif key == "duplicate" %}<th>Held by</th>{% endif %}</tr></thead>
+      <tbody>{% for i in items %}<tr>
+        <td class="mono">{% if i.pk %}<a href="{% url 'ipam:address_detail' i.pk %}">{{ i.address }}</a>{% else %}{{ i.address }}{% endif %}</td>
+        <td class="trunc" title="{{ i.origin }}">{{ i.origin }}</td>
+        <td>{{ i.site|default:"All Sites" }}</td>
+        {% if key == "updated" %}<td class="small">{{ i.fields|join:", " }}</td>{% elif key == "duplicate" %}<td>{{ i.holder|default:"–" }}</td>{% endif %}
+      </tr>{% endfor %}</tbody></table></div>
+    {% else %}<p class="ip-note">None.</p>{% endif %}
+  </div>
+{% endfor %}
+</section>
+<p class="ip-note">Only management IPs and discovered addresses that fall inside a known subnet are recorded; add the missing subnets and sync again to place the rest. Lists show at most 500 items per section.</p>
+</div>
+{% endblock %}

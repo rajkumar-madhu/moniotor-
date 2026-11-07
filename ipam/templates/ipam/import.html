@@ -1,0 +1,42 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}Import addresses{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'ipam/page.css' %}">{% endblock %}
+{% block crumbs %}{% url 'ipam:addresses' as list_url %}{% include "ipam/_crumbs.html" with section="IP Addresses" section_url=list_url leaf="Import CSV" %}{% endblock %}
+{% block content %}
+<div class="pg-ipam">
+<div class="head">
+  <div class="glyph bg-info">{% icon "upload" 30 %}</div>
+  <div><h1>Import addresses</h1><p>Upload a CSV file; every row is checked first and nothing is imported unless the whole file is valid.</p></div>
+  <div class="actions"><a class="btn" href="{% url 'ipam:addresses_export' %}">{% icon "download" 17 %}Export current addresses</a></div>
+</div>
+{% include "ipam/_tabs.html" with tab="addresses" %}
+<section class="grid g-main">
+  <form method="post" enctype="multipart/form-data" class="panel ip-form" novalidate>{% csrf_token %}
+    <div class="panel-h"><h2>CSV file</h2></div>
+    {% if result and result.errors %}
+    <div class="ip-alert crit" style="margin-bottom:12px">{% icon "x-circle" 16 %}<div><b>Nothing was imported.</b> Fix these rows and upload the file again{% if result.errors|length >= 50 %} (first 50 problems shown){% endif %}:
+      <ul class="import-errors">{% for line, msg in result.errors %}<li>{% if line %}Line {{ line }}: {% endif %}{{ msg }}</li>{% endfor %}</ul></div></div>
+    {% endif %}
+    {% for e in form.non_field_errors %}<p class="err">{{ e }}</p>{% endfor %}
+    <div class="form-grid">
+      <div class="field full"><label for="{{ form.file.id_for_label }}">{{ form.file.label }} <span class="req">*</span></label>{{ form.file }}<span class="hint">{{ form.file.help_text }}</span>{% for e in form.file.errors %}<span class="err">{{ e }}</span>{% endfor %}</div>
+      <div class="field full"><label class="inline-check">{{ form.update_existing }} {{ form.update_existing.label }}</label><span class="hint">Without this, an address that already exists is reported as an error. Empty cells never overwrite existing values.</span></div>
+    </div>
+    <div class="ip-form-foot"><a class="btn" href="{% url 'ipam:addresses' %}">Cancel</a><button class="btn primary" type="submit">{% icon "upload" 15 %}Validate &amp; import</button></div>
+  </form>
+  <div class="panel"><div class="panel-h"><h2>Format</h2></div>
+    <p class="small" style="margin-top:0">The first row names the columns. Only <code>address</code> is required.</p>
+    <pre class="sample">address,vrf,status,hostname,description,device,ci
+10.20.1.15,,active,app01.corp.example.com,App server,,app01
+10.20.1.16,,reserved,,Spare for app02,,
+2001:db8:20:1::15,,active,app01.corp.example.com,,,</pre>
+    <dl class="kv" style="margin-top:12px">
+      <dt><code>vrf</code></dt><dd>Empty = global table. The address must be inside a subnet of that VRF.</dd>
+      <dt><code>status</code></dt><dd>{{ statuses|join:", " }} (default active)</dd>
+      <dt><code>device</code></dt><dd>Exact name of a network device you can see</dd>
+      <dt><code>ci</code></dt><dd>Exact name of a configuration item you can see</dd>
+    </dl>
+  </div>
+</section>
+</div>
+{% endblock %}

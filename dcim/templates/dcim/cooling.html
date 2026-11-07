@@ -1,0 +1,69 @@
+{% extends "core/base.html" %}{% load le dcim_tags static %}
+{% block title %}Cooling{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'dcim/page.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'dcim:overview' %}">Data Centre</a>{% icon "chevron-right" 14 %}<span>Cooling</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-dcim">
+<div class="head">
+  <div class="glyph">{% icon "sun" 30 %}</div>
+  <div><h1>Cooling</h1><p>Cooling units per room, supply and return temperatures, and capacity against the IT load estimated from power</p></div>
+  <div class="actions">
+    {% if can_operate and prom_configured and query_count %}<form method="post" action="{% url 'dcim:readings_run' %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn" type="submit">{% icon "refresh" 17 %}Read now</button></form>{% endif %}
+    {% if can_add_unit %}<a class="btn primary" href="{% url 'dcim:cooling_create' %}">{% icon "plus" 17 %}Add cooling unit</a>{% endif %}
+  </div>
+</div>
+{% include "dcim/_tabs.html" %}
+{% include "dcim/_prom.html" with noun="unit(s)" noun_one="cooling unit" %}
+
+<section class="kpis dc-kpis" aria-label="Cooling summary">
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "sun" 22 %}</div><div class="kpi-body"><div class="label">Active cooling</div><div class="value">{{ capacity_kw|kw }}</div></div></div><div class="sub">{{ active_count }} of {{ unit_count }} unit{{ unit_count|pluralize }} active</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-purple">{% icon "zap" 22 %}</div><div class="kpi-body"><div class="label">IT load</div><div class="value">{{ load_kw|kw }}</div></div></div><div class="sub">From rack power</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-{% if negative %}{% if headroom_kw < 0 %}crit{% else %}warn{% endif %}{% else %}{{ headroom_kw|headroom_tone }}{% endif %}">{% icon "activity" 22 %}</div><div class="kpi-body"><div class="label">Headroom</div><div class="value {% if headroom_kw is not None and headroom_kw < 0 %}t-crit{% endif %}">{{ headroom_kw|kw }}</div></div></div><div class="sub">{% if negative %}{{ negative|length }} room{{ negative|length|pluralize }} short of cooling{% elif headroom_kw is not None %}Rooms with active cooling{% else %}No active cooling units{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "gauge" 22 %}</div><div class="kpi-body"><div class="label">Avg. supply</div><div class="value">{{ avg_supply|temp }}</div></div></div><div class="sub">Active units with a reading</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-mute">{% icon "bar" 22 %}</div><div class="kpi-body"><div class="label">Avg. ΔT</div><div class="value">{% if avg_delta is None %}–{% else %}{{ avg_delta|num }} K{% endif %}</div></div></div><div class="sub">Return minus supply</div></div>
+</section>
+
+{% if negative or uncooled %}
+<div class="dc-alert warn" role="status">{% icon "alert" 16 %}<span>
+  {% if negative %}<b>IT load exceeds active cooling in {% for r in negative %}{{ r.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.</b>{% endif %}
+  {% if uncooled %}{% if negative %} {% endif %}{% for r in uncooled %}{{ r.name }}{% if not forloop.last %}, {% endif %}{% endfor %} {{ uncooled|length|pluralize:"has,have" }} IT load but no active cooling unit recorded.{% endif %}</span></div>
+{% endif %}
+
+<section class="grid g-2 dc-cool-grid">
+{% for room in rooms %}
+  <div class="panel dc-cool-room" aria-labelledby="cool-h-{{ room.pk }}">
+    <div class="panel-h">
+      <div class="dc-room-title"><h2 id="cool-h-{{ room.pk }}">{{ room.name }}</h2><span class="chip">{{ room.site }}</span></div>
+      <div class="right">{% if room.can_manage %}<a class="btn sm" href="{% url 'dcim:cooling_create' %}?room={{ room.pk }}">{% icon "plus" 14 %}Unit</a>{% endif %}</div>
+    </div>
+    <div class="dc-room-stats one">
+      <div><span class="k">Load</span>{% include "dcim/_bar.html" with pct=room.cooling_pct label="Cooling capacity used" wide=1 %}
+        <span class="v">{% if room.cooling_capacity_kw is not None %}{{ room.load_kw|kw }} of {{ room.cooling_capacity_kw|kw }} · <b class="t-{{ room.headroom_kw|headroom_tone }}">{{ room.headroom_kw|kw }} headroom</b>{% elif room.load_kw %}{{ room.load_kw|kw }} IT load · <b class="t-warn">no active cooling</b>{% else %}no IT load or active cooling recorded{% endif %}{% if room.standby_kw %} · {{ room.standby_kw|kw }} standby{% endif %}{% if room.estimated %} · load partly estimated{% endif %}</span></div>
+    </div>
+    {% if room.unit_list %}
+    <div class="table-wrap dense borderless"><table>
+      <thead><tr><th>Unit</th><th>Status</th><th class="num">Capacity</th><th class="num">Supply</th><th class="num">Return</th><th class="num">ΔT</th><th><span class="sr">Actions</span></th></tr></thead>
+      <tbody>{% for u in room.unit_list %}
+        <tr><td>{{ u.name }} <span class="t-mute small">{{ u.get_kind_display }}</span>{% if u.last_error %}<div class="t-crit small dc-notes" title="{{ u.last_error }}">{{ u.last_error }}</div>{% endif %}</td>
+          <td>{% if u.status == "active" %}{% badge "active" "Active" %}{% elif u.status == "standby" %}{% badge "info" "Standby" %}{% else %}{% badge "inactive" "Offline" %}{% endif %}</td>
+          <td class="num">{{ u.capacity_kw|kw }}</td>
+          <td class="num">{{ u.supply_c|temp }}{% if u.supply_live %}<span class="t-ok"> live</span>{% endif %}</td>
+          <td class="num">{{ u.return_c|temp }}{% if u.return_live %}<span class="t-ok"> live</span>{% endif %}</td>
+          <td class="num">{% if u.delta_t is None %}–{% else %}{{ u.delta_t|num }} K{% endif %}</td>
+          <td>{% if room.can_manage %}<a class="btn icon blue" href="{% url 'dcim:cooling_edit' u.pk %}" title="Edit" aria-label="Edit {{ u.name }}">{% icon "edit" 15 %}</a>{% endif %}</td></tr>
+      {% endfor %}</tbody></table></div>
+    {% else %}
+    <div class="dc-empty">{% icon "sun" 24 %}<p>No cooling units recorded for this room.{% if room.can_manage %} <a href="{% url 'dcim:cooling_create' %}?room={{ room.pk }}">Add one</a>.{% endif %}</p></div>
+    {% endif %}
+  </div>
+{% empty %}
+  <div class="panel dc-empty-hero dc-span">
+    {% icon "sun" 34 %}
+    <h2>No rooms{% if site %} at {{ site }}{% endif %} yet</h2>
+    <p>Cooling units (CRAC, CRAH, in-row or liquid) belong to rooms. Add a room under Rooms &amp; Racks, then its cooling units here; the IT load comes from the racks' power.</p>
+    <div class="actions"><a class="btn" href="{% url 'dcim:racks' %}">Rooms &amp; Racks</a></div>
+  </div>
+{% endfor %}
+</section>
+</div>
+{% endblock %}

@@ -1,0 +1,16 @@
+{% load le %}{% if not prom_configured %}
+  {% if query_count %}
+  <div class="dc-alert warn" role="status">{% icon "alert" 16 %}<span><b>{{ query_count }} {{ noun }} {{ query_count|pluralize:"has,have" }} a Prometheus query, but Prometheus is not connected.</b> Set <code>LINKEDEYE_PROMETHEUS_URL</code> to read live values; until then the manual values are shown.</span></div>
+  {% else %}
+  <div class="dc-alert" role="status">{% icon "info" 16 %}<span><b>Live readings are off.</b> Values below are entered by hand. To read them from Prometheus every 5 minutes, set <code>LINKEDEYE_PROMETHEUS_URL</code> and add a query to a {{ noun_one }}.</span></div>
+  {% endif %}
+{% else %}
+  {% if errors %}
+  <div class="dc-alert crit" role="status">{% icon "alert" 16 %}<span><b>{{ errors|length }} Prometheus quer{{ errors|length|pluralize:"y,ies" }} failed on the last read:</b>
+    {% for e in errors|slice:":3" %}{{ e.name }} – {{ e.last_error }}{% if not forloop.last %}; {% endif %}{% endfor %}{% if errors|length > 3 %} …{% endif %}</span></div>
+  {% elif query_count %}
+  <div class="dc-alert ok" role="status">{% icon "check-circle" 16 %}<span>Prometheus is connected. {{ query_count }} {{ noun }} read live every 5 minutes{% if last_read %}; last read {{ last_read|ago }}{% endif %}.</span></div>
+  {% else %}
+  <div class="dc-alert" role="status">{% icon "info" 16 %}<span>Prometheus is connected, but no {{ noun_one }} has a query yet. Add a PromQL query to a {{ noun_one }} to read it live.</span></div>
+  {% endif %}
+{% endif %}

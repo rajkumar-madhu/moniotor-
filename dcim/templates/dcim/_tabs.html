@@ -1,0 +1,6 @@
+<nav class="tabs dc-tabs" aria-label="Data centre sections">
+  <a href="{% url 'dcim:overview' %}{% if site %}?site={{ site|urlencode }}{% endif %}"{% if section == 'overview' %} class="on" aria-current="page"{% endif %}>Overview</a>
+  <a href="{% url 'dcim:racks' %}{% if site %}?site={{ site|urlencode }}{% endif %}"{% if section == 'racks' %} class="on" aria-current="page"{% endif %}>Rooms &amp; Racks</a>
+  <a href="{% url 'dcim:power' %}{% if site %}?site={{ site|urlencode }}{% endif %}"{% if section == 'power' %} class="on" aria-current="page"{% endif %}>Power</a>
+  <a href="{% url 'dcim:cooling' %}{% if site %}?site={{ site|urlencode }}{% endif %}"{% if section == 'cooling' %} class="on" aria-current="page"{% endif %}>Cooling</a>
+</nav>

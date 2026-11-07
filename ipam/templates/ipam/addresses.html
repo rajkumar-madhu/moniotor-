@@ -1,0 +1,67 @@
+{% extends "core/base.html" %}{% load le static ipam_tags %}
+{% block title %}IP Addresses{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'ipam/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "ipam/_crumbs.html" with section="IP Addresses" %}{% endblock %}
+{% block content %}
+<div class="pg-ipam">
+<div class="head">
+  <div class="glyph bg-info">{% icon "tag" 30 %}</div>
+  <div><h1>IP Addresses</h1><p>Recorded IPv4 and IPv6 addresses, linked to network devices and configuration items{% if site_filter %} · {{ site_filter }}{% endif %}</p></div>
+  <div class="actions">
+    <a class="btn" href="{% url 'ipam:addresses_export' %}?{{ query.urlencode }}">{% icon "download" 17 %}Export CSV</a>
+    {% if can_operate %}<a class="btn" href="{% url 'ipam:addresses_import' %}">{% icon "upload" 17 %}Import CSV</a>
+    <a class="btn primary" href="{% url 'ipam:address_create' %}">{% icon "plus" 17 %}Add address</a>{% endif %}
+  </div>
+</div>
+{% include "ipam/_tabs.html" with tab="addresses" %}
+
+<section class="kpis ip-kpis-4" aria-label="By status">
+  {% for v, l in statuses %}
+  <a class="kpi stacked kpi-link" href="?status={{ v }}{% if site_filter %}&amp;site={{ site_filter|urlencode }}{% endif %}"><div class="kpi-top"><div class="tile {% if v == 'active' %}s-ok{% elif v == 'reserved' %}s-purple{% elif v == 'dhcp' %}s-info{% else %}s-warn{% endif %}">{% if v == 'active' %}{% icon "check" 22 %}{% elif v == 'reserved' %}{% icon "lock" 22 %}{% elif v == 'dhcp' %}{% icon "refresh" 22 %}{% else %}{% icon "clock" 22 %}{% endif %}</div><div class="kpi-body"><div class="label">{{ l }}</div><div class="value">{{ counts|get:v }}</div></div></div><div class="sub">of {{ total }} recorded</div></a>
+  {% endfor %}
+</section>
+
+<div class="panel">
+  <div class="panel-h"><h2>{% if subnet %}Addresses in {{ subnet }}{% elif request.GET.within %}Addresses in {{ request.GET.within }}{% else %}Addresses{% endif %} ({{ page.paginator.count }})</h2>
+    <div class="right">{% if can_operate %}<form method="post" action="{% url 'ipam:sync' %}">{% csrf_token %}<button class="btn sm" type="submit">{% icon "refresh" 15 %}Sync from devices</button></form>{% endif %}
+      <a class="btn sm ghost-primary" href="{% url 'ipam:addresses_export' %}?{{ query.urlencode }}">{% icon "download" 15 %}CSV</a></div></div>
+  <form class="toolbar compact" method="get">
+    {% if request.GET.per %}<input type="hidden" name="per" value="{{ request.GET.per }}">{% endif %}
+    {% if request.GET.subnet %}<input type="hidden" name="subnet" value="{{ request.GET.subnet }}">{% endif %}
+    {% if request.GET.within %}<input type="hidden" name="within" value="{{ request.GET.within }}">{% endif %}
+    {% if site_filter %}<input type="hidden" name="site" value="{{ site_filter }}">{% endif %}
+    <label class="search">{% icon "search" 16 %}<input type="search" name="q" value="{{ request.GET.q }}" placeholder="Address, hostname or description…" aria-label="Search addresses"></label>
+    <select name="status" data-autosubmit aria-label="Status"><option value="">All statuses</option>{% for v, l in statuses %}<option value="{{ v }}"{% if request.GET.status == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <select name="linked" data-autosubmit aria-label="Linked to"><option value="">Any link</option><option value="device"{% if request.GET.linked == 'device' %} selected{% endif %}>Linked to a device</option><option value="ci"{% if request.GET.linked == 'ci' %} selected{% endif %}>Linked to a CI</option><option value="none"{% if request.GET.linked == 'none' %} selected{% endif %}>Not linked</option></select>
+    <select name="source" data-autosubmit aria-label="Source"><option value="">Any source</option>{% for v, l in sources %}<option value="{{ v }}"{% if request.GET.source == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    {% if vrfs %}<select name="vrf" data-autosubmit aria-label="VRF"><option value="">All VRFs</option><option value="{{ global_vrf }}"{% if request.GET.vrf == global_vrf %} selected{% endif %}>Global table</option>{% for v in vrfs %}<option value="{{ v }}"{% if request.GET.vrf == v %} selected{% endif %}>{{ v }}</option>{% endfor %}</select>{% endif %}
+    <a class="btn icon blue" href="{% url 'ipam:addresses' %}" title="Clear filters" aria-label="Clear filters">{% icon "refresh" 16 %}</a>
+  </form>
+  <div class="table-wrap dense"><table>
+    <thead><tr><th>Address</th><th>Status</th><th>Hostname</th><th>Subnet</th><th>Site</th><th>Device</th><th>CI</th><th>Source</th><th>Last seen</th><th>Actions</th></tr></thead>
+    <tbody>
+    {% for a in page %}
+      <tr>
+        <td class="mono"><a href="{% url 'ipam:address_detail' a.pk %}">{{ a.address }}</a>{% if a.vrf %} <span class="chip purple" title="VRF">{{ a.vrf }}</span>{% endif %}{% if a.is_example %} <span class="chip mute">example</span>{% endif %}</td>
+        <td><span class="chip {{ a.status|stone }}">{{ a.get_status_display }}</span></td>
+        <td class="trunc" title="{{ a.hostname }}{% if a.description %} – {{ a.description }}{% endif %}">{{ a.hostname|default:"–" }}</td>
+        <td class="mono">{% if a.subnet %}<a href="{% url 'ipam:subnet_detail' a.subnet_id %}">{{ a.subnet.cidr }}</a>{% else %}<span class="t-crit" title="Its subnet was deleted">none</span>{% endif %}</td>
+        <td>{{ a.site|default:"All Sites" }}</td>
+        <td class="trunc">{% if a.device %}<a href="{{ a.device.get_absolute_url }}" title="{{ a.device.name }}">{{ a.device.name }}</a>{% else %}<span class="t-mute">–</span>{% endif %}</td>
+        <td class="trunc">{% if a.ci %}<a href="{{ a.ci.get_absolute_url }}" title="{{ a.ci.name }}">{{ a.ci.name }}</a>{% else %}<span class="t-mute">–</span>{% endif %}</td>
+        <td class="small">{{ a.get_source_display }}</td>
+        <td title="{{ a.last_seen|default_if_none:'' }}">{{ a.last_seen|ago }}</td>
+        <td><div class="row-actions">
+          {% if a.can_edit %}<a class="btn icon blue" href="{% url 'ipam:address_edit' a.pk %}" title="Edit" aria-label="Edit {{ a.address }}">{% icon "edit" 15 %}</a>{% endif %}
+          {% if a.can_delete %}<form method="post" action="{% url 'ipam:address_delete' a.pk %}" data-confirm="Delete {{ a.address }}?">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn icon red" type="submit" title="Delete" aria-label="Delete {{ a.address }}">{% icon "trash" 15 %}</button></form>{% endif %}
+          {% if not a.can_edit and not a.can_delete %}<a class="btn icon" href="{% url 'ipam:address_detail' a.pk %}" title="View" aria-label="View {{ a.address }}">{% icon "eye" 15 %}</a>{% endif %}
+        </div></td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="10" class="empty">{% if filtered %}No addresses match these filters.{% else %}No addresses recorded yet.{% if can_operate %} <a href="{% url 'ipam:address_create' %}">Add one</a>, <a href="{% url 'ipam:addresses_import' %}">import a CSV</a> or sync from devices.{% endif %}{% endif %}</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  {% include "core/_pager.html" with pager_noun="addresses" %}
+</div>
+</div>
+{% endblock %}

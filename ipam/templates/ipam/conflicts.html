@@ -1,0 +1,39 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}IPAM Conflicts{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'ipam/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "ipam/_crumbs.html" with section="Conflicts" %}{% endblock %}
+{% block content %}
+<div class="pg-ipam">
+<div class="head">
+  <div class="glyph bg-warn">{% icon "alert" 30 %}</div>
+  <div><h1>Conflicts</h1><p>Duplicate device addresses, device addresses outside every subnet, DNS records pointing at free addresses and addresses that lost their subnet</p></div>
+  <div class="actions">
+    <a class="btn" href="{% url 'ipam:conflicts_export' %}?{{ query.urlencode }}">{% icon "download" 17 %}Export CSV</a>
+    {% if can_operate %}<form method="post" action="{% url 'ipam:sync' %}">{% csrf_token %}<button class="btn primary" type="submit">{% icon "refresh" 17 %}Sync from devices</button></form>{% endif %}
+  </div>
+</div>
+{% include "ipam/_tabs.html" with tab="conflicts" %}
+<div class="panel">
+  <div class="panel-h"><h2>{% if total %}{{ total }} conflict{{ total|pluralize }}{% else %}No conflicts{% endif %}</h2></div>
+  <nav class="seg" aria-label="Filter by kind">
+    <a href="?{{ query_nokind.urlencode }}" class="{% if not kind %}on{% endif %}">All <b>{{ total }}</b></a>
+    {% for k, label, n in counts %}<a href="?{% if query_nokind.urlencode %}{{ query_nokind.urlencode }}&amp;{% endif %}kind={{ k }}" class="{% if kind == k %}on{% endif %}">{{ label }} <b>{{ n }}</b></a>{% endfor %}
+  </nav>
+  {% if page.paginator.count %}
+  <div class="table-wrap dense"><table>
+    <thead><tr><th>Kind</th><th>Address</th><th>Problem</th><th>Site</th><th>Open</th></tr></thead>
+    <tbody>{% for c in page %}<tr>
+      <td><span class="chip {% if c.kind == 'duplicate' %}crit{% elif c.kind == 'orphan' %}mute{% else %}warn{% endif %}">{{ c.label }}</span></td>
+      <td class="mono">{{ c.address }}</td>
+      <td style="min-width:240px"><b>{{ c.title }}</b><br><span class="small t-mute">{{ c.detail }}</span></td>
+      <td>{{ c.site|default:"All Sites" }}</td>
+      <td class="links small">{% for label, url in c.links %}<a href="{{ url }}">{{ label }}</a>{% endfor %}</td>
+    </tr>{% endfor %}</tbody></table></div>
+  {% include "core/_pager.html" with pager_noun="conflicts" %}
+  {% else %}
+  <div class="ip-alert ok">{% icon "check-circle" 16 %}<span>{% if kind %}No conflicts of this kind.{% else %}Nothing to fix: device management addresses are unique and inside known subnets, and every A/AAAA record points at a recorded address.{% endif %}</span></div>
+  {% endif %}
+  <p class="ip-note">Device addresses come from Network › Devices (management IP); hostnames there are not resolved. Conflicts are recomputed on every page load; the hourly <code>ipam.sync</code> job raises a warning event when new ones appear.</p>
+</div>
+</div>
+{% endblock %}

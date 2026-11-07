@@ -1,0 +1,63 @@
+{% extends "core/base.html" %}{% load le static ipam_tags %}
+{% block title %}Subnets{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'ipam/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "ipam/_crumbs.html" with section="Subnets" %}{% endblock %}
+{% block content %}
+<div class="pg-ipam">
+<div class="head">
+  <div class="glyph bg-info">{% icon "layers" 30 %}</div>
+  <div><h1>Subnets</h1><p>IPv4 and IPv6 networks per VRF, with utilisation from recorded addresses{% if site_filter %} · {{ site_filter }}{% endif %}</p></div>
+  <div class="actions">
+    <a class="btn" href="{% url 'ipam:subnets_export' %}?{{ query.urlencode }}">{% icon "download" 17 %}Export CSV</a>
+    {% if can_operate %}<a class="btn primary" href="{% url 'ipam:subnet_create' %}{% if vlan %}?vlan={{ vlan.pk }}{% endif %}">{% icon "plus" 17 %}Add subnet</a>{% endif %}
+  </div>
+</div>
+{% include "ipam/_tabs.html" with tab="subnets" %}
+
+<section class="kpis ip-kpis-4" aria-label="Summary">
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "layers" 22 %}</div><div class="kpi-body"><div class="label">Subnets</div><div class="value">{{ total }}</div></div></div><div class="sub">{% if containers %}{{ containers }} container{{ containers|pluralize }} (supernets){% else %}No containers{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-ok">{% icon "tag" 22 %}</div><div class="kpi-body"><div class="label">IPv4 Used</div><div class="value">{{ used_v4|count }} <small>/ {{ usable_v4|count }}</small></div></div></div>{% if pct_v4 is not None %}<div class="bar"><i class="fill-{{ pct_v4|tone }}" style="width:{{ pct_v4|bar }}%"></i></div>{% endif %}<div class="sub">{% if pct_v4 is not None %}{{ pct_v4|util }} of usable addresses{% else %}No IPv4 leaf subnets{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile {% if full %}s-crit{% else %}s-ok{% endif %}">{% icon "gauge" 22 %}</div><div class="kpi-body"><div class="label">≥ 90% Full</div><div class="value">{{ full }}</div></div></div><div class="sub">IPv4 leaf subnets</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-purple">{% icon "share" 22 %}</div><div class="kpi-body"><div class="label">VRFs</div><div class="value">{{ vrfs|length }}</div></div></div><div class="sub">Plus the global table</div></div>
+</section>
+
+<div class="panel">
+  <div class="panel-h"><h2>{% if vlan %}Subnets in {{ vlan }}{% else %}Subnets{% endif %} ({{ page.paginator.count }})</h2>
+    <div class="right"><a class="btn sm ghost-primary" href="{% url 'ipam:subnets_export' %}?{{ query.urlencode }}">{% icon "download" 15 %}CSV</a></div></div>
+  <form class="toolbar compact" method="get">
+    {% if request.GET.per %}<input type="hidden" name="per" value="{{ request.GET.per }}">{% endif %}
+    {% if request.GET.vlan %}<input type="hidden" name="vlan" value="{{ request.GET.vlan }}">{% endif %}
+    {% if site_filter %}<input type="hidden" name="site" value="{{ site_filter }}">{% endif %}
+    <label class="search">{% icon "search" 16 %}<input type="search" name="q" value="{{ request.GET.q }}" placeholder="CIDR, address, VRF or description…" aria-label="Search subnets"></label>
+    <select name="version" data-autosubmit aria-label="IP version"><option value="">IPv4 &amp; IPv6</option><option value="4"{% if request.GET.version == '4' %} selected{% endif %}>IPv4</option><option value="6"{% if request.GET.version == '6' %} selected{% endif %}>IPv6</option></select>
+    <select name="role" data-autosubmit aria-label="Purpose"><option value="">All purposes</option><option value="none"{% if request.GET.role == 'none' %} selected{% endif %}>No purpose set</option>{% for v, l in roles %}<option value="{{ v }}"{% if request.GET.role == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    {% if vrfs %}<select name="vrf" data-autosubmit aria-label="VRF"><option value="">All VRFs</option><option value="{{ global_vrf }}"{% if request.GET.vrf == global_vrf %} selected{% endif %}>Global table</option>{% for v in vrfs %}<option value="{{ v }}"{% if request.GET.vrf == v %} selected{% endif %}>{{ v }}</option>{% endfor %}</select>{% endif %}
+    <a class="btn icon blue" href="{% url 'ipam:subnets' %}" title="Clear filters" aria-label="Clear filters">{% icon "refresh" 16 %}</a>
+  </form>
+  <div class="table-wrap dense"><table>
+    <thead><tr><th>Subnet</th><th>Description</th><th>Purpose</th><th>Site</th><th>VLAN</th><th>Gateway</th><th>Utilisation</th><th>Actions</th></tr></thead>
+    <tbody>
+    {% for s in items %}
+      <tr>
+        <td class="mono"><span class="indent" style="--d:{{ s.depth }}"></span>{% if s.depth %}<span class="branch">└</span>{% endif %}<a href="{% url 'ipam:subnet_detail' s.pk %}">{{ s.cidr }}</a>{% if s.vrf %} <span class="chip purple" title="VRF">{{ s.vrf }}</span>{% endif %}{% if s.is_example %} <span class="chip mute" title="Created by seed_ipam">example</span>{% endif %}</td>
+        <td class="trunc desc" title="{{ s.description }}">{{ s.description|default:"–" }}</td>
+        <td>{% if s.role %}<span class="chip{% if s.is_container %} teal{% endif %}">{{ s.get_role_display }}</span>{% else %}<span class="t-mute">–</span>{% endif %}</td>
+        <td>{{ s.site_label }}</td>
+        <td>{% if s.vlan %}<a href="{% url 'ipam:subnets' %}?vlan={{ s.vlan_id }}" title="{{ s.vlan.name }}">{{ s.vlan.vid }}</a>{% else %}<span class="t-mute">–</span>{% endif %}</td>
+        <td class="mono">{{ s.gateway|default:"–" }}</td>
+        <td><div class="ubar" title="{{ s.used|count }} of {{ s.usable|count }} usable addresses recorded"><span class="util"><i class="fill-{{ s.tone }}" style="width:{{ s.pct|bar }}%"></i></span><span><b class="t-{{ s.tone }}">{{ s.pct|util }}</b><small>{{ s.used|count }} / {{ s.usable|count }}</small></span></div></td>
+        <td><div class="row-actions">
+          {% if not s.can_edit and not s.can_delete %}<a class="btn icon" href="{% url 'ipam:subnet_detail' s.pk %}" title="View" aria-label="View {{ s.cidr }}">{% icon "eye" 15 %}</a>{% endif %}
+          {% if s.can_edit %}<a class="btn icon blue" href="{% url 'ipam:subnet_edit' s.pk %}" title="Edit" aria-label="Edit {{ s.cidr }}">{% icon "edit" 15 %}</a>{% endif %}
+          {% if s.can_delete %}<form method="post" action="{% url 'ipam:subnet_delete' s.pk %}" data-confirm="Delete subnet {{ s.cidr }}? Its addresses move to the parent subnet (or are left without a subnet).">{% csrf_token %}<button class="btn icon red" type="submit" title="Delete" aria-label="Delete {{ s.cidr }}">{% icon "trash" 15 %}</button></form>{% endif %}
+        </div></td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="8" class="empty">{% if filtered %}No subnets match these filters.{% else %}No subnets yet.{% if can_operate %} <a href="{% url 'ipam:subnet_create' %}">Add the first subnet</a>.{% endif %}{% endif %}</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  {% include "core/_pager.html" with pager_noun="subnets" %}
+  <p class="ip-note">Utilisation = recorded addresses ÷ usable addresses (sizes are computed, never enumerated). Subnets may only overlap when the larger one is a Container (supernet).</p>
+</div>
+</div>
+{% endblock %}

@@ -29,6 +29,26 @@ NAV = [
         {"label": "Virtual Machines", "url": "network:virtual_machines"}, {"label": "All Devices", "url": "network:all"},
         {"label": "Discovery", "url": "network:discovery"},
     ]},
+    {"label": "Compute", "icon": "cpu", "children": [
+        {"label": "Overview", "url": "compute:overview"},
+        {"label": "Servers", "url": "compute:servers"},
+        {"label": "Virtual Machines", "url": "compute:vms"},
+        {"label": "Clusters", "url": "compute:clusters"},
+        {"label": "Kubernetes", "url": "compute:kubernetes"},
+    ]},
+    {"label": "IPAM", "icon": "grid", "children": [
+        {"label": "Overview", "url": "ipam:overview"},
+        {"label": "Subnets", "url": "ipam:subnets"},
+        {"label": "IP Addresses", "url": "ipam:addresses"},
+        {"label": "VLANs", "url": "ipam:vlans"},
+        {"label": "DNS Zones", "url": "ipam:dns"},
+    ]},
+    {"label": "Data Centre", "icon": "server", "children": [
+        {"label": "Overview", "url": "dcim:overview"},
+        {"label": "Rooms & Racks", "url": "dcim:racks"},
+        {"label": "Power", "url": "dcim:power"},
+        {"label": "Cooling", "url": "dcim:cooling"},
+    ]},
     {"label": "Domains", "icon": "browser", "children": [
         {"label": "Overview", "url": "domains:overview"},
         {"label": "Domain List", "url": "domains:list"},

@@ -1,0 +1,86 @@
+{% extends "core/base.html" %}{% load le dcim_tags static %}
+{% block title %}Rooms & Racks{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'dcim/page.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'dcim:overview' %}">Data Centre</a>{% icon "chevron-right" 14 %}<span>Rooms &amp; Racks</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-dcim">
+<div class="head">
+  <div class="glyph">{% icon "grid" 30 %}</div>
+  <div><h1>Rooms &amp; Racks</h1><p>{{ room_count }} room{{ room_count|pluralize }} · {{ rack_count }} rack{{ rack_count|pluralize }}{% if site %} at {{ site }}{% endif %} — space and power per rack</p></div>
+  <div class="actions">
+    <a class="btn" href="{% url 'dcim:racks_export' %}?{{ query.urlencode }}">{% icon "download" 17 %}Export racks</a>
+    <a class="btn" href="{% url 'dcim:items_export' %}{% if site %}?site={{ site|urlencode }}{% endif %}">{% icon "download" 17 %}Export items</a>
+    {% if can_add_room %}<a class="btn" href="{% url 'dcim:room_create' %}{% if site %}?site={{ site|urlencode }}{% endif %}">{% icon "plus" 17 %}Add room</a>{% endif %}
+    {% if can_operate and room_count %}<a class="btn primary" href="{% url 'dcim:rack_create' %}">{% icon "plus" 17 %}Add rack</a>{% endif %}
+  </div>
+</div>
+{% include "dcim/_tabs.html" %}
+
+<form class="toolbar compact dc-toolbar" method="get">
+  {% if request.GET.per %}<input type="hidden" name="per" value="{{ request.GET.per }}">{% endif %}
+  <label class="search">{% icon "search" 16 %}<input type="search" name="q" value="{{ q }}" placeholder="Search rooms or racks…" aria-label="Search rooms or racks"></label>
+  <select name="site" data-autosubmit aria-label="Site"><option value="">All sites</option><option value="All Sites" {% if site == "All Sites" %}selected{% endif %}>Global (All Sites)</option>{% for s in sites %}<option {% if site == s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select>
+  <select name="status" data-autosubmit aria-label="Rack status"><option value="">Any status</option>{% for v, l in statuses %}<option value="{{ v }}" {% if status == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+  <button class="btn" type="submit">{% icon "filter" 15 %}Filter</button>
+  {% if q or site or status or room_filter %}<a class="btn icon" href="{% url 'dcim:racks' %}" title="Clear filters" aria-label="Clear filters">{% icon "x" 16 %}</a>{% endif %}
+</form>
+
+{% for room in rooms %}
+<section class="panel dc-room" id="room-{{ room.pk }}" aria-labelledby="room-h-{{ room.pk }}">
+  <div class="panel-h">
+    <div class="dc-room-title">
+      <h2 id="room-h-{{ room.pk }}">{{ room.name }}</h2>
+      <span class="chip">{{ room.site }}</span>{% if room.floor %}<span class="chip mute">Floor {{ room.floor }}</span>{% endif %}{% if room.is_example %}<span class="chip warn">example</span>{% endif %}
+    </div>
+    <div class="right">
+      {% if room.can_manage %}
+      <a class="btn sm" href="{% url 'dcim:rack_create' %}?room={{ room.pk }}">{% icon "plus" 14 %}Rack</a>
+      <a class="btn sm" href="{% url 'dcim:cooling_create' %}?room={{ room.pk }}">{% icon "plus" 14 %}Cooling unit</a>
+      <a class="btn icon" href="{% url 'dcim:room_edit' room.pk %}" title="Edit room" aria-label="Edit room {{ room.name }}">{% icon "edit" 15 %}</a>
+      {% endif %}
+    </div>
+  </div>
+  {% if room.description %}<p class="dc-desc">{{ room.description|linebreaksbr }}</p>{% endif %}
+  <div class="dc-room-stats">
+    <div><span class="k">Space</span>{% include "dcim/_bar.html" with pct=room.space_pct label="Room space used" wide=1 %}<span class="v">{% if room.u_total %}{{ room.u_used }} / {{ room.u_total }} U · {{ room.space_pct|pct0 }}{% else %}no racks in service{% endif %}</span></div>
+    <div><span class="k">Power</span>{% include "dcim/_bar.html" with pct=room.power_pct label="Room power used" wide=1 %}<span class="v">{% if room.power_budget_kw %}{{ room.load_kw|kw }} / {{ room.power_budget_kw|kw }} · {{ room.power_pct|pct0 }}{% elif room.load_kw is not None %}{{ room.load_kw|kw }} (no budgets set){% else %}no load recorded{% endif %}{% if room.estimated %} · partly est.{% endif %}</span></div>
+    <div><span class="k">Cooling</span>{% include "dcim/_bar.html" with pct=room.cooling_pct label="Room cooling used" wide=1 %}<span class="v {% if room.headroom_kw is not None and room.headroom_kw < 0 %}t-crit{% endif %}">{% if room.cooling_capacity_kw is not None %}{{ room.headroom_kw|kw }} headroom of {{ room.cooling_capacity_kw|kw }}{% else %}no active cooling units{% endif %}</span></div>
+  </div>
+  <div class="table-wrap dense"><table>
+    <thead><tr><th>Rack</th><th>Status</th><th class="num">Height</th><th>Space</th><th>Power</th><th class="num">Load</th><th class="num">Budget</th><th class="num">Items</th><th class="num">Feeds</th><th><span class="sr">Actions</span></th></tr></thead>
+    <tbody>{% for r in room.shown %}
+      <tr class="{% if r.status == 'decommissioned' %}off{% endif %}">
+        <td><a href="{% url 'dcim:rack_detail' r.pk %}">{{ r.name }}</a>{% if r.is_example %} <span class="chip warn">example</span>{% endif %}</td>
+        <td>{% if r.status == "active" %}{% badge "active" "Active" %}{% elif r.status == "decommissioned" %}{% badge "inactive" "Decommissioned" %}{% else %}{% badge "info" r.get_status_display %}{% endif %}</td>
+        <td class="num">{{ r.u_height }}U</td>
+        <td><div class="dc-cell">{% include "dcim/_bar.html" with pct=r.space_pct label="Space used" %}<span class="num">{{ r.u_used }}/{{ r.u_height }}</span></div></td>
+        <td><div class="dc-cell">{% include "dcim/_bar.html" with pct=r.power_pct label="Power used" %}<span class="num">{{ r.power_pct|pct0 }}</span></div></td>
+        <td class="num" title="{{ r.load_source|default:'no data' }}">{{ r.load_kw|kw }}{% if r.load_source == "estimated" %}<span class="t-mute"> est.</span>{% elif r.load_source == "live" %}<span class="t-ok"> live</span>{% endif %}</td>
+        <td class="num">{{ r.max_power_kw|kw }}</td>
+        <td class="num">{{ r.item_list|length }}</td>
+        <td class="num">{{ r.feed_list|length }}</td>
+        <td><div class="row-actions">
+          <a class="btn icon blue" href="{% url 'dcim:rack_detail' r.pk %}" title="Elevation" aria-label="Elevation of {{ r.name }}">{% icon "eye" 15 %}</a>
+          {% if room.can_manage %}<a class="btn icon blue" href="{% url 'dcim:rack_edit' r.pk %}" title="Edit" aria-label="Edit {{ r.name }}">{% icon "edit" 15 %}</a>{% endif %}
+        </div></td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="10" class="empty">{% if q or status %}No racks in this room match the filters.{% else %}No racks in this room yet.{% if room.can_manage %} <a href="{% url 'dcim:rack_create' %}?room={{ room.pk }}">Add a rack</a>.{% endif %}{% endif %}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+</section>
+{% empty %}
+<section class="panel dc-empty-hero">
+  {% icon "grid" 34 %}
+  {% if q or site or status or room_filter %}
+  <h2>No rooms match these filters</h2><p><a href="{% url 'dcim:racks' %}">Clear the filters</a> to see every room you can access.</p>
+  {% else %}
+  <h2>No rooms yet</h2>
+  <p>A room is a data hall, server room or cage. Add one, then add racks to it and mount items in the rack elevation.</p>
+  {% if can_add_room %}<div class="actions"><a class="btn primary" href="{% url 'dcim:room_create' %}">{% icon "plus" 16 %}Add room</a></div>{% endif %}
+  {% endif %}
+</section>
+{% endfor %}
+{% include "core/_pager.html" with pager_noun="rooms" %}
+</div>
+{% endblock %}

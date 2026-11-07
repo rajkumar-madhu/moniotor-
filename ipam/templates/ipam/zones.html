@@ -1,0 +1,57 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}DNS Zones{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'ipam/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "ipam/_crumbs.html" with section="DNS Zones" %}{% endblock %}
+{% block content %}
+<div class="pg-ipam">
+<div class="head">
+  <div class="glyph bg-info">{% icon "globe" 30 %}</div>
+  <div><h1>DNS Zones</h1><p>Forward and reverse zones with their records, linked to IPAM addresses{% if site_filter %} · {{ site_filter }}{% endif %}</p></div>
+  <div class="actions">
+    <a class="btn" href="{% url 'ipam:zones_export' %}?{{ query.urlencode }}">{% icon "download" 17 %}Export CSV</a>
+    {% if can_operate %}<a class="btn primary" href="{% url 'ipam:zone_create' %}">{% icon "plus" 17 %}Add zone</a>{% endif %}
+  </div>
+</div>
+{% include "ipam/_tabs.html" with tab="dns" %}
+<section class="kpis ip-kpis-4" aria-label="Summary">
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "globe" 22 %}</div><div class="kpi-body"><div class="label">Zones</div><div class="value">{{ total }}</div></div></div><div class="sub">Recorded in IPAM</div></div>
+  <a class="kpi stacked kpi-link" href="?kind=forward"><div class="kpi-top"><div class="tile s-ok">{% icon "arrow-right" 22 %}</div><div class="kpi-body"><div class="label">Forward</div><div class="value">{{ forward }}</div></div></div><div class="sub">Names → addresses</div></a>
+  <a class="kpi stacked kpi-link" href="?kind=reverse"><div class="kpi-top"><div class="tile s-purple">{% icon "refresh" 22 %}</div><div class="kpi-body"><div class="label">Reverse</div><div class="value">{{ reverse_count }}</div></div></div><div class="sub">in-addr.arpa / ip6.arpa</div></a>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-mute">{% icon "list" 22 %}</div><div class="kpi-body"><div class="label">Records</div><div class="value">{{ record_total }}</div></div></div><div class="sub">Across these zones</div></div>
+</section>
+<div class="panel">
+  <div class="panel-h"><h2>Zones ({{ page.paginator.count }})</h2><div class="right"><a class="btn sm ghost-primary" href="{% url 'ipam:zones_export' %}?{{ query.urlencode }}">{% icon "download" 15 %}CSV</a></div></div>
+  <form class="toolbar compact" method="get">
+    {% if request.GET.per %}<input type="hidden" name="per" value="{{ request.GET.per }}">{% endif %}
+    {% if site_filter %}<input type="hidden" name="site" value="{{ site_filter }}">{% endif %}
+    <label class="search">{% icon "search" 16 %}<input type="search" name="q" value="{{ request.GET.q }}" placeholder="Zone name or description…" aria-label="Search zones"></label>
+    <select name="kind" data-autosubmit aria-label="Kind"><option value="">Forward &amp; reverse</option><option value="forward"{% if request.GET.kind == 'forward' %} selected{% endif %}>Forward</option><option value="reverse"{% if request.GET.kind == 'reverse' %} selected{% endif %}>Reverse</option></select>
+    <a class="btn icon blue" href="{% url 'ipam:dns' %}" title="Clear filters" aria-label="Clear filters">{% icon "refresh" 16 %}</a>
+  </form>
+  <div class="table-wrap dense"><table>
+    <thead><tr><th>Zone</th><th>Kind</th><th>Site</th><th class="num">Records</th><th class="num">Address records</th><th class="num">Default TTL</th><th>Description</th><th>Actions</th></tr></thead>
+    <tbody>
+    {% for z in page %}
+      <tr>
+        <td class="mono"><a href="{% url 'ipam:zone_detail' z.pk %}">{{ z.name }}</a>{% if z.is_example %} <span class="chip mute">example</span>{% endif %}</td>
+        <td><span class="chip{% if z.kind == 'reverse' %} purple{% endif %}">{{ z.get_kind_display }}</span></td>
+        <td>{{ z.site_label }}</td>
+        <td class="num">{{ z.n_records }}</td>
+        <td class="num">{{ z.n_addr }}</td>
+        <td class="num">{{ z.default_ttl }} s</td>
+        <td class="trunc" title="{{ z.description }}">{{ z.description|default:"–" }}</td>
+        <td><div class="row-actions">
+          <a class="btn icon" href="{% url 'ipam:zone_detail' z.pk %}" title="Records" aria-label="Records of {{ z.name }}">{% icon "eye" 15 %}</a>
+          {% if z.can_edit %}<a class="btn icon blue" href="{% url 'ipam:zone_edit' z.pk %}" title="Edit" aria-label="Edit {{ z.name }}">{% icon "edit" 15 %}</a>{% endif %}
+          {% if z.can_delete %}<form method="post" action="{% url 'ipam:zone_delete' z.pk %}" data-confirm="Delete zone {{ z.name }} and its {{ z.n_records }} record(s)?">{% csrf_token %}<button class="btn icon red" type="submit" title="Delete" aria-label="Delete {{ z.name }}">{% icon "trash" 15 %}</button></form>{% endif %}
+        </div></td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="8" class="empty">{% if filtered %}No zones match these filters.{% else %}No DNS zones yet.{% if can_operate %} <a href="{% url 'ipam:zone_create' %}">Add a zone</a> to record its A, AAAA, CNAME, PTR, MX, TXT and SRV records.{% endif %}{% endif %}</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  {% include "core/_pager.html" with pager_noun="zones" %}
+  <p class="ip-note">IPAM keeps a record of your zones and checks that address records point at allocated addresses; it does not query or update DNS servers.</p>
+</div>
+</div>
+{% endblock %}

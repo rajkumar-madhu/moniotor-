@@ -1,0 +1,38 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}{{ title }}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'dcim/page.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'dcim:overview' %}">Data Centre</a>{% for label, url in crumbs %}{% icon "chevron-right" 14 %}<a href="{{ url }}">{{ label }}</a>{% endfor %}{% icon "chevron-right" 14 %}<span>{{ title }}</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-dcim dc-formpage">
+<div class="head">
+  <div class="glyph">{% icon icon 30 %}</div>
+  <div><h1>{{ title }}</h1><p>{{ subtitle }}</p></div>
+</div>
+<form method="post" class="panel dc-form" novalidate>{% csrf_token %}
+  {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
+  {% if form.non_field_errors %}<div class="dc-alert crit" role="alert">{% icon "alert" 16 %}<span>{% for e in form.non_field_errors %}{{ e }} {% endfor %}</span></div>{% endif %}
+  {% if form.errors and not form.non_field_errors %}<div class="dc-alert crit" role="alert">{% icon "alert" 16 %}<span>Please correct the highlighted field{{ form.errors|length|pluralize }}.</span></div>{% endif %}
+  <div class="form-grid">
+  {% for f in form %}
+    <div class="field{% if f.widget_type == 'textarea' or f.name == 'notes' or f.name == 'prometheus_query' %} full{% endif %}{% if f.errors %} has-err{% endif %}">
+      <label for="{{ f.id_for_label }}">{{ f.label }}{% if f.field.required %} <span class="req">*</span>{% endif %}</label>
+      {{ f }}
+      {% if f.help_text %}<span class="hint">{{ f.help_text }}</span>{% endif %}
+      {% for e in f.errors %}<span class="err" role="alert">{{ e }}</span>{% endfor %}
+    </div>
+  {% endfor %}
+  </div>
+  {% if show_prom_note %}<p class="dc-foot">{% if prom_configured %}Prometheus is connected: queries are read every 5 minutes and once when you save a changed query.{% else %}Prometheus is not connected (set <code>LINKEDEYE_PROMETHEUS_URL</code>). Queries are stored and read once it is; until then the manual values are used.{% endif %}</p>{% endif %}
+  <div class="dc-form-foot">
+    <a class="btn" href="{{ back }}">Cancel</a>
+    <button class="btn primary" type="submit">{% if obj %}Save changes{% else %}Save{% endif %}</button>
+  </div>
+</form>
+{% if delete_url %}
+<form method="post" action="{{ delete_url }}" class="panel dc-danger" data-confirm="{{ delete_text }}">{% csrf_token %}
+  <div><b>Delete</b><p class="t-mute small">{{ delete_text }} This cannot be undone.</p></div>
+  <button class="btn dc-btn-danger" type="submit">{% icon "trash" 16 %}Delete</button>
+</form>
+{% endif %}
+</div>
+{% endblock %}
