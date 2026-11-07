@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
         ("cmdb", "0001_initial"),
         ("network", "0003_product_catalog_and_device_images"),
         ("observe", "0001_initial"),
-        ("telemetry", "0001_initial"),
+        ("telemetry", "0002_alert_tenant_fingerprint"),
     ]
 
     operations = [
