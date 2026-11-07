@@ -13,7 +13,7 @@ from core.audit import audit
 
 from .. import explorer as svc
 from ..models import SavedQuery
-from .common import perms, prom_context
+from .common import is_pk, perms, prom_context
 
 
 def _visible_saved(user):
@@ -49,7 +49,7 @@ def explorer(request):
     step_raw = request.GET.get("step", "").strip()
     loaded = None
     if request.GET.get("saved"):
-        loaded = _visible_saved(request.user).filter(pk=request.GET.get("saved")).first() if request.GET["saved"].isdigit() else None
+        loaded = _visible_saved(request.user).filter(pk=request.GET["saved"]).first() if is_pk(request.GET["saved"]) else None
         if loaded is None:
             messages.error(request, "That saved query does not exist or is not shared with you.")
         elif not q:

@@ -5,8 +5,6 @@
     <p>{{ vm_stub.blurb }}</p>
     {% if tab == "topology" and topology_url %}
     <a class="btn sm" href="{{ topology_url }}">{% icon "share" 15 %}Open in Topology</a>
-    {% elif sample_mode %}
-    <p class="t-mute">Overview can show sample guest metrics with <code>?sample=1</code>.</p>
     {% endif %}
   </div>
 </section>

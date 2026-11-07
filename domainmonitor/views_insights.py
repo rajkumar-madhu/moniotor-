@@ -22,7 +22,8 @@ from core.audit import audit
 
 from . import analytics, security
 from .models import GRADES, DOMAIN_TYPES
-from .views import SSL_STATES, SafeCsvWriter, _filter, _per_page, _query, _render, _scope, can_operate_on, mark_operable
+from .views import (SSL_STATES, SafeCsvWriter, _filter, _int, _per_page, _query, _render, _scope, can_operate_on,
+                    mark_operable)
 
 UPTIME_DAYS = {"7": ("Last 7 days", 1), "14": ("Last 14 days", 2), "30": ("Last 30 days", 5)}
 # window key -> (label, span, bucket, label every n buckets, label format)
@@ -179,12 +180,12 @@ def performance(request):
     # Probe results older than PROBE_RETENTION_DAYS are pruned: a previous window reaching past that horizon holds
     # partial (or no) data, so a comparison against it would be meaningless. Hide it instead.
     compare = prev_start >= timezone.now() - timedelta(days=settings.PROBE_RETENTION_DAYS)
-    cur, cur_all, rows = analytics.response_stats(ids, start, end)
+    cur, cur_all = analytics.response_stats(ids, start, end)   # counted in the database, never every check
     empty = analytics.describe([])
     if compare:
-        prev, prev_all, prev_rows = analytics.response_stats(ids, prev_start, start)
+        prev, prev_all = analytics.response_stats(ids, prev_start, start)
     else:
-        prev, prev_all, prev_rows = {}, empty, []
+        prev, prev_all = {}, empty
     for d in domains:
         d.cur, d.prev = cur.get(d.pk, empty), prev.get(d.pk, empty)
         d.change = analytics.change_pct(d.cur["p95"], d.prev["p95"])
@@ -212,14 +213,14 @@ def performance(request):
         return resp
 
     n = int(span / bucket)
-    p50, p95 = analytics.bucket_series(rows, start, bucket, n)
+    p50, p95 = analytics.bucket_series(ids, start, bucket, n)
     times = [timezone.localtime(start + bucket * i) for i in range(n)]
     chart = {"labels": [t.strftime(fmt) for t in times], "tipLabels": [t.strftime("%d %b %H:%M") for t in times],
              "unit": "ms", "xLabelEvery": every, "yTicks": 5,
              "series": [{"name": "p95", "color": "#7a4fd6", "values": p95, "width": 1.8},
                         {"name": "p50", "color": "#2b4cff", "values": p50, "area": True, "areaOpacity": 0.12, "width": 1.8}]}
     if compare:
-        _pp50, prev_p95 = analytics.bucket_series(prev_rows, prev_start, bucket, n)
+        _pp50, prev_p95 = analytics.bucket_series(ids, prev_start, bucket, n)
         chart["series"].append({"name": "p95 (previous window)", "color": "#a8a398", "values": prev_p95, "dash": "4 3",
                                 "width": 1.4})
     ranked = [d for d in domains if d.cur["p95"] is not None]
@@ -317,12 +318,12 @@ def security_page(request):
     scans = [d.scan for d in domains if d.scan and d.scan.grade]
     graded = len(scans)
     selected = None
-    sel = request.GET.get("selected")
-    if sel and sel.isdigit():
-        selected = next((d for d in domains if d.pk == int(sel)), None)
+    sel = _int(request.GET.get("selected"))   # not str.isdigit(): that accepts digits int() cannot parse
+    if sel:
+        selected = next((d for d in domains if d.pk == sel), None)
         if selected is None:
             # outside the current filter: still show it when visible; an unknown or out-of-scope pk is ignored
-            found = scope.filter(pk=int(sel)).first()
+            found = scope.filter(pk=sel).first()
             selected = _attach_scans([found])[0] if found else None
     detail = {}
     if selected:

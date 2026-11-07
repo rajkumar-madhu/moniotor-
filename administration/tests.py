@@ -385,7 +385,7 @@ class PermissionTests(Base):
         r = c.post(reverse("administration:user_toggle_active", args=[self.viewer.pk]))
         self.assertEqual(r.status_code, 403)
         self.assertTrue(User.objects.get(pk=self.viewer.pk).is_active)
-        r = csrf_post(c, reverse("administration:user_toggle_active", args=[self.viewer.pk]))
+        r = csrf_post(c, reverse("administration:user_toggle_active", args=[self.viewer.pk]), {"active": "0"})
         self.assertEqual(r.status_code, 302)
         self.assertFalse(User.objects.get(pk=self.viewer.pk).is_active)
 
@@ -584,12 +584,12 @@ class UserMutationTests(Base):
     def test_deactivate_and_reactivate(self):
         url = reverse("administration:user_toggle_active", args=[self.viewer.pk])
         vc = client_for(self.viewer)
-        self.c.post(url)
+        self.c.post(url, {"active": "0"})
         self.viewer.refresh_from_db()
         self.assertFalse(self.viewer.is_active)
         self.assertTrue(User.objects.filter(pk=self.viewer.pk).exists())   # never deleted
         self.assertEqual(vc.get(reverse("administration:profile")).status_code, 302)   # session ended
-        self.c.post(url, {"next": "list"})
+        self.c.post(url, {"active": "1", "next": "list"})
         self.viewer.refresh_from_db()
         self.assertTrue(self.viewer.is_active)
         self.assertEqual(list(AuditEvent.objects.order_by("pk").values_list("action", flat=True)), ["deactivate", "activate"])
@@ -608,7 +608,7 @@ class UserMutationTests(Base):
         self.c.post(reverse("administration:user_edit", args=[self.root.pk]), {"email": "x@example.com"})
         self.assertEqual(User.objects.get(pk=self.root.pk).email, "root@example.com")
         # a superuser can
-        client_for(self.root).post(reverse("administration:user_toggle_active", args=[self.admin.pk]))
+        client_for(self.root).post(reverse("administration:user_toggle_active", args=[self.admin.pk]), {"active": "0"})
         self.assertFalse(User.objects.get(pk=self.admin.pk).is_active)
 
     def test_set_password(self):
