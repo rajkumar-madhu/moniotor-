@@ -134,6 +134,9 @@ class Device(models.Model):
     last_error = models.CharField(max_length=300, blank=True)
     status_changed_at = models.DateTimeField(null=True, blank=True)
     consecutive_failures = models.PositiveIntegerField(default=0)
+    # the status the last reachability event was emitted for: a Down device that goes through Unknown
+    # (monitoring turned off, or a check refused by the probe policy) must still recover its incident.
+    last_alert_status = models.CharField(max_length=10, choices=DeviceStatus.choices, blank=True, default="")
 
     # metrics state (written by the Prometheus job)
     uptime_seconds = models.BigIntegerField(null=True, blank=True)

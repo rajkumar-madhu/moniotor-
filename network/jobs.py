@@ -96,15 +96,25 @@ def record(device, result, now=None):
     device.last_error = result.error[:300]
     if new != prev:
         device.status_changed_at = now
+    # Which status the last event was emitted for. The recovery event must also fire when the device
+    # passed through Unknown in between (monitoring turned off and on again, or a check the probe policy
+    # refused), otherwise the incident opened by the critical event is never mitigated.
+    alerted = device.last_alert_status
+    down_alert = new == DeviceStatus.DOWN and prev != DeviceStatus.DOWN
+    up_alert = new == DeviceStatus.UP and (prev == DeviceStatus.DOWN or alerted == DeviceStatus.DOWN)
+    if down_alert:
+        device.last_alert_status = DeviceStatus.DOWN
+    elif up_alert:
+        device.last_alert_status = DeviceStatus.UP
     device.save(update_fields=["status", "last_checked_at", "last_latency_ms", "last_error", "last_seen",
-                               "consecutive_failures", "status_changed_at"])
-    if new == DeviceStatus.DOWN and prev != DeviceStatus.DOWN:
+                               "consecutive_failures", "status_changed_at", "last_alert_status"])
+    if down_alert:
         emit(source="network", title=f"{device.name} is down", severity="critical",
              message=f"{device.get_device_type_display()} {device.name} ({device.mgmt_ip}) is not reachable on TCP "
                      f"{device.check_port}: {result.error}",
              site=device.site, obj=device, fingerprint=f"network:{device.pk}",
              ci=device.name, host=device.mgmt_ip, port=device.check_port, device_type=device.device_type, status="down")
-    elif new == DeviceStatus.UP and prev == DeviceStatus.DOWN:
+    elif up_alert:
         emit(source="network", title=f"{device.name} is up again", severity="ok",
              message=f"{device.get_device_type_display()} {device.name} ({device.mgmt_ip}) answers on TCP {device.check_port} "
                      f"({result.latency_ms:g} ms).",

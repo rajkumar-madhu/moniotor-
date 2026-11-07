@@ -12,7 +12,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Prefetch
+from django.db.models import Count, Prefetch, Q, Sum
 from django.utils import timezone
 
 from core import prometheus
@@ -93,14 +93,18 @@ def promql_regex(instances):
 
 # ----------------------------------------------------------------------------- samples
 class Samples:
-    """Probe samples pooled for one service (or a whole domain)."""
+    """Probe samples pooled for one service (or a whole domain).
 
-    __slots__ = ("total", "up", "errors", "ms", "base_ms")
+    Counts and the response-time sum are totals (they come straight out of SQL, so they stay exact
+    however long the window is); `ms` holds the bounded set of response times the p95 is taken from."""
+
+    __slots__ = ("total", "up", "errors", "ms", "base_ms", "ms_sum", "ms_n")
 
     def __init__(self):
         self.total = self.up = self.errors = 0
         self.ms = []
         self.base_ms = None
+        self.ms_sum, self.ms_n = 0.0, 0
 
     def add(self, available, error, ms):
         self.total += 1
@@ -108,12 +112,24 @@ class Samples:
         self.errors += 1 if error else 0
         if ms is not None and available:
             self.ms.append(ms)
+            self.ms_sum += ms
+            self.ms_n += 1
+
+    def add_totals(self, total, up, errors, ms_sum, ms_n):
+        """Add one row of pre-aggregated counts (see probe_samples)."""
+        self.total += total or 0
+        self.up += up or 0
+        self.errors += errors or 0
+        self.ms_sum += ms_sum or 0.0
+        self.ms_n += ms_n or 0
 
     def merge(self, other):
         self.total += other.total
         self.up += other.up
         self.errors += other.errors
         self.ms.extend(other.ms)
+        self.ms_sum += other.ms_sum
+        self.ms_n += other.ms_n
         if other.base_ms is not None:
             self.base_ms = other.base_ms if self.base_ms is None else min(self.base_ms, other.base_ms)
 
@@ -123,29 +139,48 @@ class Samples:
         return {
             "availability": 100.0 * self.up / self.total,
             "errors": 100.0 * self.errors / self.total,
-            "response": (sum(self.ms) / len(self.ms)) if self.ms else None,
+            "response": (self.ms_sum / self.ms_n) if self.ms_n else None,
             "latency": p95(self.ms),
         }
 
 
+# response times read into Python for the p95, newest first. The counts never depend on this cap.
+PROBE_LATENCY_SAMPLES = 20000
+
+
+def _aggregate(out, kind, qs, id_field, available, error):
+    """Count totals per check in one GROUP BY query, then read a bounded sample of response times."""
+    rows = qs.order_by().values(id_field).annotate(
+        n_total=Count("pk"),
+        n_up=Count("pk", filter=available),
+        n_err=Count("pk", filter=error),
+        ms_sum=Sum("response_ms", filter=available),
+        ms_n=Count("response_ms", filter=available),
+    )
+    for r in rows:
+        out[(kind, r[id_field])].add_totals(r["n_total"], r["n_up"], r["n_err"], r["ms_sum"], r["ms_n"])
+    latest = qs.filter(available, response_ms__isnull=False).order_by("-checked_at").values_list(
+        id_field, "response_ms")[:PROBE_LATENCY_SAMPLES]
+    for oid, ms in latest:
+        out[(kind, oid)].ms.append(ms)
+
+
 def probe_samples(check_ids, domain_ids, since):
-    """{("url", id) | ("domain", id): Samples} from stored results since `since`."""
+    """{("url", id) | ("domain", id): Samples} from stored results since `since`.
+
+    The counting happens in the database: an auto-refreshed heatmap over a 7-day window must not stream
+    every stored probe result through Python."""
     from domainmonitor.models import DomainCheck
     from urlchecker.models import UrlResult
     out = defaultdict(Samples)
     if check_ids:
-        rows = UrlResult.objects.filter(url_check_id__in=check_ids, checked_at__gte=since).values_list(
-            "url_check_id", "status", "http_status", "response_ms")
-        for cid, status, http, ms in rows.iterator(chunk_size=5000):
-            available = status != "down"
-            # transport/server errors: no HTTP answer at all, or 5xx. A content mismatch only hurts availability.
-            error = (status == "down" and http is None) or (http is not None and http >= 500)
-            out[("url", cid)].add(available, error, ms)
+        # transport/server errors: no HTTP answer at all, or 5xx. A content mismatch only hurts availability.
+        _aggregate(out, "url", UrlResult.objects.filter(url_check_id__in=check_ids, checked_at__gte=since),
+                   "url_check_id", ~Q(status="down"),
+                   Q(status="down", http_status__isnull=True) | Q(http_status__gte=500))
     if domain_ids:
-        rows = DomainCheck.objects.filter(domain_id__in=domain_ids, checked_at__gte=since).values_list(
-            "domain_id", "up", "http_status", "response_ms")
-        for did, up, http, ms in rows.iterator(chunk_size=5000):
-            out[("domain", did)].add(up, (not up) or (http is not None and http >= 500), ms)
+        _aggregate(out, "domain", DomainCheck.objects.filter(domain_id__in=domain_ids, checked_at__gte=since),
+                   "domain_id", Q(up=True), Q(up=False) | Q(http_status__gte=500))
     return out
 
 

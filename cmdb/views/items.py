@@ -289,8 +289,10 @@ def relationship_create(request):
     fallback = reverse("cmdb:relationships")
     if form.is_valid():
         src, tgt = form.cleaned_data["source"], form.cleaned_data["target"]
-        if not (services.can_manage(request.user, "operate", src.site) or services.can_manage(request.user, "operate", tgt.site)):
-            messages.error(request, "You cannot change relationships of these items.")
+        # the edge belongs to the source CI's site: that is the site relationships() marks row
+        # permissions with and relationship_delete checks, so creating it needs operate there
+        if not services.can_manage(request.user, "operate", src.site):
+            messages.error(request, f"You cannot change relationships of items on {src.site or 'All Sites'}.")
             return redirect(safe_next(request, fallback))
         rel = form.save()
         audit(request, "create", rel, source=src.name, target=tgt.name, rel_type=rel.rel_type, origin=rel.origin)

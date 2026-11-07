@@ -73,6 +73,29 @@ class ChecklistItemForm(forms.ModelForm):
         self.fields["mode"].empty_label = None
         self.fields["order"].widget.attrs["min"] = 0
 
+    def _check_ref_site(self, mode, kind, ref):
+        """A site's checklist may only reference that site's checks (or global ones): otherwise the run would
+        report another site's status. A reference that does not exist anywhere yet stays allowed – it reports
+        UNKNOWN until the check is created."""
+        from .services import REF_MODELS, _model, query_refs, ref_sites
+
+        spec = REF_MODELS.get(kind)
+        sites = ref_sites(mode.site)
+        if spec is None or sites is None:
+            return
+        app_label, model_name, field_name, site_field = spec
+        M = _model(app_label, model_name)
+        if M is None:
+            return
+        if query_refs(M, field_name, [ref], sites=sites, site_field=site_field):
+            return
+        elsewhere = query_refs(M, field_name, [ref]) or {}
+        obj = elsewhere.get(ref)
+        if obj is not None:
+            other = getattr(obj, site_field, "") or "another site"
+            self.add_error("ref_name", f"“{ref}” belongs to {other}, not to {mode.site}. Choose a reference "
+                                       f"from {mode.site} or one that is shared with all sites.")
+
     def clean(self):
         data = super().clean()
         kind, ref = data.get("kind"), (data.get("ref_name") or "").strip()
@@ -81,6 +104,8 @@ class ChecklistItemForm(forms.ModelForm):
         if kind == "manual":
             ref = ""
         data["ref_name"] = ref
+        if data.get("mode") and kind and ref:
+            self._check_ref_site(data["mode"], kind, ref)
         mode, name = data.get("mode"), data.get("name")
         if mode and name:
             clash = ChecklistItem.objects.filter(mode=mode, name=name).exclude(pk=self.instance.pk)

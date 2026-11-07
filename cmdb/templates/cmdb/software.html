@@ -39,7 +39,7 @@
       <td>{{ s.vendor|default:"–" }}</td>
       <td>{% if s.category %}<span class="chip">{{ s.category }}</span>{% else %}–{% endif %}</td>
       <td class="num">{{ s.n_installs }}</td>
-      <td>{% if s.license_list %}{% if s.over %}<span class="badge crit" title="Over-allocated: {{ s.n_installs }} installs for {{ s.seats }} seats">{% ficon "alert" 13 %}{{ s.n_installs }}/{{ s.seats }} seats</span>{% else %}<span class="badge ok">{{ s.n_installs }}/{{ s.seats }} seats</span>{% endif %}{% else %}<span class="badge mute">Unlicensed</span>{% endif %}</td>
+      <td>{% if s.license_list %}{% if s.over %}<span class="badge crit" title="Over-allocated: {{ s.all_installs }} installs on all sites for {{ s.seats }} seats">{% ficon "alert" 13 %}{{ s.all_installs }}/{{ s.seats }} seats</span>{% else %}<span class="badge ok" title="{{ s.all_installs }} installs on all sites for {{ s.seats }} seats">{{ s.all_installs }}/{{ s.seats }} seats</span>{% endif %}{% else %}<span class="badge mute">Unlicensed</span>{% endif %}</td>
       <td><div class="row-actions">
         <a class="btn icon" href="{% url 'cmdb:software_detail' s.pk %}" title="View" aria-label="View {{ s }}">{% icon "eye" 15 %}</a>
         {% if can_operate %}<a class="btn icon blue" href="{% url 'cmdb:software_edit' s.pk %}" title="Edit" aria-label="Edit {{ s }}">{% icon "edit" 15 %}</a>{% endif %}
