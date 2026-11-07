@@ -890,3 +890,343 @@ class QaRegressionTests(PromMixin, TestCase):
         other = h.redirect_request(req, None, 302, "Found", {}, "http://evil.test/x")
         self.assertEqual(same.get_header("Authorization"), "Basic abc")
         self.assertIsNone(other.get_header("Authorization"))
+
+
+# ============================================================================= full host metrics (Netdata-style)
+from . import hosts_full  # noqa: E402
+
+FULL_INST = "db-01:9100"
+
+
+def full_query(q, at=None):
+    """Instant queries for one host: some node_exporter metrics present, others (dmi, tz, carrier, cAdvisor…) absent."""
+    i = FULL_INST
+    if q.startswith("up{"):
+        return [_row(i, 1.0, job="node", __name__="up")]
+    if "node_cpu_seconds_total" in q and 'mode="idle"' in q and "count" not in q and "avg" not in q:
+        return [_row(i, 10.0 * k, cpu=str(k)) for k in range(4)]            # per-core busy %
+    if "count by (instance)" in q:
+        return [_row(i, 4.0)]
+    if 'mode="idle"' in q:
+        return [_row(i, 35.0)]
+    if "MemAvailable" in q:
+        return [_row(i, 60.0)]
+    if "node_memory_MemTotal_bytes" in q:
+        return [_row(i, 8e9)]
+    if "node_filesystem_avail_bytes" in q and "node_filesystem_size_bytes" in q:
+        return [_row(i, 40.0)]
+    if "node_filesystem_size_bytes" in q:
+        return [_row(i, 100e9, mountpoint="/", device="/dev/sda1", fstype="ext4")]
+    if "node_filesystem_avail_bytes" in q:
+        return [_row(i, 60e9, mountpoint="/", device="/dev/sda1", fstype="ext4")]
+    if "node_filesystem_files_free" in q:
+        return [_row(i, 900000.0, mountpoint="/", device="/dev/sda1")]
+    if "node_filesystem_files{" in q:
+        return [_row(i, 1000000.0, mountpoint="/", device="/dev/sda1")]
+    if "node_filesystem_device_error" in q:
+        return [_row(i, 0.0, mountpoint="/", device="/dev/sda1")]
+    if "node_network_up" in q:
+        return [_row(i, 1.0, device="eth0")]
+    if "node_network_speed_bytes" in q:
+        return [_row(i, 125e6, device="eth0")]
+    if "node_network_info" in q:
+        return [_row(i, 1.0, device="eth0", operstate="up", address="aa:bb:cc:dd:ee:ff", duplex="full")]
+    if "node_uname_info" in q:
+        return [_row(i, 1.0, nodename="db-01", sysname="Linux", release="6.1.0", machine="x86_64")]
+    if "node_exporter_build_info" in q:
+        return [_row(i, 1.0, version="1.8.2", goversion="go1.22.5")]
+    if q.startswith("node_load1{"):
+        return [_row(i, 2.0)]
+    if "node_time_seconds" in q:
+        return [_row(i, 90000.0)]
+    if "receive_bytes" in q or "transmit_bytes" in q:
+        return [_row(i, 1000.0)]
+    return []
+
+
+def full_range(q, seconds=3600, step=None):
+    now = 1_700_000_000.0
+
+    def ser(vals, **labels):
+        return {"metric": {"instance": FULL_INST, **labels}, "values": [(now + k * 60, v) for k, v in enumerate(vals)]}
+    if q.startswith("node_load1{"):
+        return [ser([1.0, 2.0, 3.0])]
+    if q.startswith("node_load5{") or q.startswith("node_load15{"):
+        return [ser([1.5, 1.5, 1.5])]
+    if "by (mode)" in q:
+        return [ser([10.0, 20.0, 30.0], mode="user"), ser([5.0, 5.0, 5.0], mode="system")]
+    if "node_disk_read_bytes_total" in q:
+        return [ser([1000.0, 2000.0], device="sda"), ser([10.0, 20.0], device="sdb")]
+    if "node_disk_written_bytes_total" in q:
+        return [ser([500.0, 500.0], device="sda")]
+    if "node_memory_MemTotal_bytes" in q:
+        return [ser([4e9, 4e9])]
+    if "node_memory_Cached_bytes" in q or "node_memory_Buffers_bytes" in q or "node_memory_MemFree_bytes" in q:
+        return [ser([1e9, 1e9])]
+    if "node_network_receive_bytes_total" in q and "by (instance)" not in q:
+        return [ser([100.0, 200.0], device="eth0")]
+    if "node_cpu_seconds_total" in q or "MemAvailable" in q:
+        return [ser([10.0, 11.0])]                                            # host_detail's overview charts
+    return []                                                                 # PSI, huge pages, conntrack, …
+
+
+def full_patches():
+    return [mock.patch("core.prometheus.query", side_effect=full_query),
+            mock.patch("core.prometheus.query_range", side_effect=full_range)]
+
+
+class HostMetricsServiceTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        ps = full_patches()
+        self.q, self.qr = [p.start() for p in ps]
+        for p in ps:
+            self.addCleanup(p.stop)
+
+    def test_legend_stats_and_formatting(self):
+        st = hosts_full.legend_stats([(1, 10.0), (2, 20.0), (3, None), (4, 30.0)])
+        self.assertEqual((st["last"], st["mean"], st["min"], st["max"]), (30.0, 20.0, 10.0, 30.0))
+        self.assertIsNone(hosts_full.legend_stats([(1, None)]))
+        self.assertIsNone(hosts_full.legend_stats([]))
+        self.assertEqual(hosts_full.fmt_value(42.123, "%"), "42.1%")
+        self.assertEqual(hosts_full.fmt_value(2048, "B"), "2.0 KB")
+        self.assertEqual(hosts_full.fmt_value(2048, "B/s"), "2.0 KB/s")
+        self.assertEqual(hosts_full.fmt_value(1.5, "ms"), "1.50 ms")
+        self.assertEqual(hosts_full.fmt_value(0.0025, "s"), "2.5 ms")
+        self.assertEqual(hosts_full.fmt_value(1234.0, "/s"), "1,234/s")
+        self.assertEqual(hosts_full.fmt_value(None, "%"), "–")
+        self.assertEqual(hosts_full._utc_offset(19800), "UTC+05:30")
+        self.assertEqual(hosts_full._utc_offset(-18000), "UTC-05:00")
+
+    def test_queries_only_embed_escaped_instance(self):
+        evil = 'evil"} or vector(1) #'
+        for sec in hosts_full.sections_spec(evil):
+            for c in sec["charts"]:
+                for g in c["groups"]:
+                    self.assertIn('instance="evil\\"} or vector(1) #"', g["q"])
+                    self.assertNotIn('instance="evil"}', g["q"])
+        for q in hosts_full.instant_queries(evil).values():
+            self.assertIn('instance="evil\\"} or vector(1) #"', q)
+
+    def test_fetch_full_sections_legend_and_missing(self):
+        host = hosts.fetch_host(FULL_INST, "1h")
+        full = hosts_full.fetch_host_full(host, "1h")
+        self.assertEqual([s["id"] for s in full["sections"]], ["compute", "memory", "storage", "network"])
+        charts = {c["key"]: c for s in full["sections"] for c in s["charts"]}
+        load = charts["load"]
+        self.assertTrue(load["has"])
+        one = next(r for r in load["legend"] if r["name"] == "1 min")
+        self.assertEqual((one["raw"]["last"], one["raw"]["mean"], one["raw"]["min"], one["raw"]["max"]), (3.0, 2.0, 1.0, 3.0))
+        self.assertEqual((one["last"], one["mean"], one["min"], one["max"]), ("3", "2", "1", "3"))
+        # one query_range per series group, step from hosts.step_for, stacked charts as coarser bars
+        self.assertEqual(load["data"]["labels"].__len__(), 3)
+        self.assertEqual(charts["cpu_modes"]["kind"], "bars")
+        self.assertTrue(charts["cpu_modes"]["data"]["stacked"])
+        self.assertEqual(charts["cpu_modes"]["data"]["yMax"], 100)
+        self.assertEqual([s["name"] for s in charts["cpu_modes"]["data"]["series"]], ["user", "system"])
+        user = next(r for r in charts["cpu_modes"]["legend"] if r["name"] == "user")
+        self.assertEqual((user["last"], user["mean"]), ("30.0%", "20.0%"))
+        # per-device series are named from the label
+        self.assertEqual(sorted(r["name"] for r in charts["disk_bw"]["legend"]), ["sda read", "sda write", "sdb read"])
+        self.assertAlmostEqual(full["disk_read"], 2020.0)
+        self.assertAlmostEqual(full["disk_write"], 500.0)
+        # metrics the host does not export are reported, never faked
+        for key in ("psi", "hugepages", "conntrack", "tcp_estab", "disk_lat"):
+            self.assertFalse(charts[key]["has"], key)
+            self.assertEqual(charts[key]["legend"], [])
+        self.assertIn(charts["psi"], next(s for s in full["sections"] if s["id"] == "compute")["missing"])
+        # instant tables
+        self.assertEqual([c["cpu"] for c in full["cores"]], ["3", "2", "1", "0"])     # busiest first
+        self.assertAlmostEqual(full["cores"][0]["busy"], 30.0)
+        self.assertEqual(len(full["mounts"]), 1)
+        self.assertAlmostEqual(full["mounts"][0]["inode_pct"], 10.0)
+        self.assertFalse(full["mounts"][0]["error"])
+        self.assertTrue(full["mounts"][0]["error_known"])
+        self.assertEqual(full["ifaces"][0]["device"], "eth0")
+        self.assertTrue(full["ifaces"][0]["up"])
+        self.assertIsNone(full["ifaces"][0]["carrier"])                               # node_network_carrier absent
+        self.assertEqual(full["ifaces"][0]["operstate"], "up")
+        self.assertIsNone(full["containers"])                                          # cAdvisor absent
+        self.assertEqual(full["system"]["exporter_version"], "1.8.2")
+        self.assertEqual(full["system"]["vendor"], "")                                 # node_dmi_info absent
+        self.assertEqual(full["system"]["nodename"], "db-01")
+        self.assertIsNone(full["system"]["boot_time"])
+        # step: one query_range per group; bars use the coarser step
+        steps = {call.args[2] for call in self.qr.call_args_list if "by (mode)" in call.args[0]}
+        self.assertEqual(steps, {hosts.step_for(3600, hosts_full.STACKED_POINTS)})
+        n_groups = sum(len(c["groups"]) for s in hosts_full.sections_spec(FULL_INST) for c in s["charts"])
+        self.assertEqual(full["query_count"], n_groups + len(hosts_full.instant_queries(FULL_INST)))
+
+    def test_full_is_cached_and_refresh_bypasses(self):
+        host = hosts.fetch_host(FULL_INST, "6h")
+        hosts_full.fetch_host_full(host, "6h")
+        n = self.qr.call_count
+        hosts_full.fetch_host_full(host, "6h")
+        self.assertEqual(self.qr.call_count, n)
+        hosts_full.fetch_host_full(host, "6h", use_cache=False)
+        self.assertGreater(self.qr.call_count, n)
+
+    def test_series_cap_keeps_busiest(self):
+        spec = hosts_full._c("many", "Many", "", [hosts_full._g("x", label="device")], "x")
+        rows = [{"metric": {"device": f"d{k}"}, "values": [(1, float(k))]} for k in range(20)]
+        c = hosts_full.build_chart(spec, {("many", 0): rows}, 3600)
+        self.assertTrue(c["truncated"])
+        self.assertEqual(c["total"], 20)
+        self.assertEqual(len(c["legend"]), hosts_full.MAX_SERIES_PER_CHART)
+        self.assertEqual(c["legend"][0]["name"], "d19")
+
+
+class HostMetricsPageTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        self.viewer, self.operator, self.admin = users()
+        ps = full_patches()
+        self.q, self.qr = [p.start() for p in ps]
+        for p in ps:
+            self.addCleanup(p.stop)
+        self.url = reverse("telemetry:host_metrics", args=[FULL_INST])
+
+    def test_route_is_not_swallowed_by_host_detail(self):
+        from django.urls import resolve
+        self.assertEqual(self.url, "/monitoring/infrastructure/db-01:9100/metrics/")
+        self.assertEqual(resolve(self.url).url_name, "host_metrics")
+        self.assertEqual(resolve(self.url).kwargs["instance"], FULL_INST)
+        self.assertEqual(resolve("/monitoring/infrastructure/db-01:9100/").url_name, "host_detail")
+
+    def test_login_required(self):
+        self.assertEqual(Client().get(self.url).status_code, 302)
+
+    @override_settings(PROMETHEUS_URL="")
+    def test_not_connected(self):
+        self.client.force_login(self.viewer)
+        r = self.client.get(self.url)
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "not connected")
+        self.assertContains(r, "LINKEDEYE_PROMETHEUS_URL")
+        self.q.assert_not_called()
+
+    @override_settings(PROMETHEUS_URL=PROM)
+    def test_page_renders_sections_legend_and_missing_lines(self):
+        self.client.force_login(self.viewer)
+        r = self.client.get(self.url + "?range=6h")
+        self.assertEqual(r.status_code, 200)
+        for sid in ("summary", "compute", "memory", "storage", "network", "system", "workloads"):
+            self.assertContains(r, f'<section id="{sid}"')
+            self.assertContains(r, f'href="#{sid}"')
+        self.assertContains(r, "CPU utilisation by mode")
+        self.assertContains(r, 'data-chart="bars" data-src="hm-cpu_modes"')
+        self.assertContains(r, 'id="hm-load"')
+        # legend table: Last / Mean / Min / Max from the known 1, 2, 3 series
+        self.assertContains(r, '1 min</td><td class="num">3</td><td class="num">2</td><td class="num">1</td><td class="num">3</td>')
+        self.assertContains(r, 'user</td><td class="num">30.0%</td><td class="num">20.0%</td><td class="num">10.0%</td><td class="num">30.0%</td>')
+        # honest lines for metrics the host does not export, instead of empty charts
+        self.assertContains(r, "No <code>node_pressure_* metrics</code> for this host")
+        self.assertContains(r, "No <code>node_memory_HugePages_* metrics</code> for this host")
+        self.assertContains(r, "No <code>node_nf_conntrack_* metrics</code> for this host")
+        self.assertNotContains(r, 'data-src="hm-psi"')
+        self.assertContains(r, "cAdvisor is not scraped for this host")
+        self.assertContains(r, "no node_dmi_info")
+        # summary strip and tables
+        self.assertContains(r, "2.0 KB/s")                      # disk read = 2000 + 20 B/s
+        self.assertContains(r, "cpu3")
+        self.assertContains(r, "aa:bb:cc:dd:ee:ff")
+        self.assertContains(r, "v1.8.2")
+        self.assertContains(r, "Per-core utilisation")
+        # range picker and explorer deep links carry the range and the PromQL
+        self.assertContains(r, 'href="?range=6h" class="on"')
+        self.assertContains(r, "/monitoring/metrics-explorer/?expr=node_load1%7Binstance%3D%22db-01%3A9100%22%7D&amp;range=6h")
+        # the overview page links here
+        d = self.client.get(reverse("telemetry:host_detail", args=[FULL_INST]))
+        self.assertContains(d, f'href="{self.url}?range=1h"')
+        self.assertContains(d, "All metrics")
+
+    @override_settings(PROMETHEUS_URL=PROM)
+    def test_bad_range_falls_back(self):
+        self.client.force_login(self.viewer)
+        r = self.client.get(self.url + "?range=99y")
+        self.assertEqual(r.context["range_key"], "1h")
+
+    @override_settings(PROMETHEUS_URL=PROM)
+    def test_prometheus_error_renders_panel(self):
+        self.client.force_login(self.viewer)
+        with mock.patch("core.prometheus.query_range", side_effect=prometheus.PrometheusError("Prometheus unreachable: boom")):
+            r = self.client.get(self.url)
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Prometheus unreachable: boom")
+        self.assertContains(r, "Prometheus query failed")
+        self.assertNotContains(r, "Traceback")
+        self.assertNotContains(r, 'id="compute"')
+        with mock.patch("core.prometheus.query", side_effect=ValueError("not json")):
+            r = self.client.get(self.url + "?refresh=1")
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "unexpected response")
+
+    @override_settings(PROMETHEUS_URL=PROM)
+    def test_unknown_instance_404(self):
+        self.client.force_login(self.viewer)
+        with mock.patch("core.prometheus.query", return_value=[]):
+            r = self.client.get(reverse("telemetry:host_metrics", args=["gone:9100"]))
+        self.assertEqual(r.status_code, 404)
+        self.assertContains(r, "Host not found", status_code=404)
+        self.qr.assert_not_called()
+
+    @override_settings(PROMETHEUS_URL=PROM)
+    def test_site_scoped_user_denied_like_host_detail(self):
+        if not _has_model("cmdb", "ConfigurationItem"):
+            self.skipTest("cmdb not installed")
+        CI = apps.get_model("cmdb", "ConfigurationItem")
+        try:
+            CI.objects.create(name="DB Server 1", ci_type="server", prometheus_instance=FULL_INST, site="DR Site")
+        except Exception as e:  # pragma: no cover
+            self.skipTest(f"cannot create CI: {e}")
+        mum = Site.objects.create(name="Mumbai", code="mum")
+        Site.objects.create(name="DR Site", code="dr")
+        u = User.objects.create_user("mumviewer")
+        Membership.objects.create(user=u, site=mum, role="viewer")
+        self.client.force_login(u)
+        self.assertEqual(self.client.get(self.url).status_code, 404)
+        self.assertEqual(self.client.get(reverse("telemetry:host_detail", args=[FULL_INST])).status_code, 404)
+        self.q.assert_not_called()
+        self.client.force_login(self.admin)
+        r = self.client.get(self.url)
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "CMDB: DB Server 1")
+        self.assertContains(r, "DR Site")
+
+    @override_settings(PROMETHEUS_URL=PROM)
+    def test_get_never_mutates(self):
+        self.client.force_login(self.admin)
+        before = AuditEvent.objects.count()
+        self.client.get(self.url)
+        self.client.get(self.url + "?refresh=1")
+        self.assertEqual(AuditEvent.objects.count(), before)
+
+    @override_settings(PROMETHEUS_URL=PROM)
+    def test_vm_placements_listed_and_site_scoped(self):
+        if not (_has_model("compute", "VMPlacement") and _has_model("network", "Device")):
+            self.skipTest("compute or network not installed")
+        Device = apps.get_model("network", "Device")
+        VMP = apps.get_model("compute", "VMPlacement")
+        try:
+            hostdev = Device.objects.create(name="hv-01", device_type="physical_server", mgmt_ip="10.0.0.1",
+                                            prometheus_instance=FULL_INST, site="Mumbai")
+            vm1 = Device.objects.create(name="vm-alpha", device_type="virtual_machine", mgmt_ip="10.0.0.2", site="Mumbai")
+            vm2 = Device.objects.create(name="vm-dr-only", device_type="virtual_machine", mgmt_ip="10.0.0.3", site="DR Site")
+            VMP.objects.create(vm=vm1, host=hostdev, vcpus=4, os="Debian 12")
+            VMP.objects.create(vm=vm2, host=hostdev, vcpus=2)
+        except Exception as e:  # pragma: no cover - other module's required fields changed
+            self.skipTest(f"cannot create placement: {e}")
+        self.client.force_login(self.admin)
+        r = self.client.get(self.url)
+        self.assertContains(r, "vm-alpha")
+        self.assertContains(r, "vm-dr-only")
+        self.assertContains(r, "Debian 12")
+        mum = Site.objects.create(name="Mumbai", code="mum")
+        Site.objects.create(name="DR Site", code="dr")
+        u = User.objects.create_user("mumviewer2")
+        Membership.objects.create(user=u, site=mum, role="viewer")
+        self.client.force_login(u)
+        r = self.client.get(self.url)
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "vm-alpha")
+        self.assertNotContains(r, "vm-dr-only")

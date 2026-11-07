@@ -1,0 +1,37 @@
+{% extends "core/base.html" %}{% load le static compute_tags %}
+{% block title %}Placement · {{ vm.name }}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'compute/page.css' %}">{% endblock %}
+{% block crumbs %}{% url 'compute:vms' as s_url %}{% include "compute/_crumbs.html" with section="Virtual Machines" section_url=s_url leaf=vm.name %}{% endblock %}
+{% block content %}
+<div class="pg-compute">
+<div class="head">
+  <div class="glyph">{% icon "cloud" 30 %}</div>
+  <div><h1>{{ vm.name }}{% if vm.is_example %}<span class="chip mute">example</span>{% endif %}</h1>
+    <p>{% if placement %}Edit{% else %}Record{% endif %} where this VM runs and what it was given · <span class="mono">{{ vm.mgmt_ip }}</span> · {{ vm.site|default:"All Sites" }} · <a href="{{ vm.get_absolute_url }}">Open device</a></p></div>
+</div>
+<form method="post" class="panel cm-form" novalidate>{% csrf_token %}
+  <input type="hidden" name="next" value="{{ next }}">
+  {% for e in form.non_field_errors %}<p class="err">{{ e }}</p>{% endfor %}
+  <div class="form-grid">
+    {% for f in form.visible_fields %}
+    <div class="field{% if f.name == 'notes' %} full{% endif %}">
+      <label for="{{ f.id_for_label }}">{{ f.label }}{% if f.field.required %} <span class="req">*</span>{% endif %}</label>{{ f }}
+      {% if f.help_text %}<span class="hint">{{ f.help_text }}</span>{% endif %}
+      {% for e in f.errors %}<span class="err">{{ e }}</span>{% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+  <p class="cm-note">Only physical servers on the VM's site (or global ones) can be its host; the cluster must be a hypervisor cluster the host belongs to. vCPU and RAM are checked against the host's entered capacity.</p>
+  <div class="cm-form-foot">
+    <a class="btn" href="{{ next }}">Cancel</a>
+    <button class="btn primary" type="submit">{% if placement %}Save placement{% else %}Record placement{% endif %}</button>
+  </div>
+</form>
+{% if can_delete %}
+<form method="post" class="panel" action="{% url 'compute:placement_delete' placement.pk %}" data-confirm="Remove the placement data of {{ vm.name }}? The VM stays in the device inventory.">{% csrf_token %}<input type="hidden" name="next" value="{{ next }}">
+  <div class="panel-h"><h2>Remove placement data</h2><div class="right"><button class="btn" type="submit">{% icon "trash" 17 %}Remove</button></div></div>
+  <p class="cm-note">Deletes the host, cluster, power state and sizing recorded for this VM. The device record is not touched.</p>
+</form>
+{% endif %}
+</div>
+{% endblock %}

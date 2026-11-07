@@ -1,0 +1,62 @@
+{% extends "core/base.html" %}{% load le static compute_tags %}
+{% block title %}Clusters{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'compute/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "compute/_crumbs.html" with section="Clusters" %}{% endblock %}
+{% block content %}
+<div class="pg-compute">
+<div class="head">
+  <div class="glyph">{% icon "layers" 30 %}</div>
+  <div><h1>Clusters</h1><p>VMware, Proxmox, Hyper-V and Kubernetes clusters: their member hosts, placed VMs and allocated versus physical capacity.</p></div>
+  <div class="actions">
+    <a class="btn" href="{% url 'compute:clusters_export' %}?{{ query.urlencode }}">{% icon "download" 17 %}Export CSV</a>
+    {% if can_operate %}<a class="btn primary" href="{% url 'compute:cluster_create' %}">{% icon "plus" 17 %}Add cluster</a>{% endif %}
+  </div>
+</div>
+{% include "compute/_tabs.html" with tab="clusters" %}
+
+<section class="kpis cm-kpis-4" aria-label="Summary">
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "layers" 22 %}</div><div class="kpi-body"><div class="label">Clusters</div><div class="value">{{ total }}</div></div></div><div class="sub wrap" title="{{ kinds_text }}">{{ kinds_text }}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-ok">{% icon "server" 22 %}</div><div class="kpi-body"><div class="label">Hypervisor Hosts</div><div class="value">{{ hypervisor_hosts }}</div></div></div><div class="sub">Physical servers in hypervisor clusters</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-purple">{% icon "cloud" 22 %}</div><div class="kpi-body"><div class="label">VMs in Clusters</div><div class="value">{{ vms_in_clusters }}</div></div></div><div class="sub">Placements that name a cluster</div></div>
+  <a class="kpi stacked kpi-link" href="{% url 'compute:kubernetes' %}"><div class="kpi-top"><div class="tile {% if k8s_degraded %}s-warn{% else %}s-ok{% endif %}">{% icon "hexagon" 22 %}</div><div class="kpi-body"><div class="label">Kubernetes Degraded</div><div class="value">{{ k8s_degraded }}</div></div></div><div class="sub">From the last kube-state-metrics collection</div></a>
+</section>
+
+<div class="panel">
+  <div class="panel-h"><h2>Clusters ({{ page.paginator.count }})</h2>
+    <div class="right"><a class="btn sm ghost-primary" href="{% url 'compute:clusters_export' %}?{{ query.urlencode }}">{% icon "download" 15 %}CSV</a></div></div>
+  <form class="toolbar compact" method="get">
+    {% if request.GET.per %}<input type="hidden" name="per" value="{{ request.GET.per }}">{% endif %}
+    <label class="search">{% icon "search" 16 %}<input type="search" name="q" value="{{ request.GET.q }}" placeholder="Name, description, tag or selector…" aria-label="Search clusters"></label>
+    <select name="kind" data-autosubmit aria-label="Kind"><option value="">Any kind</option>{% for v, l in kind_choices %}<option value="{{ v }}"{% if request.GET.kind == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <select name="site" data-autosubmit aria-label="Site"><option value="">All sites</option>{% for s in sites %}<option value="{{ s }}"{% if request.GET.site == s %} selected{% endif %}>{{ s }}</option>{% endfor %}</select>
+    <a class="btn icon blue" href="{% url 'compute:clusters' %}" title="Clear filters" aria-label="Clear filters">{% icon "refresh" 16 %}</a>
+  </form>
+  <div class="table-wrap dense"><table>
+    <thead><tr><th>Cluster</th><th>Kind</th><th>Site</th><th class="num">Members</th><th class="num">VMs</th><th class="num">vCPU</th><th class="num">RAM</th><th>Prometheus selector</th><th>State</th><th>Actions</th></tr></thead>
+    <tbody>
+    {% for c in rows %}
+      <tr>
+        <td class="trunc"><a href="{{ c.get_absolute_url }}">{{ c.name }}</a>{% if c.is_example %} <span class="chip mute" title="Created by seed_compute">example</span>{% endif %}{% if c.description %}<span class="sub" title="{{ c.description }}">{{ c.description|truncatechars:70 }}</span>{% endif %}</td>
+        <td><span class="chip{% if c.is_kubernetes %} teal{% endif %}">{{ c.get_kind_display }}</span></td>
+        <td class="trunc">{{ c.site|default:"All Sites" }}</td>
+        <td class="num">{{ c.member_count }}</td>
+        <td class="num">{% if c.is_kubernetes %}<span class="t-mute">–</span>{% else %}{{ c.vm_count }}{% if c.vm_count and c.running != c.vm_count %}<span class="sub">{{ c.running }} running</span>{% endif %}{% endif %}</td>
+        <td class="num">{% if c.is_kubernetes %}<span class="t-mute">–</span>{% else %}{{ c.vcpus|num }}{% endif %}</td>
+        <td class="num">{% if c.is_kubernetes %}<span class="t-mute">–</span>{% else %}{{ c.memory_gb|gb }}{% endif %}</td>
+        <td class="mono">{% if c.prometheus_selector %}<code>{{ c.prometheus_selector }}</code>{% else %}<span class="t-mute">–</span>{% endif %}</td>
+        <td>{% if c.is_kubernetes %}{% if c.k8s_state == 'ok' %}{% badge "healthy" %}{% elif c.k8s_state == 'warning' %}{% badge "degraded" %}{% else %}{% badge "unknown" "Not collected" %}{% endif %}{% else %}<span class="t-mute">–</span>{% endif %}</td>
+        <td><div class="row-actions">
+          {% if not c.can_manage and not c.can_delete %}<a class="btn icon" href="{{ c.get_absolute_url }}" title="View" aria-label="View {{ c.name }}">{% icon "eye" 15 %}</a>{% endif %}
+          {% if c.can_manage %}<a class="btn icon blue" href="{% url 'compute:cluster_edit' c.pk %}" title="Edit" aria-label="Edit {{ c.name }}">{% icon "edit" 15 %}</a>{% endif %}
+          {% if c.can_delete %}<form method="post" action="{% url 'compute:cluster_delete' c.pk %}" data-confirm="Delete cluster {{ c.name }}? Its memberships are removed; VM placements lose their cluster but keep their host.">{% csrf_token %}<button class="btn icon red" type="submit" title="Delete" aria-label="Delete {{ c.name }}">{% icon "trash" 15 %}</button></form>{% endif %}
+        </div></td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="10" class="empty">{% if request.GET.q or request.GET.kind or request.GET.site %}No clusters match these filters.{% else %}No clusters yet.{% if can_operate %} <a href="{% url 'compute:cluster_create' %}">Add the first cluster</a>.{% endif %}{% endif %}</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  {% include "core/_pager.html" with pager_noun="clusters" %}
+  <p class="cm-note">vCPU and RAM are what running and suspended VMs placed in the cluster were given. The Prometheus selector (label="value" pairs) picks the cluster's kube-state-metrics series.</p>
+</div>
+</div>
+{% endblock %}

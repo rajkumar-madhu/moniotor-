@@ -787,6 +787,7 @@ SITE_NAME_FIELDS = [
     ("dcim", "Room", "site", "Data centre rooms"),
     ("dcim", "Rack", "site", "Racks"),
     ("dcim", "CoolingUnit", "site", "Cooling units"),
+    ("compute", "Cluster", "site", "Compute clusters"),
 ]
 
 

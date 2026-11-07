@@ -178,3 +178,74 @@
   .pg-telemetry .tm-receiver dl.kv { grid-template-columns: minmax(0, 1fr); }
   .pg-telemetry .tm-receiver dl.kv dt { margin-top: 4px; }
 }
+
+/* ---------- host metrics: Netdata-style full node page (telemetry/host_metrics.html) ---------- */
+.pg-telemetry .hm-layout { display: grid; grid-template-columns: minmax(0, 1fr) 188px; gap: 18px; align-items: start; }
+.pg-telemetry .hm-main { display: flex; flex-direction: column; gap: 26px; min-width: 0; }
+.pg-telemetry .hm-section { display: flex; flex-direction: column; gap: 12px; scroll-margin-top: 72px; min-width: 0; }
+.pg-telemetry .hm-sec-h { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.pg-telemetry .hm-sec-h h2 { font: 600 22px/1.2 var(--serif); letter-spacing: -.01em; }
+.pg-telemetry .hm-sec-h .eyebrow { color: var(--muted); }
+.pg-telemetry .hm-sec-h .right { margin-left: auto; color: var(--muted); font-size: 12.5px; }
+.pg-telemetry .hm-toc { position: sticky; top: 72px; min-width: 0; }
+.pg-telemetry .hm-toc .eyebrow { display: block; margin: 0 0 8px 14px; }
+.pg-telemetry .hm-toc nav { display: flex; flex-direction: column; gap: 1px; border-left: 2px solid var(--line); }
+.pg-telemetry .hm-toc nav a { padding: 6px 12px; color: var(--ink-2); font-size: 13.5px; margin-left: -2px; border-left: 2px solid transparent; min-width: 0; overflow-wrap: anywhere; }
+.pg-telemetry .hm-toc nav a:hover { text-decoration: none; color: var(--ink); background: var(--panel-2); }
+.pg-telemetry .hm-toc nav a.on { color: var(--ink); border-left-color: var(--brand); font-weight: 600; }
+.pg-telemetry .hm-toc nav a .n { float: right; color: var(--muted); font: 500 11px/1.6 var(--mono); }
+.pg-telemetry .hm-toc select { display: none; width: 100%; }
+.pg-telemetry .hm-toc .hm-foot { margin: 12px 0 0 14px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.pg-telemetry .hm-chart .panel-h { margin-bottom: 8px; align-items: baseline; }
+.pg-telemetry .hm-chart .panel-h h2 { font-size: 15.5px; }
+.pg-telemetry .hm-chart .tm-chart { height: 190px; }
+.pg-telemetry .hm-unit { font: 500 11px/1.4 var(--mono); letter-spacing: .04em; color: var(--muted); }
+.pg-telemetry .hm-explore { font-size: 12.5px; font-weight: 600; display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
+.pg-telemetry .hm-legend { margin-top: 10px; }
+.pg-telemetry .hm-legend table { table-layout: auto; }
+.pg-telemetry .hm-legend th, .pg-telemetry .hm-legend td { padding: 3px 6px; }
+.pg-telemetry .hm-legend th { letter-spacing: .06em; font-size: 10px; }
+.pg-telemetry .hm-legend th.num { letter-spacing: .06em; font-size: 10px; }
+.pg-telemetry .hm-legend td.name { white-space: normal; overflow-wrap: anywhere; min-width: 90px; width: 100%; color: var(--ink); font-size: 12px; }
+.pg-telemetry .hm-legend td.name i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 7px; vertical-align: -1px; }
+.pg-telemetry .hm-legend td.num { font-size: 11.5px; padding-left: 4px; padding-right: 6px; }
+.pg-telemetry .hm-missing { display: flex; gap: 8px; align-items: flex-start; padding: 12px 14px; border: 1px dashed var(--line); border-radius: 10px;
+  background: var(--panel-2); color: var(--muted); font-size: 13px; overflow-wrap: anywhere; min-height: 60px; }
+.pg-telemetry .hm-missing .ic { margin-top: 2px; color: var(--stone); }
+.pg-telemetry .hm-missing code { background: none; padding: 0; color: var(--ink-2); }
+.pg-telemetry .hm-more { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.pg-telemetry .hm-groups { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.pg-telemetry .hm-groups a.chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-telemetry .hm-cores { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 14px; font-size: 12.5px; }
+.pg-telemetry .hm-cores .core { display: grid; grid-template-columns: 44px 1fr 46px; gap: 8px; align-items: center; }
+.pg-telemetry .hm-cores .core .lbl { font: 500 12px var(--mono); color: var(--ink-2); }
+.pg-telemetry .hm-cores .core .val { text-align: right; font: 500 12px var(--mono); }
+.pg-telemetry .hm-cores .track { height: 8px; background: var(--line-soft); border-radius: 3px; overflow: hidden; }
+.pg-telemetry .hm-cores .track i { display: block; height: 100%; border-radius: 3px; }
+.pg-telemetry .hm-state { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; }
+.pg-telemetry .hm-state::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--stone-2); }
+.pg-telemetry .hm-state.ok::before { background: var(--ok); }
+.pg-telemetry .hm-state.crit::before { background: var(--crit); }
+.pg-telemetry .hm-kv dl.kv { grid-template-columns: 150px 1fr; }
+.pg-telemetry .hm-section .tm-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.pg-telemetry .hm-section .tm-kpis .kpi { padding: 12px; }
+.pg-telemetry .hm-section .tm-kpis .kpi .value { font-size: 24px; white-space: normal; }
+@media (min-width: 1281px) { .pg-telemetry .hm-section .tm-kpis { grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; } }
+@media (max-width: 860px) { .pg-telemetry .hm-section .tm-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; } }
+@media (max-width: 1080px) {
+  .pg-telemetry .hm-layout { grid-template-columns: minmax(0, 1fr); }
+  .pg-telemetry .hm-toc { order: -1; top: 58px; z-index: 4; background: var(--bg); padding: 6px 0 8px; }
+  .pg-telemetry .hm-toc nav, .pg-telemetry .hm-toc .eyebrow, .pg-telemetry .hm-toc .hm-foot { display: none; }
+  .pg-telemetry .hm-toc select { display: block; }
+  .pg-telemetry .hm-section { scroll-margin-top: 112px; }
+}
+@media (max-width: 860px) {
+  .pg-telemetry .hm-kv dl.kv { grid-template-columns: minmax(0, 1fr); }
+  .pg-telemetry .hm-kv dl.kv dt { margin-top: 4px; }
+  .pg-telemetry .hm-sec-h h2 { font-size: 19px; }
+  .pg-telemetry .hm-cores { grid-template-columns: minmax(0, 1fr); }
+  .pg-telemetry .hm-chart .tm-chart { height: 160px; }
+  .pg-telemetry .hm-legend th, .pg-telemetry .hm-legend td { padding: 3px 4px; }
+  .pg-telemetry .hm-legend td.name { min-width: 64px; font-size: 11.5px; }
+  .pg-telemetry .hm-legend td.num { font-size: 11px; padding-left: 2px; padding-right: 4px; }
+}

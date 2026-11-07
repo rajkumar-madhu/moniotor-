@@ -1,0 +1,77 @@
+{% extends "core/base.html" %}{% load le static compute_tags %}
+{% block title %}Kubernetes{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'compute/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "compute/_crumbs.html" with section="Kubernetes" %}{% endblock %}
+{% block content %}
+<div class="pg-compute">
+<div class="head">
+  <div class="glyph">{% icon "hexagon" 30 %}</div>
+  <div><h1>Kubernetes</h1><p>Node readiness, pod phases, namespaces and deployments per cluster, read from kube-state-metrics through Prometheus.</p></div>
+  <div class="actions">
+    {% if can_operate %}<a class="btn primary" href="{% url 'compute:cluster_create' %}?kind=kubernetes">{% icon "plus" 17 %}Add Kubernetes cluster</a>{% endif %}
+  </div>
+</div>
+{% include "compute/_tabs.html" with tab="kubernetes" %}
+
+<section class="kpis cm-kpis-5" aria-label="Summary">
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "hexagon" 22 %}</div><div class="kpi-body"><div class="label">Clusters</div><div class="value">{{ total }}</div></div></div><div class="sub">{{ with_selector }} with a Prometheus selector{% if prom_on %} · {{ totals.live }} reporting{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile {% if totals.not_ready %}s-crit{% elif totals.live %}s-ok{% else %}s-mute{% endif %}">{% icon "server" 22 %}</div><div class="kpi-body"><div class="label">Nodes Ready</div><div class="value">{% if totals.live %}{{ totals.ready }} <small>/ {{ totals.nodes }}</small>{% else %}–{% endif %}</div></div></div><div class="sub">{% if totals.live %}{{ totals.not_ready }} NotReady{% else %}kube_node_status_condition{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile {% if totals.failed %}s-warn{% elif totals.live %}s-ok{% else %}s-mute{% endif %}">{% icon "box" 22 %}</div><div class="kpi-body"><div class="label">Pods</div><div class="value">{% if totals.live %}{{ totals.pods }}{% else %}–{% endif %}</div></div></div><div class="sub">{% if totals.live %}{{ totals.running }} running · {{ totals.pending }} pending · {{ totals.failed }} failed{% else %}kube_pod_status_phase{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-purple">{% icon "grid" 22 %}</div><div class="kpi-body"><div class="label">Namespaces</div><div class="value">{% if totals.live %}{{ totals.namespaces }}{% else %}–{% endif %}</div></div></div><div class="sub">{% if totals.live %}{{ totals.deployments }} deployments{% else %}kube_namespace_created{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile {% if totals.unavailable %}s-crit{% elif totals.live %}s-ok{% else %}s-mute{% endif %}">{% icon "alert" 22 %}</div><div class="kpi-body"><div class="label">Unavailable</div><div class="value">{% if totals.live %}{{ totals.unavailable }}{% else %}–{% endif %}</div></div></div><div class="sub">{% if totals.live %}Deployments missing replicas{% else %}kube_deployment_status_replicas_unavailable{% endif %}</div></div>
+</section>
+
+{% if not prom_on %}
+<div class="panel"><div class="cm-empty" role="status">{% icon "plug" 32 %}
+  <p><b>Prometheus is not connected.</b> Kubernetes health is read from <b>kube-state-metrics</b> through Prometheus. Set <code>LINKEDEYE_PROMETHEUS_URL</code> on the LinkedEye server, make sure Prometheus scrapes kube-state-metrics for each cluster, and give every Kubernetes cluster a selector such as <code>cluster="prod-k8s"</code>. Nothing is shown until then – this page never displays made-up data.</p>
+  <p class="small">Metrics used: {% for m in required_metrics %}<code>{{ m }}</code>{% if not forloop.last %} {% endif %}{% endfor %}</p>
+</div></div>
+{% endif %}
+
+{% if not total %}
+<div class="panel"><div class="cm-empty">{% icon "hexagon" 32 %}
+  <p><b>No Kubernetes clusters yet.</b> Add a cluster of kind “Kubernetes” with the label matchers that select its kube-state-metrics series; its control-plane and worker nodes can be linked as members from the device inventory.</p>
+  {% if can_operate %}<div class="btns"><a class="btn primary sm" href="{% url 'compute:cluster_create' %}?kind=kubernetes">{% icon "plus" 15 %}Add Kubernetes cluster</a></div>{% endif %}
+</div></div>
+{% endif %}
+
+{% for c in rows %}
+<div class="panel">
+  <div class="panel-h"><h2><a href="{{ c.get_absolute_url }}">{{ c.name }}</a>{% if c.is_example %} <span class="chip mute">example</span>{% endif %}</h2>
+    <small>{{ c.site|default:"All Sites" }}{% if c.prometheus_selector %} · <code>{{ c.prometheus_selector }}</code>{% endif %}</small>
+    <div class="right">
+      {% if c.summary %}{% if c.state == 'warning' %}{% badge "degraded" %}{% else %}{% badge "healthy" %}{% endif %}{% elif c.k8s_state == 'warning' and c.cached %}{% badge "degraded" "Degraded (cached)" %}{% elif c.k8s_state == 'ok' and c.cached %}{% badge "healthy" "Healthy (cached)" %}{% else %}{% badge "unknown" "Not collected" %}{% endif %}
+      {% if c.can_manage and prom_on and c.prometheus_selector %}<form method="post" action="{% url 'compute:cluster_refresh' c.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{% url 'compute:kubernetes' %}"><button class="btn sm" type="submit">{% icon "refresh" 14 %}Collect now</button></form>{% endif %}
+    </div></div>
+  {% if c.summary %}{% with s=c.summary %}
+  <div class="cm-k8s">
+    <div>
+      <div class="cm-stats">
+        <div class="cell"><b class="{% if s.nodes.not_ready %}t-crit{% endif %}">{{ s.nodes.ready }} / {{ s.nodes.total }}</b><span>Nodes Ready</span></div>
+        <div class="cell"><b>{{ s.pods_total }}</b><span>Pods</span></div>
+        <div class="cell"><b>{{ s.namespaces }}</b><span>Namespaces</span></div>
+        <div class="cell"><b>{{ s.deployments }}</b><span>Deployments</span></div>
+        <div class="cell"><b class="{% if s.unavailable_count %}t-crit{% endif %}">{{ s.unavailable_count }}</b><span>Unavailable</span></div>
+        <div class="cell"><b class="{% if s.pods.Failed %}t-warn{% endif %}">{{ s.pods.Failed }}</b><span>Failed pods</span></div>
+      </div>
+      {% if s.not_ready_nodes %}<p class="cm-note"><b>NotReady:</b> {{ s.not_ready_nodes|join:", " }}</p>{% endif %}
+      {% if s.unavailable %}<p class="cm-note"><b>Unavailable replicas:</b> {% for u in s.unavailable|slice:":8" %}<code>{{ u.namespace }}/{{ u.deployment }}</code> ({{ u.replicas }}){% if not forloop.last %}, {% endif %}{% endfor %}{% if s.unavailable_count > 8 %} …{% endif %}</p>{% endif %}
+    </div>
+    <div><div class="chart" data-chart="bars" data-src="{{ c.pods_id }}" style="height:160px"></div><p class="cm-note">Pods by phase · live, cached 30 s</p></div>
+  </div>
+  {{ c.pod_bars|json_script:c.pods_id }}
+  {% endwith %}
+  {% elif not prom_on %}
+  <p class="cm-note">Prometheus not connected – no data for this cluster.{% if c.cached %} The last collected summary ({{ c.k8s_checked_at|ago }}) is not shown live.{% endif %}</p>
+  {% elif c.problem == 'no_selector' %}
+  <div class="cm-alert warn"><span>{% icon "alert" 16 %}</span><p><b>No Prometheus selector.</b> Add label matchers (e.g. <code>cluster="{{ c.name }}"</code>) to this cluster so its kube-state-metrics series can be selected.{% if c.can_manage %} <a href="{% url 'compute:cluster_edit' c.pk %}">Edit cluster</a>.{% endif %}</p></div>
+  {% elif c.problem == 'missing' %}
+  <div class="cm-empty" role="status">{% icon "search" 26 %}<p><b>No kube-state-metrics series found.</b> Prometheus answered, but no <code>kube_node_status_condition</code> or <code>kube_pod_status_phase</code> series match <code>{{ c.prometheus_selector }}</code>. Deploy <b>kube-state-metrics</b> in this cluster, scrape it with Prometheus and make sure its series carry these labels (for example via <code>external_labels</code> or a relabel rule).</p></div>
+  {% elif c.problem %}
+  <div class="cm-alert crit"><span>{% icon "alert" 16 %}</span><p><b>Prometheus query failed:</b> {{ c.problem }}</p></div>
+  {% endif %}
+</div>
+{% endfor %}
+{% if paged %}<div class="panel">{% include "core/_pager.html" with pager_noun="clusters" %}</div>{% endif %}
+</div>
+{% endblock %}
