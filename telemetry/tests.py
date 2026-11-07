@@ -1,7 +1,9 @@
 """Telemetry tests. Every Prometheus and Nagios call is mocked; nothing touches the network."""
 import base64
+import hashlib
 import io
 import json
+import re
 import urllib.error
 from datetime import timedelta
 from unittest import mock
@@ -249,6 +251,43 @@ class HostServiceTests(PromMixin, TestCase):
         m = hosts.cmdb_map(["db-01:9100", "web-01:9100"])
         self.assertEqual(m["db-01:9100"].name, "DB Server 1")
         self.assertNotIn("web-01:9100", m)
+
+
+class RangeGridTests(TestCase):
+    """core.prometheus.query_range snaps the window to the step grid.
+
+    Prometheus evaluates a range query at exactly start + k*step, so two queries issued milliseconds apart would
+    otherwise come back on different grids. hosts.align unions the timestamps of a chart's series, so misaligned
+    grids leave every series full of gaps and break the shared `ts` axis the charts sync their crosshair on."""
+
+    def _calls(self, *specs):
+        with mock.patch("core.prometheus._get", return_value={"result": []}) as g:
+            for seconds, step in specs:
+                prometheus.query_range("node_load1", seconds, step)
+        return [c.args[1] for c in g.call_args_list]
+
+    def test_window_is_snapped_to_whole_steps(self):
+        p = self._calls((3600, 15))[0]
+        self.assertEqual(p["step"], 15)
+        self.assertEqual(p["end"] % 15, 0)
+        self.assertEqual(p["end"] - p["start"], 3600)
+        self.assertIsInstance(p["end"], int)
+
+    def test_queries_issued_apart_share_one_grid(self):
+        # the four range queries of one chart run concurrently; they must land on identical timestamps
+        # 1_699_999_995 is the step grid point the three clock readings fall into
+        with mock.patch("core.prometheus._get", return_value={"result": []}) as g, \
+             mock.patch("core.prometheus.time.time", side_effect=[1_699_999_995.0, 1_699_999_998.4, 1_700_000_009.9]):
+            for _ in range(3):
+                prometheus.query_range("node_load1", 3600, 15)
+        windows = {(c.args[1]["start"], c.args[1]["end"]) for c in g.call_args_list}
+        self.assertEqual(windows, {(1_699_999_995 - 3600, 1_699_999_995)})
+
+    def test_step_defaults_and_never_divides_by_zero(self):
+        self.assertEqual(self._calls((3600, None))[0]["step"], 30)
+        self.assertEqual(self._calls((3600, 0))[0]["step"], 30)
+        p = self._calls((7 * 86400, 1800))[0]
+        self.assertEqual((p["step"], p["end"] % 1800, p["end"] - p["start"]), (1800, 0, 7 * 86400))
 
 
 class TargetsServiceTests(TestCase):
@@ -1055,7 +1094,24 @@ class HostMetricsServiceTests(TestCase):
         steps = {call.args[2] for call in self.qr.call_args_list if "by (mode)" in call.args[0]}
         self.assertEqual(steps, {hosts.step_for(3600, hosts_full.STACKED_POINTS)})
         n_groups = sum(len(c["groups"]) for s in hosts_full.sections_spec(FULL_INST) for c in s["charts"])
-        self.assertEqual(full["query_count"], n_groups + len(hosts_full.instant_queries(FULL_INST)))
+        self.assertEqual(full["query_count"], n_groups + len(hosts_full.instant_queries(FULL_INST))
+                         + len(hosts_full.gauge_queries(FULL_INST)))
+        # summary strip: gauges with the change over the range, sparklines from series already fetched
+        S = full["summary"]
+        cpu = S["gauges"]["cpu"]
+        self.assertEqual((cpu["value"], cpu["unit"], cpu["max"], cpu["label"], cpu["text"]), (35.0, "%", 100, "CPU", "35.0%"))
+        self.assertEqual(cpu["delta"], {"value": 1.0, "text": "+1.0 pts in 1h"})      # cpu range series 10 -> 11
+        self.assertEqual([t["to"] for t in cpu["thresholds"]], [75.0, 90.0, 100])
+        self.assertEqual(S["gauges"]["memory"]["tone"], "ok")
+        self.assertIsNone(S["gauges"]["disk"]["delta"])                                 # no root-disk range rows in the fake
+        self.assertEqual(S["gauges"]["disk"]["value"], 40.0)
+        self.assertEqual(S["sparks"]["load"]["values"], [1.0, 2.0, 3.0])
+        self.assertEqual(S["sparks"]["diskio"]["values"], [1510.0, 2520.0])            # sda read + sdb read + sda write
+        self.assertEqual(S["kpis"]["cpu_sub"], "4 cores")
+        self.assertEqual(S["kpis"]["diskio"], "2.0 KB/s")
+        self.assertEqual(S["tones"]["load1"], "ok")
+        self.assertEqual(full["cores"][0]["grade"], "ok")
+        self.assertEqual(full["cores"][0]["text"], "30.0%")
 
     def test_full_is_cached_and_refresh_bypasses(self):
         host = hosts.fetch_host(FULL_INST, "6h")
@@ -1117,8 +1173,10 @@ class HostMetricsPageTests(TestCase):
         self.assertContains(r, 'data-chart="bars" data-src="hm-cpu_modes"')
         self.assertContains(r, 'id="hm-load"')
         # legend table: Last / Mean / Min / Max from the known 1, 2, 3 series
-        self.assertContains(r, '1 min</td><td class="num">3</td><td class="num">2</td><td class="num">1</td><td class="num">3</td>')
-        self.assertContains(r, 'user</td><td class="num">30.0%</td><td class="num">20.0%</td><td class="num">10.0%</td><td class="num">30.0%</td>')
+        self.assertContains(r, '1 min</td><td class="num" data-col="last">3</td><td class="num" data-col="mean">2</td>'
+                               '<td class="num" data-col="min">1</td><td class="num" data-col="max">3</td>')
+        self.assertContains(r, 'user</td><td class="num" data-col="last">30.0%</td><td class="num" data-col="mean">20.0%</td>'
+                               '<td class="num" data-col="min">10.0%</td><td class="num" data-col="max">30.0%</td>')
         # honest lines for metrics the host does not export, instead of empty charts
         self.assertContains(r, "No <code>node_pressure_* metrics</code> for this host")
         self.assertContains(r, "No <code>node_memory_HugePages_* metrics</code> for this host")
@@ -1230,3 +1288,265 @@ class HostMetricsPageTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "vm-alpha")
         self.assertNotContains(r, "vm-dr-only")
+
+
+# ============================================================================= charts v2: ts, sync, gauges, Live mode
+class ChartPayloadTests(TestCase):
+    def test_align_emits_epoch_ts_aligned_with_labels(self):
+        d = hosts.align([("a", "#111", [(1_700_000_000.0, 1.0), (1_700_000_060.0, 2.0)]),
+                         ("b", "#222", [(1_700_000_060.0, 5.0), (1_700_000_120.5, None)])], 3600)
+        self.assertEqual(d["ts"], [1_700_000_000, 1_700_000_060, 1_700_000_120.5])
+        self.assertEqual(len(d["labels"]), len(d["ts"]))
+        self.assertEqual(len(d["tipLabels"]), len(d["ts"]))
+        self.assertEqual([s["values"] for s in d["series"]], [[1.0, 2.0, None], [None, 5.0, None]])
+        self.assertTrue(all(isinstance(t, (int, float)) for t in d["ts"]))
+
+    def test_delta_text(self):
+        self.assertEqual(hosts_full._delta([10.0, None, 11.25], "6h"), {"value": 1.25, "text": "+1.2 pts in 6h"})
+        self.assertEqual(hosts_full._delta([50.0, 48.0], "24h")["text"], "-2.0 pts in 24h")
+        self.assertEqual(hosts_full._delta([3.0, 3.01], "1h"), {"value": 0.0, "text": "no change in 1h"})
+        self.assertIsNone(hosts_full._delta([3.0], "1h"))
+        self.assertIsNone(hosts_full._delta([], "1h"))
+
+    def test_explorer_chart_carries_ts(self):
+        rows = [{"metric": {"__name__": "up"}, "values": [(1_700_000_000.0, 1.0), (1_700_000_060.0, 1.0)]}]
+        with mock.patch("core.prometheus.query_range", return_value=rows):
+            res = explorer.run("up", 3600, 15)
+        self.assertEqual(res["chart"]["ts"], [1_700_000_000, 1_700_000_060])
+
+
+AXES_KINDS = "line,area,bars"
+
+
+def chart_hosts(response):
+    """{data-src: {attribute: value}} for every charts.js host div in a rendered page.
+
+    Attributes are compared one by one so the assertions do not depend on the order the template writes them in."""
+    html = response.content.decode()
+    out = {}
+    for tag in re.findall(r"<div\b[^>]*\bdata-chart=\"[^\"]*\"[^>]*>", html):
+        attrs = dict(re.findall(r'([\w-]+)="([^"]*)"', tag))
+        out[attrs.get("data-src", "")] = attrs
+    return out
+
+
+class HostMetricsLiveTests(TestCase):
+    """Page markup for the charts.js v2 contract and the metrics.json endpoint behind Live mode."""
+
+    def assert_axes_chart(self, hosts_by_src, src, kind, group):
+        """One chart host opts into the engine's sync group and kind switch (contract: data-sync + data-kinds)."""
+        self.assertIn(src, hosts_by_src, sorted(hosts_by_src))
+        a = hosts_by_src[src]
+        self.assertEqual(a.get("data-chart"), kind, src)
+        self.assertEqual(a.get("data-sync"), group, src)
+        self.assertEqual(a.get("data-kinds"), AXES_KINDS, src)
+
+    def setUp(self):
+        cache.clear()
+        self.viewer, self.operator, self.admin = users()
+        ps = full_patches()
+        self.q, self.qr = [p.start() for p in ps]
+        for p in ps:
+            self.addCleanup(p.stop)
+        self.url = reverse("telemetry:host_metrics", args=[FULL_INST])
+        self.json_url = reverse("telemetry:host_metrics_json", args=[FULL_INST])
+
+    def test_json_route(self):
+        from django.urls import resolve
+        self.assertEqual(self.json_url, "/monitoring/infrastructure/db-01:9100/metrics.json")
+        self.assertEqual(resolve(self.json_url).url_name, "host_metrics_json")
+        self.assertEqual(resolve(self.json_url).kwargs["instance"], FULL_INST)
+        self.assertEqual(resolve("/monitoring/infrastructure/db-01:9100/").url_name, "host_detail")
+        self.assertEqual(Client().get(self.json_url).status_code, 302)                 # login required
+
+    @override_settings(PROMETHEUS_URL=PROM)
+    def test_page_markup_sync_kinds_legend_gauges_and_live_button(self):
+        self.client.force_login(self.viewer)
+        r = self.client.get(self.url + "?range=6h")
+        self.assertEqual(r.status_code, 200)
+        page = chart_hosts(r)
+        self.assert_axes_chart(page, "hm-load", "line", "host")
+        self.assert_axes_chart(page, "hm-cpu_modes", "bars", "host")
+        self.assertContains(r, 'data-chart-legend="hm-load"')
+        self.assertContains(r, '<tr data-series="1 min">')
+        self.assertContains(r, '<tr data-series="sda read">')
+        self.assertContains(r, 'data-col="last"')
+        self.assertContains(r, "Hover for values · drag to zoom · click a series to hide it · shift-click to isolate")
+        # gauges + sparklines in the summary strip, with their payloads
+        for dom in ("hm-g-cpu", "hm-g-memory", "hm-g-disk"):
+            self.assertEqual(page[dom]["data-chart"], "gauge")
+            self.assertContains(r, f'<script id="{dom}" type="application/json">')
+        self.assertEqual(page["hm-s-load"]["data-chart"], "spark")
+        self.assertEqual(page["hm-s-diskio"]["data-chart"], "spark")
+        self.assertNotIn("hm-s-net", page)                                            # no rx samples in range: no spark
+        self.assertContains(r, "+1.0 pts in 6h")
+        self.assertContains(r, 'data-kpi="cpu"')
+        self.assertContains(r, 'data-kpi="load1"')
+        self.assertContains(r, '<div class="core" data-cpu="3">')
+        # Live toggle, poll URL with the range, status text, error pill, page script
+        self.assertContains(r, 'id="hm-live" aria-pressed="false" data-live-url="/monitoring/infrastructure/db-01:9100/metrics.json?range=6h"')
+        self.assertContains(r, 'id="hm-updated"')
+        self.assertContains(r, 'id="hm-live-err" role="alert" hidden')
+        self.assertContains(r, "telemetry/host_metrics.js")
+        # Explore links still carry the PromQL
+        self.assertContains(r, "/monitoring/metrics-explorer/?expr=node_load1%7Binstance%3D%22db-01%3A9100%22%7D&amp;range=6h")
+        # every chart host on the page is in the "host" sync group with the kind switch
+        for src, a in page.items():
+            if a.get("data-chart") in ("line", "area", "bars"):
+                self.assert_axes_chart(page, src, a["data-chart"], "host")
+        # the other chart pages opt in to one sync group each
+        d = self.client.get(reverse("telemetry:host_detail", args=[FULL_INST]))
+        detail = chart_hosts(d)
+        for src in ("c-cpu", "c-mem", "c-load"):
+            self.assert_axes_chart(detail, src, "line", "host")
+        # (c-net is not rendered for this fixture: its rx/tx range query aggregates "by (instance)" and full_range
+        # answers that with no series, so host_detail shows "No network samples" instead of a chart.)
+        for src, a in detail.items():
+            if a.get("data-chart") in ("line", "area", "bars"):
+                self.assert_axes_chart(detail, src, a["data-chart"], "host")
+        self.assertContains(d, '"ts": [1700000000')
+
+    @override_settings(PROMETHEUS_URL=PROM)
+    def test_json_ok_for_visible_host(self):
+        self.client.force_login(self.viewer)
+        r = self.client.get(self.json_url)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r["Content-Type"], "application/json")
+        self.assertEqual(r["Cache-Control"], "no-store")
+        j = r.json()
+        self.assertEqual(set(j), {"generated", "instance", "range", "health", "summary", "tones", "charts", "legends", "cores"})
+        self.assertEqual(j["instance"], FULL_INST)
+        self.assertEqual(j["range"], "1h")
+        self.assertTrue(j["generated"].startswith("20"))
+        # every metric of the fixture host grades ok: cpu 35, memory 60, disk 40 (warn at 75/80/80) and
+        # load 2.0 over 4 cores = 0.5 per core (warn at 1.5) -> hosts.health_of returns "healthy"
+        self.assertEqual(j["health"], {"key": "healthy", "label": "Healthy", "tone": "ok"})
+        self.assertEqual(j["charts"]["hm-load"]["ts"], [1700000000, 1700000060, 1700000120])
+        # the load chart carries the three averages plus the core-count reference line (sections_spec)
+        self.assertEqual([s["name"] for s in j["charts"]["hm-load"]["series"]], ["1 min", "5 min", "15 min", "CPU cores"])
+        self.assertNotIn("hm-psi", j["charts"])                                         # absent metrics are not faked
+        self.assertEqual(j["charts"]["hm-g-cpu"]["delta"]["text"], "+1.0 pts in 1h")
+        self.assertEqual(j["charts"]["hm-g-disk"]["value"], 40.0)
+        self.assertEqual(j["charts"]["hm-s-load"]["values"], [1.0, 2.0, 3.0])
+        self.assertEqual(j["summary"]["cpu"], "35.0%")
+        self.assertEqual(j["summary"]["diskio"], "2.0 KB/s")
+        self.assertEqual(j["tones"]["cpu"], "ok")
+        self.assertEqual(j["legends"]["hm-load"][0], {"name": "1 min", "last": "3", "mean": "2", "min": "1", "max": "3"})
+        self.assertEqual([c["cpu"] for c in j["cores"]], ["3", "2", "1", "0"])
+        self.assertEqual(j["cores"][0]["text"], "30.0%")
+
+    @override_settings(PROMETHEUS_URL=PROM)
+    def test_json_respects_range_and_cache(self):
+        self.client.force_login(self.viewer)
+        j = self.client.get(self.json_url + "?range=6h").json()
+        self.assertEqual(j["range"], "6h")
+        self.assertEqual(j["charts"]["hm-g-cpu"]["delta"]["text"], "+1.0 pts in 6h")
+        self.assertEqual({c.args[1] for c in self.qr.call_args_list}, {6 * 3600})
+        n = self.qr.call_count
+        self.assertEqual(self.client.get(self.json_url + "?range=6h").status_code, 200)
+        self.assertEqual(self.qr.call_count, n)                                        # cached
+        self.assertEqual(self.client.get(self.json_url + "?range=6h&refresh=1").status_code, 200)
+        self.assertGreater(self.qr.call_count, n)                                      # refresh=1 bypasses
+        self.assertEqual(self.client.get(self.json_url + "?range=99y").json()["range"], "1h")
+
+    @override_settings(PROMETHEUS_URL=PROM)
+    def test_json_unknown_host_404(self):
+        self.client.force_login(self.viewer)
+        with mock.patch("core.prometheus.query", return_value=[]):
+            r = self.client.get(reverse("telemetry:host_metrics_json", args=["gone:9100"]))
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(r.json(), {"error": "No such host"})
+        self.qr.assert_not_called()
+
+    @override_settings(PROMETHEUS_URL=PROM)
+    def test_json_site_scoped_like_the_page(self):
+        if not _has_model("cmdb", "ConfigurationItem"):
+            self.skipTest("cmdb not installed")
+        CI = apps.get_model("cmdb", "ConfigurationItem")
+        try:
+            CI.objects.create(name="DB Server 1", ci_type="server", prometheus_instance=FULL_INST, site="DR Site")
+        except Exception as e:  # pragma: no cover
+            self.skipTest(f"cannot create CI: {e}")
+        mum = Site.objects.create(name="Mumbai", code="mum")
+        Site.objects.create(name="DR Site", code="dr")
+        u = User.objects.create_user("mumviewer3")
+        Membership.objects.create(user=u, site=mum, role="viewer")
+        self.client.force_login(u)
+        r = self.client.get(self.json_url)
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(r.json(), {"error": "No such host"})
+        self.q.assert_not_called()                                                     # denied before any query
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.get(self.json_url).status_code, 200)
+
+    @override_settings(PROMETHEUS_URL="")
+    def test_json_not_configured_503(self):
+        self.client.force_login(self.viewer)
+        r = self.client.get(self.json_url)
+        self.assertEqual(r.status_code, 503)
+        self.assertEqual(r.json(), {"error": "Prometheus is not configured"})
+        self.q.assert_not_called()
+
+    @override_settings(PROMETHEUS_URL=PROM)
+    def test_json_prometheus_error_503(self):
+        self.client.force_login(self.viewer)
+        with mock.patch("core.prometheus.query_range", side_effect=prometheus.PrometheusError("Prometheus unreachable: boom")):
+            r = self.client.get(self.json_url)
+        self.assertEqual(r.status_code, 503)
+        self.assertEqual(r.json(), {"error": "Prometheus unreachable: boom"})
+
+    @override_settings(PROMETHEUS_URL=PROM)
+    def test_a_cache_entry_from_before_the_summary_strip_is_not_served(self):
+        """fetch_host_full's cache key is versioned, so a payload cached by the previous release is ignored.
+
+        live_payload() reads full["summary"] and the per-core rows' grade/text directly; a v1 entry still in a
+        shared cache (Redis) after a deploy would 500 the Live poll and blank the gauges on the page."""
+        self.client.force_login(self.viewer)
+        stale = {"instance": FULL_INST, "range": "1h", "seconds": 3600, "step": 30, "bar_step": 60,
+                 "sections": [], "disk_read": None, "disk_write": None, "cores": [{"cpu": "0", "busy": 1.0}],
+                 "mounts": [], "ifaces": [], "containers": [], "system": {}, "query_count": 0}
+        key = "telemetry:hostfull:v1:" + hashlib.sha1(f"{FULL_INST}|1h".encode()).hexdigest()
+        cache.set(key, stale, 300)
+        j = self.client.get(self.json_url)
+        self.assertEqual(j.status_code, 200)
+        self.assertIn("hm-g-cpu", j.json()["charts"])
+        self.assertEqual(j.json()["cores"][0]["text"], "30.0%")
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+
+    @override_settings(PROMETHEUS_URL=PROM)
+    def test_json_is_strict_json_when_prometheus_sends_nan_and_inf(self):
+        """A "+Inf" / "NaN" sample (a rate over a counter reset, a 0/0 ratio) must reach the page as a gap or a dash.
+
+        JsonResponse and json_script both dump float('nan') as the bare token NaN, which JSON.parse rejects: the
+        Live poll would then show "unexpected response" and the page's charts would silently not draw."""
+        def bad(x):
+            raise AssertionError(f"non-JSON constant {x} in the response")
+        inf, nan = float("inf"), float("nan")
+
+        def q(promql, at=None):
+            rows = full_query(promql, at)
+            return [dict(r, value=inf if k % 3 == 0 else nan) if k % 2 == 0 else r for k, r in enumerate(rows)]
+
+        def qr(promql, seconds=3600, step=None):
+            out = []
+            for r in full_range(promql, seconds, step):
+                vals = [(t, inf if k == 1 else nan if k == 2 else v) for k, (t, v) in enumerate(r["values"])]
+                out.append(dict(r, values=vals))
+            return out
+        self.client.force_login(self.viewer)
+        with mock.patch("core.prometheus.query", side_effect=q), mock.patch("core.prometheus.query_range", side_effect=qr):
+            r = self.client.get(self.json_url + "?refresh=1")
+            self.assertEqual(r.status_code, 200)
+            json.loads(r.content, parse_constant=bad)
+            page = self.client.get(self.url + "?refresh=1")
+        self.assertEqual(page.status_code, 200)
+        for m in re.finditer(r'<script id="[^"]+" type="application/json">(.*?)</script>', page.content.decode(), re.S):
+            json.loads(m.group(1), parse_constant=bad)
+
+    @override_settings(PROMETHEUS_URL=PROM)
+    def test_json_get_never_mutates(self):
+        self.client.force_login(self.admin)
+        before = AuditEvent.objects.count()
+        self.client.get(self.json_url)
+        self.client.get(self.json_url + "?refresh=1")
+        self.assertEqual(AuditEvent.objects.count(), before)
