@@ -53,7 +53,9 @@ def device_snapshot(device, range_key=metrics.DEFAULT_RANGE, port_index=None):
     None), `ports` (front panel), `notes` (why a chart is missing) and the latest alert."""
     is_vm = device.device_type == DeviceType.VIRTUAL_MACHINE
     seconds = metrics.RANGES[metrics.range_key(range_key)]
-    interfaces = list(device.interfaces.all())
+    interfaces = metrics.current_interfaces(device)
+    if not device.enabled:
+        device.uptime_seconds = None   # in memory only: nothing is collected for a disabled device
     summary = services.interface_summary(interfaces)
     avail24 = services.availability([device.pk], 24).get(device.pk)
     avail7 = services.availability([device.pk], 24 * 7).get(device.pk)

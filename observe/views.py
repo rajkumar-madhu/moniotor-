@@ -9,7 +9,7 @@ from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
-from django.http import JsonResponse, StreamingHttpResponse
+from django.http import Http404, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -30,6 +30,7 @@ PER_CHOICES = (10, 20, 50, 100)
 MIN_BASE_LOGS = 50
 MIN_BASE_EVENTS = 5
 EXPORT_LIMIT = 100_000
+MAX_ID = 2**63 - 1   # the largest value a bigint primary key can hold: anything beyond overflows the driver
 LEGEND = [("active", "Active", "#0f7a55"), ("inactive", "Inactive", "#a8a398"), ("error", "Error", "#d92d20"),
           ("not_configured", "Not Configured", "#e08a00")]
 SEVERITIES = [("critical", "Critical"), ("warning", "Warning"), ("info", "Info"), ("ok", "Resolved")]
@@ -73,6 +74,10 @@ def _perms(request):
 
 
 def _exporter(request, pk):
+    # <int:pk> accepts any number of digits: an id the database cannot hold overflows the driver (a 500)
+    # instead of simply not matching, so it is a 404 here (mirrors servicedesk.views._check_pk)
+    if pk is not None and not 0 < pk <= MAX_ID:
+        raise Http404
     return get_object_or_404(services.exporters_for(request.user), pk=pk)
 
 
@@ -212,7 +217,6 @@ def exporter_form(request, pk=None):
             changed = list(form.changed_data)
             obj = form.save(commit=False)
             obj.tenant_key = settings.LINKEDEYE_TENANT
-            was_checked = bool(exp) and exp.status in (ExporterStatus.ACTIVE, ExporterStatus.ERROR)
             needs_scrape = obj.apply_config_status(url_changed=bool(exp) and "metrics_url" in changed)
             # scrape right away for a new exporter, or when its endpoint or enabled flag changed
             needs_scrape = needs_scrape and (not exp or bool({"metrics_url", "enabled"} & set(changed)))
@@ -222,7 +226,9 @@ def exporter_form(request, pk=None):
             except IntegrityError:
                 form.add_error("name", "An exporter with this name already exists.")
             else:
-                if exp and was_checked and obj.config_status() is not None:
+                # the edit left it unscrapeable: resolve any open failure whatever the previous status was
+                # (close_failure checks the last health event itself, so it never resolves twice)
+                if exp and obj.config_status() is not None:
                     services.close_failure(obj, "Disabled" if not obj.enabled else "Metrics URL removed")
                 if exp:
                     audit(request, "update", obj, changed=changed)
@@ -323,6 +329,11 @@ def exporters_export(request):
 IMPORT_MAX_BYTES = 1024 * 1024
 IMPORT_MAX_ROWS = 1000
 TRUE_WORDS = {"1", "true", "yes", "y", "on", "enabled"}
+# CSV column -> form/model field. An update only touches the columns the file actually carries, so a partial
+# file (e.g. name,type,category) cannot blank the rest of an existing exporter or re-enable a disabled one.
+IMPORT_COLUMNS = {"name": "name", "type": "exporter_type", "category": "category", "target": "target",
+                  "metrics_url": "metrics_url", "site": "site", "enabled": "enabled",
+                  "description": "description"}
 
 
 @require("operate")
@@ -385,17 +396,31 @@ def _import_rows(request, text, update_existing):
         if not cat:
             errors.append({"row": no, "error": f"Unknown category “{row.get('category', '')}”."})
             continue
-        # a blank "enabled" cell keeps the default (enabled), like every other optional column
-        data = {"name": row.get("name", ""), "exporter_type": row.get("type", ""), "category": cat,
-                "target": row.get("target", ""), "metrics_url": row.get("metrics_url", ""), "site": row.get("site", ""),
-                "enabled": (row.get("enabled") or "yes").lower() in TRUE_WORDS, "description": row.get("description", "")}
-        existing = Exporter.objects.filter(tenant_key=settings.LINKEDEYE_TENANT, name__iexact=data["name"]).first()
+        name = row.get("name", "")
+        existing = Exporter.objects.filter(tenant_key=settings.LINKEDEYE_TENANT, name__iexact=name).first()
         if existing and not update_existing:
-            errors.append({"row": no, "error": f"“{data['name']}” already exists (tick “Update exporters that already exist”)."})
+            errors.append({"row": no, "error": f"“{name}” already exists (tick “Update exporters that already exist”)."})
             continue
         if existing and not services.can_manage(request.user, "operate", existing.site):
             errors.append({"row": no, "error": f"You cannot manage “{existing.name}”."})
             continue
+        # an update starts from the exporter as it is now, so columns the file leaves out keep their value;
+        # a new exporter starts from the field defaults
+        if existing:
+            data = {field: getattr(existing, field) for field in IMPORT_COLUMNS.values()}
+        else:
+            data = {field: "" for field in IMPORT_COLUMNS.values()}
+            data["enabled"] = True
+        for col, field in IMPORT_COLUMNS.items():
+            if col not in fields:
+                continue
+            if field == "enabled":
+                cell = row.get(col, "")
+                if cell:      # a blank "enabled" cell keeps the current value (enabled, for a new exporter)
+                    data["enabled"] = cell.lower() in TRUE_WORDS
+            else:
+                data[field] = row.get(col, "")
+        data["category"] = cat
         form = ExporterForm(data, instance=existing)
         if data["site"] and data["site"] not in dict(form.fields["site"].choices):
             form.fields["site"].choices = list(form.fields["site"].choices) + [(data["site"], data["site"])]
@@ -407,7 +432,6 @@ def _import_rows(request, text, update_existing):
             errors.append({"row": no, "error": f"You cannot manage exporters on site “{data['site']}”."})
             continue
         changed = list(form.changed_data)
-        existing_checked = bool(existing) and existing.status in (ExporterStatus.ACTIVE, ExporterStatus.ERROR)
         obj = form.save(commit=False)
         obj.tenant_key = settings.LINKEDEYE_TENANT
         obj.apply_config_status(url_changed=bool(existing) and "metrics_url" in changed)
@@ -417,7 +441,8 @@ def _import_rows(request, text, update_existing):
         except IntegrityError:
             errors.append({"row": no, "error": f"“{data['name']}” already exists."})
             continue
-        if existing and existing_checked and obj.config_status() is not None:
+        # the import left it unscrapeable: resolve any open failure whatever the previous status was
+        if existing and obj.config_status() is not None:
             services.close_failure(obj, "Disabled" if not obj.enabled else "Metrics URL removed")
         if existing:
             updated += 1
@@ -564,7 +589,11 @@ def logs(request):
 @require("view")
 @require_GET
 def logs_feed(request):
-    """Small JSON endpoint for the live log panels: newest first, optionally only rows after `after` (an id)."""
+    """Small JSON endpoint for the live log panels: newest first, optionally only rows after `after` (an id).
+
+    With a cursor the page walks ids *upwards*, so a burst larger than `limit` is delivered page by page
+    instead of skipped: `last_id` is the newest id actually returned (never the newest that exists) and
+    `more` tells the client to poll again straight away."""
     qs, _info = _filter_logs(request.GET, services.logs_for(request.user), default_range="1h")
     try:
         limit = max(1, min(100, int(request.GET.get("limit", 20))))
@@ -574,12 +603,22 @@ def logs_feed(request):
         after = int(request.GET.get("after", 0))
     except ValueError:
         after = 0
+    after = max(0, min(after, MAX_ID))   # an id the database cannot hold would overflow the driver
+    more = False
     if after:
-        qs = qs.filter(id__gt=after)
-    rows = [services.log_row(e) for e in qs.order_by("-ts", "-id")[:limit]]
-    newest = services.logs_for(request.user).order_by("-id").values_list("id", flat=True).first() or 0
-    return JsonResponse({"rows": rows, "last_id": max([newest, after] + [r["id"] for r in rows]),
-                         "now": timezone.now().isoformat()})
+        page = list(qs.filter(id__gt=after).order_by("id")[:limit])
+        more = len(page) >= limit
+        entries = list(reversed(page))   # oldest id first for the cursor, newest first for display
+    else:
+        entries = list(qs.order_by("-ts", "-id")[:limit])
+    rows = [services.log_row(e) for e in entries]
+    ids = [r["id"] for r in rows]
+    if after:
+        last_id = max(ids) if ids else after
+    else:
+        newest = services.logs_for(request.user).order_by("-id").values_list("id", flat=True).first() or 0
+        last_id = max(ids + [newest])
+    return JsonResponse({"rows": rows, "last_id": last_id, "more": more, "now": timezone.now().isoformat()})
 
 
 @require("view")
