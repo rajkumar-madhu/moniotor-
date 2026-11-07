@@ -172,9 +172,11 @@ def _filtered_users(request):
     if site == "all":
         member.update({"le_memberships__isnull": False, "le_memberships__site__isnull": True})
     elif site:
-        if not site.isdigit():
+        # isdigit() accepts superscripts and circled digits that int() rejects: only plain ASCII digits reach the
+        # integer lookup
+        if not (site.isascii() and site.isdigit()):
             return qs.none()
-        member["le_memberships__site__pk"] = site
+        member["le_memberships__site__pk"] = int(site)
     if member:
         qs = qs.filter(**member)
     return qs.distinct()
@@ -368,7 +370,19 @@ def user_toggle_active(request, pk):
     if _guard_superuser(request, target):
         messages.error(request, "Only a superuser can deactivate another superuser.")
         return redirect("administration:user_edit", pk=target.pk)
-    target.is_active = not target.is_active
+    nxt = request.POST.get("next", "")
+    dest = redirect("administration:users") if nxt == "list" else redirect("administration:user_edit", pk=target.pk)
+    # The form says which state it wants (active=0 deactivates, active=1 reactivates) rather than toggling whatever
+    # is stored: a double submit or two admins acting on a stale page must not reactivate a deactivated account.
+    wanted = request.POST.get("active", "")
+    if wanted not in ("0", "1"):
+        messages.error(request, "Say whether the user should be active (active=1) or deactivated (active=0).")
+        return dest
+    wanted = wanted == "1"
+    if target.is_active == wanted:
+        messages.info(request, f"“{target.username}” is already {'active' if wanted else 'deactivated'}.")
+        return dest
+    target.is_active = wanted
     target.save(update_fields=["is_active"])
     action = "activate" if target.is_active else "deactivate"
     audit(request, action, target)
@@ -376,10 +390,7 @@ def user_toggle_active(request, pk):
         _end_sessions(target)
     messages.success(request, f"{'Reactivated' if target.is_active else 'Deactivated'} “{target.username}”."
                      + ("" if target.is_active else " The user can no longer sign in."))
-    nxt = request.POST.get("next", "")
-    if nxt == "list":
-        return redirect("administration:users")
-    return redirect("administration:user_edit", pk=target.pk)
+    return dest
 
 
 def _end_sessions(user):
@@ -735,11 +746,15 @@ def site_domain(request, pk):
 
 
 # ------------------------------------------------------------------ audit log
+AUDIT_DATE_YEARS = (1900, 9998)   # outside this range the local-midnight bounds overflow the datetime range
+
+
 def _parse_date(value):
     try:
-        return datetime.strptime(value, "%Y-%m-%d").date()
+        d = datetime.strptime(value, "%Y-%m-%d").date()
     except (TypeError, ValueError):
         return None
+    return d if AUDIT_DATE_YEARS[0] <= d.year <= AUDIT_DATE_YEARS[1] else None
 
 
 def _filtered_audit(request):

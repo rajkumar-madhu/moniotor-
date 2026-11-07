@@ -1,5 +1,6 @@
 import csv
 import re
+import uuid
 from datetime import timedelta
 
 from django.contrib import messages
@@ -86,6 +87,14 @@ def _is_number(text):
         return False
 
 
+def _pk(value):
+    """An integer id from a query parameter, or None. (str.isdigit() accepts digits int() rejects, e.g. '²'.)"""
+    text = str(value or "").strip()
+    if not text.isascii() or not text.isdigit() or len(text) > 18:
+        return None
+    return int(text)
+
+
 def _execution_filters(g, qs, user=None):
     """Filter executions by the query parameters in `g` (a QueryDict).
 
@@ -106,8 +115,9 @@ def _execution_filters(g, qs, user=None):
         qs = qs.filter(rule__isnull=True)
     elif g.get("origin") == "rule":
         qs = qs.filter(rule__isnull=False)
-    if g.get("rule", "").isdigit():
-        qs = qs.filter(rule_id=int(g["rule"]))
+    rule_id = _pk(g.get("rule"))
+    if rule_id is not None:
+        qs = qs.filter(rule_id=rule_id)
     return qs
 
 
@@ -251,9 +261,9 @@ def stackstorm(request, form=None):
     qs = _execution_filters(request.GET, scope, request.user).select_related("rule")
     page = Paginator(qs, _per_page(request)).get_page(request.GET.get("page"))
     initial = {}
-    src = request.GET.get("from", "")
-    if src.isdigit():
-        prev = scope.filter(pk=int(src)).first()
+    src = _pk(request.GET.get("from"))
+    if src is not None:
+        prev = scope.filter(pk=src).first()
         if prev:
             initial = {"trigger": prev.trigger, "payload": _pretty(prev.payload)}
     return render(request, "automation/stackstorm.html", {
@@ -421,10 +431,10 @@ def rule_edit(request, pk):
 def _sample_initial(request, rule):
     """Pre-fill the test form from ?event=<id> (a real event) or from the rule's own conditions."""
     from core.models import Event
-    eid = request.GET.get("event", "")
-    if eid.isdigit():
+    eid = _pk(request.GET.get("event"))
+    if eid is not None:
         from core.access import scope_by_site
-        ev = scope_by_site(Event.objects.filter(tenant_key=services.tenant()), request.user).filter(pk=int(eid)).first()
+        ev = scope_by_site(Event.objects.filter(tenant_key=services.tenant()), request.user).filter(pk=eid).first()
         if ev:
             return {"source": ev.source, "severity": ev.severity, "title": ev.title, "message": ev.message, "site": ev.site,
                     "fingerprint": ev.fingerprint}
@@ -482,6 +492,9 @@ def rule_test(request, pk):
         if not matched:
             messages.error(request, "The sample event does not match this rule; nothing was run.")
             return render(request, "automation/rule_detail.html", _rule_detail_context(request, rule, form, result))
+        # A real run never carries the fingerprint typed into the form: the Service Desk merges incidents on it
+        # tenant-wide, so a guessed value could annotate, escalate or reopen another site's ticket.
+        event.fingerprint = f"test:rule:{rule.pk}:{uuid.uuid4().hex[:12]}"
         execs = services.fire(rule, event, triggered_by=f"{_who(request)} (test)")
         failed = [e for e in execs if e.status == "failed"]
         audit(request, "run", rule, test=True, sample_title=event.title, status="failed" if failed else "success",

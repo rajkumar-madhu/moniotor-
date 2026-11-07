@@ -1,14 +1,15 @@
 """Uptime, downtime and response-time statistics computed from stored DomainCheck rows.
 
 Everything here reads the database only; nothing is estimated or filled in. A window with no checks
-yields None (shown as "–"), never 0 or 100.
+yields None (shown as "–"), never 0 or 100. Counting happens in the database (per domain, day, bucket or
+millisecond), so no view loads every stored check of a window into memory.
 """
 from collections import defaultdict
 from datetime import datetime, time, timedelta
 
 from django.db.models import Case, Count, F, IntegerField, Max, Q, Sum, Value, When, Window
 from django.db.models.expressions import RowRange
-from django.db.models.functions import Lag
+from django.db.models.functions import Lag, Round
 from django.utils import timezone
 
 from .models import DomainCheck
@@ -168,34 +169,87 @@ def describe(values):
             "avg": sum(values) / len(values)}
 
 
-def response_samples(domain_ids, start, end):
-    return (DomainCheck.objects.filter(domain_id__in=list(domain_ids), checked_at__gte=start, checked_at__lt=end,
-                                       response_ms__isnull=False)
-            .values_list("domain_id", "checked_at", "response_ms").order_by())
+def bucket_index(start, bucket, n):
+    """SQL expression: index of the time bucket (of `n`, each `bucket` long from `start`) a check falls in.
+
+    Plain range comparisons on local bucket bounds computed here, as in daily_availability(), so the database
+    groups the rows without a per-row date conversion.
+    """
+    bounds = [start + bucket * (i + 1) for i in range(n)]
+    return Case(*[When(checked_at__lt=b, then=Value(i)) for i, b in enumerate(bounds)], output_field=IntegerField())
+
+
+def response_histogram(domain_ids, start, end, by=None):
+    """Histogram of the successful checks in [start, end): rows (key, ms, n, total, max).
+
+    The database counts the checks per whole millisecond (and per `key`: a field name or an annotation such as
+    bucket_index()), so the amount of data read grows with the spread of the response times, never with the
+    number of checks. Percentiles read from the histogram are exact to the millisecond; count, average and
+    maximum are exact.
+    """
+    qs = DomainCheck.objects.filter(domain_id__in=list(domain_ids), checked_at__gte=start, checked_at__lt=end,
+                                    response_ms__isnull=False).annotate(ms=Round("response_ms"))
+    if by is None:
+        qs = qs.annotate(key=Value(0, output_field=IntegerField()))
+    elif isinstance(by, str):
+        qs = qs.annotate(key=F(by))
+    else:
+        qs = qs.annotate(key=by)
+    rows = qs.values("key", "ms").annotate(n=Count("id"), total=Sum("response_ms"), mx=Max("response_ms")).order_by()
+    return [(r["key"], r["ms"], r["n"], r["total"], r["mx"]) for r in rows]
+
+
+def _bin_percentile(bins, n, p):
+    """percentile() of the samples a sorted (ms, n, ...) histogram stands for, without expanding them."""
+    k = (n - 1) * p / 100.0
+    lo = int(k)
+    hi = min(lo + 1, n - 1)
+
+    def value_at(index):
+        seen = 0
+        for ms, count, *_rest in bins:
+            seen += count
+            if index < seen:
+                return ms
+        return bins[-1][0]
+
+    v_lo = value_at(lo)
+    v_hi = v_lo if hi == lo else value_at(hi)
+    return v_lo + (v_hi - v_lo) * (k - lo)
+
+
+def describe_bins(bins):
+    """describe() of the samples summarised by (ms, n, total, max) histogram rows."""
+    bins = sorted(bins)
+    n = sum(b[1] for b in bins)
+    if not n:
+        return describe([])
+    return {"n": n, "p50": _bin_percentile(bins, n, 50), "p95": _bin_percentile(bins, n, 95),
+            "max": max(b[3] for b in bins), "avg": sum(b[2] for b in bins) / n}
 
 
 def response_stats(domain_ids, start, end):
-    """({domain_id: describe()}, overall describe(), raw rows) for successful checks in [start, end)."""
-    rows = list(response_samples(domain_ids, start, end))
+    """({domain_id: describe()}, overall describe()) for successful checks in [start, end), counted in the database."""
     per = defaultdict(list)
-    for pk, _at, ms in rows:
-        per[pk].append(ms)
-    return {pk: describe(v) for pk, v in per.items()}, describe([r[2] for r in rows]), rows
+    overall = {}
+    for pk, ms, n, total, mx in response_histogram(domain_ids, start, end, by="domain_id"):
+        per[pk].append((ms, n, total, mx))
+        o = overall.get(ms)
+        overall[ms] = (n, total, mx) if o is None else (o[0] + n, o[1] + total, max(o[2], mx))
+    return {pk: describe_bins(v) for pk, v in per.items()}, describe_bins([(ms, *v) for ms, v in overall.items()])
 
 
-def bucket_series(rows, start, bucket, n):
-    """p50/p95 per time bucket: two lists of length n (None for empty buckets)."""
+def bucket_series(domain_ids, start, bucket, n):
+    """p50/p95 per time bucket: two lists of length n (None for empty buckets), counted in the database."""
     acc = defaultdict(list)
-    size = bucket.total_seconds()
-    for _pk, at, ms in rows:
-        i = int((at - start).total_seconds() // size)
-        if 0 <= i < n:
-            acc[i].append(ms)
+    for i, ms, count, total, mx in response_histogram(domain_ids, start, start + bucket * n, by=bucket_index(start, bucket, n)):
+        if i is not None and 0 <= i < n:
+            acc[i].append((ms, count, total, mx))
     p50, p95 = [], []
     for i in range(n):
-        vals = sorted(acc.get(i, []))
-        p50.append(round(percentile(vals, 50), 1) if vals else None)
-        p95.append(round(percentile(vals, 95), 1) if vals else None)
+        d = describe_bins(acc.get(i, []))
+        p50.append(round(d["p50"], 1) if d["n"] else None)
+        p95.append(round(d["p95"], 1) if d["n"] else None)
     return p50, p95
 
 
