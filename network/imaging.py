@@ -41,11 +41,11 @@ class ImageInfo:
         return EXTENSIONS[self.content_type]
 
 
-def _dims(width, height):
+def _dims(width, height, limit=MAX_DIMENSION):
     if width < 1 or height < 1:
         raise ImageError("The image has no pixels (width or height is zero).")
-    if width > MAX_DIMENSION or height > MAX_DIMENSION:
-        raise ImageError(f"The image is {width}×{height} px; the limit is {MAX_DIMENSION}×{MAX_DIMENSION} px.")
+    if width > limit or height > limit:
+        raise ImageError(f"The image is {width}×{height} px; the limit is {limit}×{limit} px.")
 
 
 # ------------------------------------------------------------------ PNG
@@ -53,7 +53,7 @@ _PNG_SIG = b"\x89PNG\r\n\x1a\n"
 _PNG_DEPTHS = {0: {1, 2, 4, 8, 16}, 2: {8, 16}, 3: {1, 2, 4, 8}, 4: {8, 16}, 6: {8, 16}}
 
 
-def _png(data):
+def _png(data, limit=MAX_DIMENSION):
     pos, n, chunks, seen_idat = 8, len(data), 0, False
     width = height = None
     while True:
@@ -77,7 +77,7 @@ def _png(data):
             width, height, depth, color, comp, filt, interlace = struct.unpack(">IIBBBBB", body)
             if depth not in _PNG_DEPTHS.get(color, ()) or comp != 0 or filt != 0 or interlace not in (0, 1):
                 raise ImageError("The PNG header is not valid.")
-            _dims(width, height)
+            _dims(width, height, limit)
         elif ctype == b"IHDR":
             raise ImageError("The PNG has a second header chunk.")
         elif ctype == b"IDAT":
@@ -97,7 +97,7 @@ _SOF = {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 
 _NO_LENGTH = set(range(0xD0, 0xD8)) | {0x01, 0xD8}
 
 
-def _jpeg(data):
+def _jpeg(data, limit=MAX_DIMENSION):
     n, pos, segments = len(data), 2, 0
     width = height = None
     while True:
@@ -134,7 +134,7 @@ def _jpeg(data):
             precision, height, width, comps = struct.unpack(">BHHB", data[pos + 2:pos + 8])
             if precision != 8 or comps not in (1, 3, 4) or length != 8 + 3 * comps:
                 raise ImageError("The JPEG uses an unsupported or damaged frame header (8-bit images only).")
-            _dims(width, height)
+            _dims(width, height, limit)
         pos += length
         if marker == 0xDA:                                   # SOS: entropy-coded data up to the next real marker
             if width is None:
@@ -151,7 +151,7 @@ def _jpeg(data):
 
 
 # ------------------------------------------------------------------ WebP
-def _webp(data):
+def _webp(data, limit=MAX_DIMENSION):
     n = len(data)
     if n < 20 or data[8:12] != b"WEBP":
         raise ImageError("The WebP header is damaged.")
@@ -187,7 +187,7 @@ def _webp(data):
                 height = int.from_bytes(body[7:10], "little") + 1
             else:
                 raise ImageError("The WebP does not start with an image header.")
-            _dims(width, height)
+            _dims(width, height, limit)
             first = False
         elif tag == b"ANIM" or tag == b"ANMF":
             raise ImageError("Animated WebP images are not accepted. Use a still image.")
@@ -218,16 +218,17 @@ def _refusal(data):
     return "This is not a PNG, JPEG or WebP image."
 
 
-def inspect_image(data, declared_type=None, filename=None):
+def inspect_image(data, declared_type=None, filename=None, *, max_bytes=MAX_BYTES, max_dimension=MAX_DIMENSION):
     """Validate `data` and return ImageInfo. `declared_type` (a Content-Type) and `filename` are only compared with
-    what the bytes are: a mismatch is refused, an agreement proves nothing."""
+    what the bytes are: a mismatch is refused, an agreement proves nothing. `max_bytes` and `max_dimension` default to the
+    stored-photo limits; network.imaging_pillow passes larger ones to check the *structure* of an input it will shrink."""
     if not isinstance(data, (bytes, bytearray, memoryview)):
         raise ImageError("No image data.")
     data = bytes(data)
     if not data:
         raise ImageError("The file is empty.")
-    if len(data) > MAX_BYTES:
-        raise ImageError(f"The file is {len(data) / 1024 / 1024:.1f} MB; the limit is {MAX_BYTES // 1024 // 1024} MB.")
+    if len(data) > max_bytes:
+        raise ImageError(f"The file is {len(data) / 1024 / 1024:.1f} MB; the limit is {max_bytes // 1024 // 1024} MB.")
     kind = sniff(data)
     if kind is None:
         raise ImageError(_refusal(data))
@@ -239,5 +240,5 @@ def inspect_image(data, declared_type=None, filename=None):
         ext = filename.rsplit(".", 1)[1].strip().lower()
         if ext in EXT_ALIASES and EXT_ALIASES[ext] != kind:
             raise ImageError(f"The file name ends in .{ext} but its contents are {kind}.")
-    width, height = {PNG: _png, JPEG: _jpeg, WEBP: _webp}[kind](data)
+    width, height = {PNG: _png, JPEG: _jpeg, WEBP: _webp}[kind](data, max_dimension)
     return ImageInfo(kind, width, height)

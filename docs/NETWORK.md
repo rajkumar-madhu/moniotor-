@@ -125,18 +125,75 @@ whatever its size). Encrypted PDFs that open with an empty password are read; ot
   LinkedEye encodes itself with `zlib`; PNG-predictor streams are reused as they are. A soft mask of the same size is merged
   as an alpha channel when the data uses no PNG filter bytes (otherwise the picture is kept without transparency and
   the message says so).
-* Skipped and counted in the message: JPEG 2000, CCITT, JBIG2, CMYK, indexed, 1-bit images, stencil masks, TIFF predictors,
-  pictures under 200 x 120 px, shapes wider than 5:1 either way (logos and banners), near-uniform pictures.
-* A picture whose bytes would exceed the 2 MB photo limit cannot be shrunk (there is no imaging library), so it is skipped
-  and the message says so. Save a smaller copy and upload that.
+* Skipped and counted in the message: JPEG 2000, CCITT, JBIG2, TIFF predictors, 1-bit and 2/4-bit images, stencil masks,
+  pictures under 200 x 120 px, shapes wider than 7:1 either way (logos and banners; a straight-on photo of a 1U appliance is about 5:1), near-uniform pictures. CMYK, indexed
+  and 16-bit images, soft-masked pictures and pictures over the size limits are converted when the optional image library is
+  installed (next section) and skipped, with a message that says how to fix it, when it is not.
+* Without the optional library, a picture whose bytes would exceed the 2 MB photo limit cannot be shrunk, so it is skipped and
+  the message says so. Install the library, or save a smaller copy and upload that.
 * Ranking: pictures drawn as page decoration or at logo size come last. LinkedEye reads where the page draws each picture (its
   content stream: `cm`, `q`, `Q`, `Do`, through form XObjects, bounded in operators and forms) and demotes one that reaches
   two or more page edges (a header band, a full-bleed background, a corner graphic) or covers under 1.2 % of the page (a
   vendor badge, a logo), because on a datasheet the largest picture is often a graphic, not the product. Within each group:
   earlier page first, then larger area, then closeness to a product-shot aspect ratio (1.6:1). At most 12 candidates. A chart
   can still outrank a product photo; that is why you pick. If positions cannot be read the old order applies.
-* Print-oriented datasheets often store photos in CMYK, which cannot be converted without an imaging library. When that is all
-  a PDF has, the message says so and tells the operator to save or screenshot the photo from the PDF viewer and upload it.
+* Print-oriented datasheets often store photos in CMYK. Without the optional library the message says: "These photos are in
+  print (CMYK) colour. Install the optional image library (pip install -r requirements-images.txt) and LinkedEye will convert
+  them, or save the photo from the PDF and upload it."
+
+### Print-colour datasheets and the optional image library (`network/imaging_pillow.py`)
+
+Print-oriented datasheets (Fortinet and Supermicro style) keep their product photos as CMYK JPEGs, some behind soft masks, and
+often larger than the 2 MB / 4096 px photo limits. Reading those needs an imaging library, so it is an **optional extra**:
+
+```
+pip install -r requirements.txt -r requirements-images.txt     # Pillow>=13.0,<14; wheels, no compiler
+docker build --build-arg DB_EXTRAS="postgres images" .          # the image build
+```
+
+It is detected at runtime and imported lazily: the app, the datasheet form and the tests work without it, and the datasheet
+page tells the operator which of the two situations the server is in. An installed Pillow older than 13.0 is not used (the
+message names the installed version). With it:
+
+* CMYK and YCCK JPEGs (also Adobe-inverted ones) and CMYK, indexed and 16-bit Flate images become sRGB. A PDF says what its
+  samples mean with `/Decode`: `[1 0 1 0 1 0 1 0]` is the Adobe convention (stored value = 255 - ink), the default means the
+  stored value is the ink. The embedded ICC profile is **not** used: handing an attacker-controlled profile to LittleCMS is
+  not worth the slightly flatter colours; Pillow's standard CMYK to RGB conversion is used.
+* A picture with a soft mask (`/SMask`, any size, 8-bit gray Flate; `/Matte` masks are ignored) is composited onto white.
+* A picture over 4096 px a side or 2 MB is downscaled to fit, keeping its aspect ratio (JPEGs are decoded with draft mode, at
+  1/2, 1/4 or 1/8 size, so the full picture is never built in memory), instead of skipped.
+* The result is re-encoded as a baseline JPEG (quality 88) or, with 256 colours or fewer, a PNG, with no metadata, ICC profile or
+  EXIF. Pictures that need none of this (a clean RGB JPEG or Flate image within the limits) still pass through byte for byte
+  and never reach Pillow. The operator is told how many pictures were converted or reduced.
+
+Pillow's decoders have a long CVE history, so everything is bounded before and around the decode:
+
+* The magic bytes must say JPEG or PNG, the structure must pass `network/imaging.py` (which refuses data appended after the
+  image, a second image and a damaged header, so a polyglot is refused rather than stripped) and the **declared** size, read
+  from the header by LinkedEye, must be inside the budget: 40 megapixels, 16384 px a side, 20 MB of file, 48 MB of decoded
+  pixels (the rest is reached by draft scaling). Only baseline, extended-sequential and progressive Huffman JPEGs are decoded
+  (no lossless, no arithmetic coding). A JPEG whose header disagrees with the PDF's declared size is refused.
+* `Image.open(..., formats=["JPEG"])` (or `["PNG"]`): exactly one decoder, never a plugin search, nothing loaded from a path.
+  `Image.MAX_IMAGE_PIXELS` is a fixed number (never `None`), `DecompressionBombWarning` is an error, truncated files are an
+  error, and the pixel count is checked again after the open.
+* Conversions are serialised by a semaphore of two and wait at most 4 seconds for a slot ("converter busy" skips the picture);
+  the PDF's 12 second budget is checked between stages (a native decode cannot be interrupted, which is why the budget is
+  small); at most 10 pictures per PDF are converted. Memory: one conversion holds at most about 150 MB, two about 300 MB;
+  raise the budget only together with the semaphore and the container memory limit.
+* Any Pillow exception (`OSError`, `ValueError`, `MemoryError`, ...) becomes "this picture is skipped", never an error page.
+  Nothing is written to disk.
+* The output goes through `network/imaging.py` again before anything stores it.
+
+Version floor: **13.0**. Pillow 12.x and earlier have published heap overflows in the JPEG decoder, including the scaled
+(draft) decode this feature uses (GHSA-8g5g-8vmr-9782), and in the JPEG encoder (GHSA-g7cr-3p24-7wf7); both are fixed in 13.0.0,
+which also carries the 12.x denial-of-service fixes (checked against the OSV database for the `pillow` PyPI package). The
+ceiling `<14` is there so that a new major release is read before it is deployed. Keep Pillow updated like any parser of
+untrusted files. The other Pillow pin in this repository (`backend/requirements.txt`, the separate LinkedEyeWebProject) is not
+affected by this extra but is below that floor.
+
+The tests (`network/tests_datasheet_pillow.py`) build every picture with Pillow itself (CMYK and Adobe-inverted JPEGs, CMYK /
+indexed / 16-bit / soft-masked Flate images, oversized photos, a tiny PNG declaring 30000 x 30000 px, truncated JPEGs); the ones that
+need Pillow skip cleanly without it, and the no-Pillow behaviour is tested by making the import fail. CI runs both ways.
 
 `pypdf` is a normal dependency (`requirements.txt`), not an optional extra: the main route needs it, it is pure Python with
 no compiler and no Pillow, and `Dockerfile` installs `requirements.txt`. It is still imported lazily, so a deployment built

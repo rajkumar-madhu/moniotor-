@@ -75,7 +75,7 @@
 </section>
 {% endif %}
 
-<div class="nw-alert info" role="note">{% icon "info" 16 %}<span><b>How LinkedEye gets the photo.</b> From a PDF it extracts the embedded pictures on its first pages locally. From an address it fetches that single page and its pictures, identifying itself as LinkedEye and stopping if the site blocks it. LinkedEye ships no vendor photos or addresses; you are responsible for having the right to use the images you add.</span></div>
+<div class="nw-alert info" role="note">{% icon "info" 16 %}<span><b>How LinkedEye gets the photo.</b> From a PDF it extracts the embedded pictures on its first pages locally.{% if images_ready %} Print-colour (CMYK) photos, indexed and 16-bit pictures, pictures with transparency and pictures over 2 MB are converted to ordinary screen-colour JPEG or PNG photos, shrunk to fit if needed.{% else %} Photos stored in print (CMYK) colour, which many print-oriented datasheets use, are skipped: install the optional image library on the server (<code>pip install -r requirements-images.txt</code>) and LinkedEye will convert them, or save the photo from the PDF and upload it.{% endif %} From an address it fetches that single page and its pictures, identifying itself as LinkedEye and stopping if the site blocks it. LinkedEye ships no vendor photos or addresses; you are responsible for having the right to use the images you add.</span></div>
 </div>
 <script src="{% static 'network/photo-find.js' %}"></script>
 {% endblock %}
