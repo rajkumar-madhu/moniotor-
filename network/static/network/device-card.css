@@ -13,6 +13,16 @@
 a.dc-zoom:hover { text-decoration: none; }
 a.dc-zoom:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; border-radius: 10px; }
 .dc-photo img { display: block; width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; padding: 8px; box-sizing: border-box; }
+/* a small stored photo (under 300 px on its long side, class set by the template) keeps its natural size instead of being
+ * blown up to fill the frame; it still shrinks to fit a smaller frame and is never cropped or stretched */
+.dc-photo img.is-small { width: auto; height: auto; }
+.dc-add {
+  position: absolute; right: 6px; bottom: 6px; z-index: 1; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
+  border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--primary); text-decoration: none;
+  font: 600 11.5px/1.5 var(--font);
+}
+.dc-add:hover { border-color: var(--primary); text-decoration: none; }
+.dc-add:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 .dc-art { display: block; width: 78%; height: auto; max-height: 86%; }
 .dc-art .a-body { fill: var(--panel-3); stroke: var(--ink-2); stroke-width: 1.6; }
 .dc-art .a-dim { fill: var(--line); stroke: none; }

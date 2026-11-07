@@ -40,7 +40,7 @@ def image(request, sha, ext):
     ctype = CONTENT_TYPES.get(ext)
     if ctype is None or not HEX64.fullmatch(sha):
         raise Http404
-    img = DeviceImage.objects.filter(tenant_key=settings.LINKEDEYE_TENANT, sha256=sha).defer("data").first()
+    img = DeviceImage.objects.filter(tenant_key=settings.LINKEDEYE_TENANT, sha256=sha, candidate_owner=0).defer("data").first()
     if img is None or img.content_type != ctype or not images.visible_to(request.user, img):
         raise Http404
     etag = f'"{img.sha256}"'

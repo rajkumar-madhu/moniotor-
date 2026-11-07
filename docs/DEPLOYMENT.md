@@ -139,6 +139,17 @@ server {
     ssl_certificate_key /etc/ssl/linkedeye/privkey.pem;
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
     client_max_body_size 3m;   # device photos are up to 2 MB plus form overhead
+    location = /network/photos/find/ {   # datasheet PDFs (up to 25 MB) are uploaded here
+        client_max_body_size 26m;
+        proxy_read_timeout 90s;     # a page address is fetched inside the request
+        # LinkedEye keeps the upload in memory and writes nothing. nginx, by default, buffers a request body larger than
+        # 16 KB in its own temporary directory (client_body_temp_path) before passing it on; put that on tmpfs if a datasheet
+        # must never touch a disk, or add `proxy_request_buffering off;` (then a slow uploader holds a worker for its duration).
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
     location / {
         proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host $host;

@@ -30,6 +30,7 @@
         <div class="menu-pop">
           <a href="{% url 'network:interfaces_export' device.pk %}">{% icon "download" 14 %}Export interfaces (CSV)</a>
           <a href="?tab=events">{% icon "file" 14 %}Check history</a>
+          {% if can_operate and not is_vm %}<a href="{% url 'network:photo_find' %}?device={{ device.pk }}">{% icon "image" 14 %}Get photo from datasheet</a>{% endif %}
           {% if can_admin %}<form method="post" action="{% url 'network:delete' device.pk %}" data-confirm="Delete {{ device.name }} with its check history and interfaces?">{% csrf_token %}<button class="danger" type="submit">{% icon "trash" 14 %}Delete device</button></form>{% endif %}
         </div></details>
     </div>
