@@ -780,6 +780,13 @@ SITE_NAME_FIELDS = [
     ("core", "Event", "site", "Events"),
     ("agent", "Thread", "site", "Ops Agent threads"),
     ("agent", "KnowledgeChunk", "site", "Ops Agent knowledge"),
+    ("ipam", "VLAN", "site", "VLANs"),
+    ("ipam", "Subnet", "site", "Subnets"),
+    ("ipam", "IPAddress", "site", "IP addresses"),
+    ("ipam", "DNSZone", "site", "DNS zones"),
+    ("dcim", "Room", "site", "Data centre rooms"),
+    ("dcim", "Rack", "site", "Racks"),
+    ("dcim", "CoolingUnit", "site", "Cooling units"),
 ]
 
 
