@@ -344,12 +344,12 @@ def fabric_live(request):
         qs = qs.filter(site=site)
     nodes = [
         {"pk": d.pk, "status": d.status, "name": d.name, "mgmt_ip": d.mgmt_ip}
-        for d in qs.only("pk", "status", "name", "mgmt_ip")
+        for d in qs
     ]
-    c = Counter(d.status or "unknown" for d in qs)
+    c = Counter(n["status"] or "unknown" for n in nodes)
     data = {
         "totals": {
-            "total": qs.count(),
+            "total": len(nodes),
             "up": c.get("up", 0),
             "down": c.get("down", 0),
             "unknown": c.get("unknown", 0),
