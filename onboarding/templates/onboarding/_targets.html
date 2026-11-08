@@ -8,7 +8,7 @@
       <td class="num">{{ t.exporter_kind|default:"—" }}</td>
       <td>{% if t.credential %}<span class="chip">{% icon "key" 13 %}{{ t.credential.name }}</span>{% else %}<span class="t-mute">none</span>{% endif %}</td>
       <td><span class="badge {{ t.tone }}">{{ t.get_state_display }}</span></td>
-      <td>{% if t.enabled %}<span class="chip teal">served</span>{% else %}<span class="chip">held back</span>{% endif %}</td>
+      <td>{% if t.served %}<span class="chip teal">served</span>{% elif not t.enabled %}<span class="chip">held back</span>{% else %}<span class="chip mute">not yet</span>{% endif %}</td>
       <td class="t-mute">{{ t.last_error|default:"—"|truncatechars:70 }}</td>
       {% if can_manage and show_remove %}<td class="row-actions"><form method="post" action="{% url 'onboarding:step' run.pk 'targets' %}">{% csrf_token %}<input type="hidden" name="action" value="remove"><input type="hidden" name="target" value="{{ t.pk }}"><button class="btn icon red sm" type="submit" aria-label="Remove {{ t.hostname }}" title="Remove">{% icon "trash" 15 %}</button></form></td>{% endif %}
     </tr>

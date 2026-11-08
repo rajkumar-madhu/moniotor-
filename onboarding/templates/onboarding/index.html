@@ -51,7 +51,7 @@
         <td class="row-actions">
           <a class="btn sm" href="{% url 'onboarding:step' r.pk r.step %}">{% if r.can_manage and not r.is_finished %}Resume{% else %}Open{% endif %}</a>
           <a class="btn icon sm" href="{% url 'onboarding:log' r.pk %}" aria-label="Run log for #{{ r.pk }}" title="Run log">{% icon "list" 15 %}</a>
-          {% if r.can_manage %}<form method="post" action="{% url 'onboarding:run_delete' r.pk %}" onsubmit="return confirm('Delete onboarding run #{{ r.pk }}? Activated records stay.')">{% csrf_token %}<button class="btn icon red sm" type="submit" aria-label="Delete run #{{ r.pk }}" title="Delete">{% icon "trash" 15 %}</button></form>{% endif %}
+          {% if r.can_manage %}<form method="post" action="{% url 'onboarding:run_delete' r.pk %}" onsubmit="return confirm('Delete onboarding run #{{ r.pk }}? Its targets leave Prometheus service discovery; CMDB, device and exporter records stay.')">{% csrf_token %}<button class="btn icon red sm" type="submit" aria-label="Delete run #{{ r.pk }}" title="Delete">{% icon "trash" 15 %}</button></form>{% endif %}
         </td>
       </tr>
     {% empty %}<tr><td colspan="10" class="empty">No onboarding runs yet.{% if can_start %} <a href="{% url 'onboarding:new' %}">Start one</a>.{% endif %}</td></tr>{% endfor %}</tbody>

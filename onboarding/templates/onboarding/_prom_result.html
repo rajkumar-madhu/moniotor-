@@ -1,0 +1,13 @@
+{% load le %}{# r: a Prometheus overview (a fresh check or the one saved on the target). Counts and names only. #}
+<div class="ob-tiles">
+  <div class="ob-tile"><b>{{ r.targets }}</b><span>targets seen</span></div>
+  <div class="ob-tile"><b>{{ r.up }}</b><span>healthy (up)</span></div>
+  <div class="ob-tile"><b>{{ r.down }}</b><span>down</span></div>
+  <div class="ob-tile"><b>{{ r.hosts }}</b><span>distinct hosts</span></div>
+  {% if r.version %}<div class="ob-tile"><b>{{ r.version }}</b><span>Prometheus version</span></div>{% endif %}
+</div>
+{% if r.jobs %}<p class="ob-note">Jobs: {% for job, n in r.jobs %}<span class="chip">{{ job }} · {{ n }}</span> {% endfor %}</p>{% endif %}
+{% if r.known %}<p class="ob-note">Already in LinkedEye: <b>{{ r.known.discovered }}</b> discovered target(s), <b>{{ r.known.ci }}</b> CMDB item(s) and <b>{{ r.known.devices }}</b> device(s) matching what it scrapes.
+  <a href="{% url 'telemetry:discovery' %}">Open discovery</a></p>{% endif %}
+{% if r.discovery %}<p class="ob-note">{% if r.discovery.ok %}Discovery just ran: {{ r.discovery.summary }}.{% else %}Discovery did not complete: {{ r.discovery.error }}.{% endif %}</p>{% endif %}
+{% for w in r.warnings %}<p class="ob-note">{% icon "alert" 14 %} {{ w }}</p>{% endfor %}

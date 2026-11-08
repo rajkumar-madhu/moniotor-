@@ -1,21 +1,109 @@
-{% extends "onboarding/_step_base.html" %}{% load le %}
+{% extends "onboarding/_step_base.html" %}{% load le static ob_intake %}
+{% block page_css %}{{ block.super }}<link rel="stylesheet" href="{% static 'onboarding/intake.css' %}">{% endblock %}
 {% block step %}
+{% intake_limits as lim %}
+
+{% if run.kind == "prometheus" %}
+{% prom_state as ps %}
+{% if not prom_form %}{% new_prom_form as prom_form %}{% endif %}
+<div class="panel">
+  <div class="panel-h"><h2>{% icon "analytics" 18 %} Connect Prometheus</h2>
+    <small>{% if ps.current.configured %}Connected now: <b class="ob-wrap">{{ ps.current.url }}</b>{% if ps.current.has_login %} · with a stored login{% endif %}{% else %}No Prometheus is connected yet{% endif %}</small></div>
+  {% if can_manage %}
+  <form method="post" action="{% url 'onboarding:prometheus_connect' run.pk %}" autocomplete="off">{% csrf_token %}
+    {% for e in prom_form.non_field_errors %}<p class="err">{{ e }}</p>{% endfor %}
+    <div class="form-grid">
+      {% include "administration/_field.html" with f=prom_form.url full=1 %}
+      {% include "administration/_field.html" with f=prom_form.username %}
+      {% include "administration/_field.html" with f=prom_form.password %}
+      {% if ps.can_save %}
+        {% if ps.current.configured %}<div class="field full inline-check"><label class="inline-check"><input type="checkbox" name="replace" value="on"{% if prom_form.replace.value %} checked{% endif %}> {{ prom_form.replace.label }}</label></div>{% endif %}
+        <div class="field full inline-check"><label class="inline-check"><input type="checkbox" name="autocreate" value="on"{% if prom_form.autocreate.value %} checked{% endif %}> {{ prom_form.autocreate.label }}</label></div>
+        <div class="field full inline-check"><label class="inline-check"><input type="checkbox" name="run_discovery" value="on"{% if prom_form.run_discovery.value %} checked{% endif %}> {{ prom_form.run_discovery.label }}</label></div>
+      {% else %}
+        <p class="field full ob-note">Prometheus is shared by every site, so only an administrator for all sites can save it. You can still test an address.</p>
+      {% endif %}
+      <div class="field full ob-foot">
+        <button class="btn" type="submit" name="action" value="test">{% icon "radar" 16 %}Test connection</button>
+        {% if ps.can_save %}<button class="btn primary" type="submit" name="action" value="connect">{% icon "check" 16 %}Verify and connect</button>{% endif %}
+      </div>
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% with r=ps.result|default:ps.saved %}{% if r %}
+<div class="panel{% if r.ok %} ob-fresh{% endif %}">
+  <div class="panel-h"><h2>{% if ps.result %}{% if r.ok %}Prometheus answered{% else %}Prometheus did not pass{% endif %}{% else %}What Prometheus already sees{% endif %}</h2>
+    <small class="ob-wrap">{{ r.url }}{% if r.authenticated %} · with a login{% endif %}</small></div>
+  {% if r.stages %}<ul class="ob-stages">{% for s in r.stages %}<li><span class="badge {% if s.ok %}ok{% else %}crit{% endif %}">{{ s.name }}</span><span class="ob-stage-txt">{{ s.detail }}</span><small>{{ s.ms }} ms</small></li>{% endfor %}</ul>{% endif %}
+  {% for e in r.errors %}{% if not r.stages %}<p class="err">{{ e }}</p>{% endif %}{% endfor %}
+  {% if r.ok or r.targets %}{% include "onboarding/_prom_result.html" %}{% endif %}
+</div>
+{% endif %}{% endwith %}
+{% endif %}
+
+{% if preview %}
+<div class="panel ob-fresh" id="preview">
+  <div class="panel-h"><h2>Dry run: nothing has been saved</h2><small>{{ preview.total }} host(s) read from {{ preview.lines }} line(s)</small></div>
+  <div class="ob-tiles">
+    <div class="ob-tile"><b>{{ preview.counts.add }}</b><span>would be added</span></div>
+    <div class="ob-tile"><b>{{ preview.counts.update }}</b><span>would be updated</span></div>
+    <div class="ob-tile"><b>{{ preview.counts.same }}</b><span>already as given</span></div>
+    <div class="ob-tile"><b>{{ preview.counts.over }}</b><span>over the {{ preview.limit }} limit</span></div>
+    <div class="ob-tile"><b>{{ preview.n_bad }}</b><span>unreadable lines</span></div>
+  </div>
+  {% if preview.rows %}<div class="table-wrap dense"><table>
+    <thead><tr><th>Host</th><th>Address</th><th>Type</th><th class="num">Port</th><th>Result</th></tr></thead>
+    <tbody>{% for r in preview.rows %}<tr>
+      <td><b class="ob-wrap">{{ r.hostname }}</b></td><td class="ob-wrap">{{ r.address|default:"—" }}</td><td>{{ r.type_label }}</td><td class="num">{{ r.port }}</td>
+      <td>{% if r.action == "add" %}<span class="badge ok">add</span>{% elif r.action == "update" %}<span class="badge warn">update</span>{% elif r.action == "same" %}<span class="badge mute">unchanged</span>{% else %}<span class="badge crit">over limit</span>{% endif %}</td>
+    </tr>{% endfor %}</tbody></table></div>
+  {% if preview.total > preview.shown %}<p class="ob-note">Showing the first {{ preview.shown }} of {{ preview.total }}. All of them are added when you confirm.</p>{% endif %}{% endif %}
+  {% if preview.bad %}<p class="ob-note"><b>Could not read</b> ({{ preview.n_bad }}): {% for b in preview.bad %}<code class="ob-wrap">{{ b }}</code>{% if not forloop.last %}, {% endif %}{% endfor %}{% if preview.n_bad > preview.bad|length %} …{% endif %}</p>{% endif %}
+  {% if can_manage and preview.has_work %}
+  <form class="ob-confirm" method="post" action="{% url 'onboarding:step' run.pk 'targets' %}">{% csrf_token %}
+    <input type="hidden" name="action" value="add">
+    <textarea name="hosts" hidden>{{ preview.confirm_text }}</textarea>
+    <button class="btn primary" type="submit">{% icon "check" 16 %}Confirm: add {{ preview.counts.add }}{% if preview.counts.update %} and update {{ preview.counts.update }}{% endif %}</button>
+    <a class="btn" href="{% url 'onboarding:step' run.pk 'targets' %}">Discard</a>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
 {% if can_manage %}
+{% if not single_form %}{% new_single_form as single_form %}{% endif %}
+<form class="panel" method="post" action="{% url 'onboarding:targets_single' run.pk %}">{% csrf_token %}
+  <div class="panel-h"><h2>Add one host</h2><small>A server, device or service by name or IP</small></div>
+  {% for e in single_form.non_field_errors %}<p class="err">{{ e }}</p>{% endfor %}
+  <div class="form-grid">
+    {% include "administration/_field.html" with f=single_form.hostname %}
+    {% include "administration/_field.html" with f=single_form.target_type %}
+    {% include "administration/_field.html" with f=single_form.address %}
+    {% include "administration/_field.html" with f=single_form.port %}
+    <div class="field full ob-foot"><button class="btn primary" type="submit">{% icon "plus" 16 %}Add host</button></div>
+  </div>
+</form>
+
 <form class="panel" method="post" action="{% url 'onboarding:step' run.pk 'targets' %}" enctype="multipart/form-data">{% csrf_token %}
-  <div class="panel-h"><h2>Add targets</h2><small>One host, a pasted list, or a CSV</small></div>
+  <div class="panel-h"><h2>Paste a list or upload a CSV</h2><small>Preview first: nothing is saved by the preview</small></div>
   {% for e in form.non_field_errors %}<p class="err">{{ e }}</p>{% endfor %}
   <div class="form-grid">
     {% include "administration/_field.html" with f=form.hosts full=1 %}
     {% include "administration/_field.html" with f=form.target_type %}
     {% include "administration/_field.html" with f=form.port %}
     {% include "administration/_field.html" with f=form.csv_file full=1 %}
+    <p class="field full ob-note">Up to {{ lim.kb }} KB and {{ lim.targets }} targets per run. A line is “host”, “host:port”, “host, type” or “host, type, port”; a CSV may carry a header row (hostname, address, type, port). Types: linux, windows, device, k8s_node, url.</p>
     <div class="field full ob-foot">
+      <button class="btn" type="submit" formaction="{% url 'onboarding:targets_preview' run.pk %}" name="action" value="preview">{% icon "eye" 16 %}Preview (dry run)</button>
       <button class="btn primary" type="submit" name="action" value="add">{% icon "plus" 16 %}Add targets</button>
-      <button class="btn" type="submit" name="action" value="next">Continue{% icon "chevron-right" 16 %}</button>
+      <button class="btn" type="submit" name="action" value="next" formnovalidate>Continue{% icon "chevron-right" 16 %}</button>
     </div>
   </div>
 </form>
 {% endif %}
+
+
 <div class="panel">
   <div class="panel-h"><h2>Targets on this run</h2><small>{{ summary.total }} total — re-adding a host updates it instead of duplicating it</small></div>
   {% include "onboarding/_targets.html" with show_remove=1 %}

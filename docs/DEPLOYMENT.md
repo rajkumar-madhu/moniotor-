@@ -359,6 +359,7 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 | `LINKEDEYE_PROMETHEUS_TIMEOUT` | `8` | | Seconds per Prometheus API call. |
 | `LINKEDEYE_ALERTMANAGER_WEBHOOK_TOKEN` | empty (webhook answers 503) | yes | Bearer token Alertmanager must send to `POST /api/v1/alertmanager/`. |
 | `LINKEDEYE_LOG_INGEST_TOKEN` | empty (endpoint disabled) | yes | Bearer token for `POST /api/v1/logs/`. |
+| `LINKEDEYE_CREDENTIAL_KEY` | empty (the vault refuses to store a secret) | yes | Fernet key that encrypts every credential stored by Onboarding (SSH passwords and keys, SNMP communities, exporter bearer tokens) and the Prometheus service-discovery token. Generate with `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Comma-separate several keys to rotate: the first encrypts, every one may decrypt. Needs the `cryptography` package (in `requirements.txt`). Without the key or the package storing a secret **fails** with a clear message; there is no plaintext fallback. Back it up apart from the database: losing it makes the stored credentials unreadable (they are then re-entered, never guessed). |
 | `LINKEDEYE_STACKSTORM_URL` | empty (not connected) | | StackStorm webhook base, e.g. `https://st2.example/api/v1/webhooks/`. |
 | `LINKEDEYE_STACKSTORM_API_KEY` | empty | yes | StackStorm API key. |
 | `LINKEDEYE_INCIDENT_AUTO_CREATE` | `true` | | Open incidents automatically for critical events / alerts. |
@@ -473,7 +474,9 @@ Deployment is recreated (never two schedulers at once). Roll back code with `kub
 release had no migrations; otherwise restore the backup with the old image. With Argo CD or Helm, run the
 migration as a PreSync / pre-upgrade hook.
 
-**Rotating secrets:** `LINKEDEYE_SECRET_KEY` (signs everyone out), webhook / ingest tokens (update Alertmanager
+**Rotating secrets:** `LINKEDEYE_CREDENTIAL_KEY` (prepend the new key, keep the old one after it until every stored
+credential has been rotated or re-saved in Onboarding, then drop the old key; a secret encrypted with a key that is no
+longer listed cannot be read and must be re-entered), `LINKEDEYE_SECRET_KEY` (signs everyone out), webhook / ingest tokens (update Alertmanager
 and log shippers at the same time; in compose `docker compose --profile observability up -d --force-recreate web
 alertmanager`, because the Alertmanager token file is only written when the container is created) and the database password (`ALTER USER linkedeye WITH PASSWORD '…'` first,
 then update `.env` / the Secret and restart; for the compose `db` service the variable only initialises an

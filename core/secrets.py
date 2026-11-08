@@ -14,11 +14,13 @@ Design rules (the onboarding spec calls these non-negotiable):
 Nothing in this module logs or formats a secret or a ciphertext. Exceptions raised here carry a
 fixed message, so a traceback that escapes to a 500 page cannot contain key material.
 """
+import contextvars
 import logging
 import secrets as _secrets
 from contextlib import contextmanager
 
 from django.conf import settings
+from django.views.decorators.debug import sensitive_variables
 
 log = logging.getLogger("linkedeye.secrets")
 
@@ -41,7 +43,7 @@ def _fernet_module():
         raise VaultUnavailable(
             "The credential vault needs the 'cryptography' package. Install it "
             "(pip install -r requirements.txt) and restart LinkedEye."
-        )
+        ) from None
     return Fernet, MultiFernet, InvalidToken
 
 
@@ -68,7 +70,7 @@ def _vault():
             "LINKEDEYE_CREDENTIAL_KEY is not a valid Fernet key (44 url-safe base64 characters). "
             "Generate one with: python -c \"from cryptography.fernet import Fernet; "
             "print(Fernet.generate_key().decode())\""
-        )
+        ) from None
     return (MultiFernet(boxes) if len(boxes) > 1 else boxes[0]), InvalidToken
 
 
@@ -96,6 +98,7 @@ def new_key():
     return Fernet.generate_key().decode()
 
 
+@sensitive_variables()
 def encrypt(plaintext):
     """Ciphertext (str) for `plaintext`. Raises VaultUnavailable when the vault is not usable."""
     box, _invalid = _vault()
@@ -105,6 +108,7 @@ def encrypt(plaintext):
     return box.encrypt(data).decode()
 
 
+@sensitive_variables()
 def decrypt(blob):
     """Plaintext for `blob`. Raises VaultUnavailable / VaultError, never echoing the value."""
     box, InvalidToken = _vault()
@@ -114,9 +118,9 @@ def decrypt(blob):
         raise VaultError(
             "This stored secret cannot be decrypted with the current LINKEDEYE_CREDENTIAL_KEY. "
             "Restore the previous key (keys may be listed comma-separated) or re-enter the credential."
-        )
+        ) from None
     except Exception:
-        raise VaultError("This stored secret is damaged and cannot be decrypted. Re-enter the credential.")
+        raise VaultError("This stored secret is damaged and cannot be decrypted. Re-enter the credential.") from None
 
 
 def generate_token(nbytes=32):
@@ -138,6 +142,21 @@ def mask(credential=None):
 
 
 # ----------------------------------------------------------------------------- the tiny API
+#: the request on whose behalf a hook reads a secret (hooks get no request); set by ``acting_as`` so the
+#: audit entry of ``use`` names the operator who pressed the button instead of "system"
+_actor = contextvars.ContextVar("linkedeye_secret_actor", default=None)
+
+
+@contextmanager
+def acting_as(request):
+    token = _actor.set(request)
+    try:
+        yield
+    finally:
+        _actor.reset(token)
+
+
+@sensitive_variables()
 def store(kind, username, secret, site, user, name="", notes="", request=None, credential=None,
           client=None, tenant_key=None):
     """Create (or rotate, when `credential` is given) a vault row and return it.
@@ -194,6 +213,7 @@ def use(credential, request=None, reason=""):
     """
     from .audit import audit
 
+    request = request if request is not None else _actor.get()
     plaintext = decrypt(credential.secret)
     audit(request, "credential.use", credential, site=getattr(credential, "site", ""),
           kind=getattr(credential, "kind", ""), reason=(reason or "")[:120])

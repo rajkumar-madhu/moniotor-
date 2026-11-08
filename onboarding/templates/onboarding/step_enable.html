@@ -1,12 +1,17 @@
-{% extends "onboarding/_step_base.html" %}{% load le %}
+{% extends "onboarding/_step_base.html" %}{% load le static onboarding_servers %}
+{% block page_css %}{{ block.super }}<link rel="stylesheet" href="{% static 'onboarding/servers.css' %}">{% endblock %}
+{% block scripts %}<script src="{% static 'onboarding/servers.js' %}" defer></script>{% endblock %}
 {% block step %}
 <div class="panel">
   <div class="panel-h"><h2>Enable collection</h2><small>Install command, or an install over SSH you tick explicitly</small></div>
-  <p>{{ install_hint }}</p>
+  <p>{{ install_hint }} A host that already answers on <code>/metrics</code> is left alone.</p>
   {% if can_manage %}<form method="post" action="{% url 'onboarding:step' run.pk 'enable' %}">{% csrf_token %}
     <div class="form-grid">
-      <div class="field inline-check"><input type="checkbox" id="ssh-install" name="install_over_ssh" value="1">
-        <label class="inline-check" for="ssh-install">Install the exporter over SSH with the stored credential</label></div>
+      <div class="field full ob-tickbox">
+        <div class="inline-check"><input type="checkbox" id="ssh-install" name="install_over_ssh" value="1"{% if not ssh_available %} disabled{% endif %}>
+          <label class="inline-check" for="ssh-install">Install the exporter over SSH with the stored credential</label></div>
+        <span class="hint">Applies to every Linux or Windows server of this run that has an SSH credential and no exporter answering yet. LinkedEye logs in (the host key is pinned and a change stops everything), downloads the pinned exporter release on the host, checks its SHA-256, writes the service and starts it. Needs root, or sudo. If anything fails the host is rolled back to how it was and the error is shown here. Only fixed commands run; nothing is taken from this form.</span>
+        {% if not ssh_available %}<span class="hint">SSH support (paramiko) is not installed on this server, so use the command below on the host. To enable it: <code>pip install -r requirements-ssh.txt</code>.</span>{% endif %}</div>
       <div class="field"><label for="snmp-module">SNMP exporter module</label>
         <input id="snmp-module" type="text" name="snmp_module" placeholder="if_mib">
         <span class="hint">Used for network devices only.</span></div>
@@ -19,10 +24,39 @@
 </div>
 <div class="panel">
   <div class="panel-h"><h2>Install commands</h2><small>Run these on the host if you would rather not hand over SSH</small></div>
-  {% for t in targets %}
-    <h3 class="ob-h3">{{ t.hostname }} <span class="badge {{ t.tone }}">{{ t.get_state_display }}</span></h3>
-    {% if t.facts.install_command %}<pre class="log">{{ t.facts.install_command }}</pre>
-    {% else %}<p class="empty">No command recorded yet — press “Enable collection”.</p>{% endif %}
+  {% for t in targets %}{% install_info t as info %}
+  <div class="ob-hostcard">
+    <div class="ob-hostcard-h"><h3>{{ t.hostname }}</h3><span class="badge {{ t.tone }}">{{ t.get_state_display }}</span>
+      <small class="t-mute">{{ t.get_target_type_display }}</small></div>
+    {% if t.facts.ssh == "hostkey_changed" %}<p class="ob-note crit" role="alert">{% icon "shield-alert" 15 %} {{ t.facts.ssh_error }}</p>
+    {% elif t.last_error %}<p class="ob-note crit" role="alert">{% icon "alert" 15 %} {{ t.last_error }}</p>{% endif %}
+    {% if t.facts.warning %}<p class="ob-note warn">{% icon "alert" 15 %} {{ t.facts.warning }}</p>{% endif %}
+    {% if t.facts.note %}<p class="ob-note">{% icon "info" 15 %} {{ t.facts.note }}</p>{% endif %}
+    {% if info %}
+      {% if t.facts.metrics_ok and t.facts.exporter and t.state != "installed" %}
+        <p class="ob-note">{% icon "check-circle" 15 %} {{ t.facts.exporter }} {{ t.facts.exporter_version }} already answers on <code>:{{ t.port }}</code>. Nothing to install.</p>
+      {% endif %}
+      <details class="ob-probes"{% if targets|length == 1 and not t.facts.metrics_ok %} open{% endif %}><summary>{% if t.facts.metrics_ok %}Install command (not needed){% else %}Install command: {{ info.exporter }} {{ info.version }}{% endif %}</summary>
+        <dl class="ob-install-kv">
+          <dt>Run in</dt><dd>{{ info.shell }}</dd>
+          <dt>Download</dt><dd>{% for arch, url in info.download_urls.items %}<code>{{ url }}</code>{% if not forloop.last %}<br>{% endif %}{% endfor %}</dd>
+          <dt>Port to open</dt><dd><code>{{ info.port }}/tcp</code> from your Prometheus server{% for line in info.firewall %}<br><code>{{ line }}</code>{% endfor %}</dd>
+          {% if info.unit_path %}<dt>Service unit</dt><dd><code>{{ info.unit_path }}</code></dd>{% endif %}
+        </dl>
+        <p class="hint">{{ info.notes }}</p>
+        <div class="ob-cmd">
+          <button type="button" class="btn sm ob-copy" data-copy-target="cmd-{{ t.pk }}">Copy</button>
+          <pre class="log" id="cmd-{{ t.pk }}">{{ info.command }}</pre>
+        </div>
+        {% if info.unit %}<details class="ob-probes"><summary>The systemd unit it writes</summary><pre class="log">{{ info.unit }}</pre></details>{% endif %}
+      </details>
+      {% if t.facts.install_output %}<details class="ob-probes"{% if t.state == "failed" %} open{% endif %}><summary>Last install output</summary><pre class="log">{{ t.facts.install_output }}</pre></details>{% endif %}
+    {% elif t.facts.install_command or t.facts.snmp_snippet %}
+      {% if t.facts.install_command %}<div class="ob-cmd"><button type="button" class="btn sm ob-copy" data-copy-target="cmd-{{ t.pk }}">Copy</button><pre class="log" id="cmd-{{ t.pk }}">{{ t.facts.install_command }}</pre></div>{% endif %}
+      {% if t.facts.snmp_snippet %}<p class="hint">Add this profile to the snmp_exporter's <code>snmp.yml</code> and fill in the secrets there (LinkedEye never shows the stored login):</p>
+        <div class="ob-cmd"><button type="button" class="btn sm ob-copy" data-copy-target="snmp-{{ t.pk }}">Copy</button><pre class="log" id="snmp-{{ t.pk }}">{{ t.facts.snmp_snippet }}</pre></div>{% endif %}
+    {% elif not t.facts.note %}<p class="empty">{% if t.target_type == "linux" or t.target_type == "windows" %}No command recorded yet: press “Enable collection”.{% else %}Nothing to install for this target: press “Enable collection” to check it.{% endif %}</p>{% endif %}
+  </div>
   {% empty %}<p class="empty">No targets yet.</p>{% endfor %}
 </div>
 <div class="panel">

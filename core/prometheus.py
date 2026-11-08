@@ -4,6 +4,7 @@ Only used when settings.PROMETHEUS_URL is set. Queries go server-side; the
 browser never talks to Prometheus. Errors raise PrometheusError with a
 user-safe message.
 """
+import http.client
 import json
 import time
 import urllib.error
@@ -11,6 +12,7 @@ import urllib.parse
 import urllib.request
 
 from django.conf import settings
+from django.views.decorators.debug import sensitive_variables
 
 
 class PrometheusError(Exception):
@@ -23,6 +25,46 @@ def configured():
     return bool(ic.prometheus_url())
 
 
+_AUTH_TTL = 60
+_auth_memo = {}      # (credential id, rotated_at) -> (expires monotonic, header value); in process memory only
+
+
+@sensitive_variables()
+def _auth_header():
+    """The ``Authorization`` header for a Prometheus that needs a login, or None.
+
+    The password lives in the credential vault (administration.integration_config only holds the id). It is
+    decrypted at most once a minute per process, so the audit trail records the use without one entry per
+    query, and it is attached as an *unredirected* header so a redirect can never forward it."""
+    import base64
+    import time
+
+    from administration import integration_config as ic
+
+    cid = ic.prometheus_credential_id()
+    if not cid:
+        return None
+    from core import secrets
+    from onboarding.models import Credential
+
+    cred = Credential.objects.filter(pk=cid, tenant_key=settings.LINKEDEYE_TENANT, kind="basic_auth").first()
+    if cred is None:
+        raise PrometheusError("The stored Prometheus login was deleted: connect Prometheus again.")
+    key = (cred.pk, cred.rotated_at.isoformat() if cred.rotated_at else "")
+    hit = _auth_memo.get(key)
+    if hit and hit[0] > time.monotonic():
+        return hit[1]
+    try:
+        with secrets.use(cred, reason="prometheus query") as password:
+            token = base64.b64encode(f"{cred.username}:{password}".encode()).decode()
+    except (secrets.VaultUnavailable, secrets.VaultError) as exc:
+        raise PrometheusError(f"Prometheus needs a login but the credential vault cannot supply it. {exc}") from None
+    value = f"Basic {token}"
+    _auth_memo.clear()
+    _auth_memo[key] = (time.monotonic() + _AUTH_TTL, value)
+    return value
+
+
 def _get(path, params=None):
     from administration import integration_config as ic
 
@@ -31,8 +73,12 @@ def _get(path, params=None):
     url = ic.prometheus_url().rstrip("/") + path
     if params:
         url += "?" + urllib.parse.urlencode(params, doseq=True)
+    request = urllib.request.Request(url)
+    header = _auth_header()
+    if header:
+        request.add_unredirected_header("Authorization", header)
     try:
-        with urllib.request.urlopen(url, timeout=ic.prometheus_timeout()) as r:  # noqa: S310 - operator-configured URL
+        with urllib.request.urlopen(request, timeout=ic.prometheus_timeout()) as r:  # noqa: S310 - operator-configured URL
             body = json.load(r)
     except urllib.error.HTTPError as e:
         try:
@@ -41,8 +87,15 @@ def _get(path, params=None):
             raise PrometheusError(f"Prometheus returned HTTP {e.code}") from None
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         raise PrometheusError(f"Prometheus unreachable: {getattr(e, 'reason', e)}") from None
+    except (ValueError, http.client.HTTPException):
+        # a login page or proxy error page that answers 200, or a connection cut mid-body
+        raise PrometheusError("Prometheus returned something that is not a valid API response") from None
+    if not isinstance(body, dict):
+        raise PrometheusError("Prometheus returned something that is not a valid API response")
     if body.get("status") != "success":
         raise PrometheusError(body.get("error") or "Prometheus query failed")
+    if "data" not in body:
+        raise PrometheusError("Prometheus returned something that is not a valid API response")
     return body["data"]
 
 
@@ -55,7 +108,11 @@ def query(promql, at=None):
     out = []
     for r in data.get("result", []):
         v = r.get("value", [None, None])[1]
-        out.append({"metric": r.get("metric", {}), "value": float(v) if v not in (None, "NaN") else None})
+        try:
+            value = float(v) if v not in (None, "NaN") else None
+        except (TypeError, ValueError):
+            value = None
+        out.append({"metric": r.get("metric", {}), "value": value})
     return out
 
 

@@ -9,8 +9,16 @@ from django import forms
 from core.models import Client
 from core.secrets import MASK
 
-from .models import DEFAULT_PORTS, CredentialKind, OnboardingRun, RunKind, TargetType
-from .services import MAX_PASTE_BYTES, onboardable_sites
+from .models import CredentialKind, OnboardingRun, RunKind, TargetType
+from .services import MAX_PASTE_BYTES, onboardable_sites, tenant
+
+class SecretTextarea(forms.Textarea):
+    """A multi-line secret box (SSH private key) that never renders a value, even after a failed
+    validation: a bound form would otherwise write the typed key back into the page."""
+
+    def format_value(self, value):
+        return None
+
 
 ENVIRONMENTS = [("prod", "Production"), ("uat", "UAT"), ("dr", "DR"), ("dev", "Development")]
 
@@ -33,9 +41,10 @@ class ScopeForm(forms.ModelForm):
         self.fields["site"].choices = [("", "Select a site…")] + [(n, n) for n in names]
         self.fields["kind"].choices = RunKind.choices
         self.fields["environment"] = forms.ChoiceField(choices=ENVIRONMENTS, initial="prod", label="Environment")
-        self.fields["client"].queryset = Client.objects.all().order_by("name")
+        self.fields["client"].queryset = Client.objects.filter(tenant_key=tenant()).order_by("name")
         self.fields["client"].required = False
-        self.fields["client"].empty_label = "No client"
+        self.fields["client"].empty_label = "The site's own client"
+        self.fields["client"].help_text = "Left empty, the client that owns the site is used."
         if not names:
             self.fields["site"].help_text = ("You do not administer any site yet. An administrator for the "
                                              "site must start the run.")
@@ -70,25 +79,24 @@ class TargetsForm(forms.Form):
             raise forms.ValidationError("Paste at least one host or choose a CSV file.")
         return data
 
-    def default_port(self):
-        return self.cleaned_data.get("port") or DEFAULT_PORTS.get(
-            self.cleaned_data.get("target_type") or TargetType.LINUX, 9100)
-
 
 class CredentialForm(forms.Form):
     """Step 3: hand over a secret. Write-only - nothing here is ever rendered back."""
     name = forms.CharField(label="Label", max_length=120,
                            help_text="How this credential is listed. Never put the secret in the label.")
     kind = forms.ChoiceField(label="Type", choices=CredentialKind.choices, initial=CredentialKind.SSH_PASSWORD)
-    username = forms.CharField(label="Username / community / key id", max_length=150, required=False)
+    username = forms.CharField(
+        label="Username / key id", max_length=150, required=False,
+        help_text="SSH: the login name. SNMP v3: the security name. HTTP basic: the user. "
+                  "SNMP v2c and bearer tokens: leave empty and put the community or token in Secret.")
     secret = forms.CharField(
-        label="Secret", strip=False,
+        label="Secret", strip=False, required=False,
         widget=forms.PasswordInput(render_value=False, attrs={"autocomplete": "new-password",
                                                               "placeholder": MASK}),
         help_text="Encrypted with the vault key the moment you save. It is never shown again.")
     secret_multiline = forms.CharField(
         label="Private key", required=False, strip=False,
-        widget=forms.Textarea(attrs={"rows": 5, "autocomplete": "off",
+        widget=SecretTextarea(attrs={"rows": 5, "autocomplete": "off", "spellcheck": "false",
                                      "placeholder": "-----BEGIN OPENSSH PRIVATE KEY-----"}),
         help_text="Paste the key here instead of the single-line box for an SSH key.")
     notes = forms.CharField(label="Notes", max_length=300, required=False)
@@ -117,11 +125,11 @@ class CredentialForm(forms.Form):
 
 class RotateForm(forms.Form):
     """Replace a stored secret in place. No history of values is kept."""
-    secret = forms.CharField(label="New secret", strip=False,
+    secret = forms.CharField(label="New secret", strip=False, required=False,
                              widget=forms.PasswordInput(render_value=False,
                                                         attrs={"autocomplete": "new-password"}))
     secret_multiline = forms.CharField(label="New private key", required=False, strip=False,
-                                       widget=forms.Textarea(attrs={"rows": 5, "autocomplete": "off"}))
+                                       widget=SecretTextarea(attrs={"rows": 5, "autocomplete": "off", "spellcheck": "false"}))
 
     def clean(self):
         data = super().clean()

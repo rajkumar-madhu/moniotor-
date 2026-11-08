@@ -144,6 +144,8 @@ LINKEDEYE_VERSION = "9.0"
 # Credential vault (onboarding): Fernet key(s) for secrets at rest. Comma-separate to rotate (first
 # key encrypts, every listed key may decrypt). Unset: storing a secret fails; there is no plaintext fallback.
 LINKEDEYE_CREDENTIAL_KEY = env("CREDENTIAL_KEY", "")
+# honour sensitive_post_parameters / sensitive_variables even with DEBUG=true (Django's own filter switches off)
+DEFAULT_EXCEPTION_REPORTER_FILTER = "core.debug.AlwaysCleansingFilter"
 PROBE_ALLOWED_PRIVATE_CIDRS = env_list("PROBE_ALLOWED_PRIVATE_CIDRS")
 PROBE_TIMEOUT = float(env("PROBE_TIMEOUT", "10"))
 PROBE_WORKERS = int(env("PROBE_WORKERS", "8"))

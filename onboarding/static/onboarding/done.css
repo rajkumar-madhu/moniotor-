@@ -1,0 +1,9 @@
+/* Done page: one row per place a host shows, readable at phone width (the note wraps under the link). */
+.ob-places { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ob-places li { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between;
+  padding: 10px 0; border-top: 1px solid var(--line, rgba(0,0,0,.08)); }
+.ob-places li:first-child { border-top: 0; }
+.ob-places .ob-place { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ob-places .ob-place a { font-weight: 600; display: inline-flex; gap: 7px; align-items: center; }
+.ob-places .ob-place small { color: var(--muted); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.ob-places .badge { flex: none; white-space: nowrap; }

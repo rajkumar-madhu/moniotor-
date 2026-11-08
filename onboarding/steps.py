@@ -11,17 +11,23 @@ end to end without them, and each hook is filled in by the module that owns that
 Contract for every hook:
 
 * it takes the target (and, where noted, the options the operator ticked on that step) and returns
-  a plain dict that the view writes into `target.facts`, plus whatever the docstring names;
+  a plain dict. The wizard persists it: ``state`` (a ``TargetState`` value) and ``error`` are the
+  verdict, every other key is a fact merged into ``target.facts``. A hook does not save the target's
+  state/error/facts itself (it may save the ``ci`` / ``device`` / ``exporter`` links and the records
+  it creates). Without a ``state`` the wizard keeps the current state, or uses the default named in
+  each docstring below. Keys whose names look like a secret (password, token, secret, community,
+  private_key, ...) are dropped before anything is stored, whatever the hook returns;
 * it is idempotent: calling it twice for the same target must not create a second record, a second
   install or a second exporter row;
 * it never raises for an expected failure. An unreachable host, a refused credential or a missing
-  exporter is a result: set `state` / `last_error` and return. Only a bug raises;
-* it must not put a secret into its return value, into `last_error`, into a log line or into an
-  exception message. Secrets are read with `core.secrets.use()` inside a `with` block;
-* all outbound probing goes through `probes.checks`, so the SSRF policy applies.
+  exporter is a result: return ``{"state": "unreachable", "error": "..."}``. Only a bug raises, and
+  the wizard then records the exception type only (never its message);
+* it must not put a secret into its return value, into ``error``, into a log line or into an
+  exception message. Secrets are read with ``core.secrets.use()`` inside a ``with`` block;
+* all outbound probing goes through ``probes.checks``, so the SSRF policy applies.
 
-Until a hook is implemented it raises NotImplementedError; the views catch that, record a
-"pending" step log line and carry on, so the operator can still walk the whole wizard.
+Until a hook is implemented it raises StepPending (a NotImplementedError); the views catch that,
+record a "pending" step-log line and carry on, so the operator can still walk the whole wizard.
 """
 
 
@@ -41,12 +47,23 @@ def verify_target(target):
         CPU count, memory, whether an exporter is already installed and which version. The host key
         is pinned on first connect; a change afterwards is a hard failure.
 
-    Must set `target.state` to reachable / unreachable / exporter_found and `target.last_error`
-    (never containing a secret), write every attempt with its outcome and duration to StepLog, and
-    return the facts dict (keys such as hostname, os, kernel, cpus, memory_mb, exporter,
-    exporter_version, dns, tcp, http_status).
+    Returns the facts dict (keys such as hostname, os, kernel, cpus, memory_mb, exporter,
+    exporter_version, dns, tcp, http_status, duration_ms) plus, optionally, ``state`` (reachable /
+    unreachable / exporter_found) and ``error``. Without a ``state``: ``error`` or ``tcp``/``dns``
+    False means unreachable, an ``exporter`` fact means exporter_found, else reachable. Every probe
+    attempt can be written to StepLog with ``onboarding.services.log_step`` (outcome and duration).
     """
-    raise StepPending("verify_target() is not implemented yet")
+    if target.target_type in ("linux", "windows"):
+        from . import servers                 # Linux and Windows servers: onboarding/servers.py
+        return servers.verify(target)
+    if target.target_type == "device":
+        from . import devices                 # SNMP devices, through the snmp_exporter: onboarding/devices.py
+        return devices.verify_device(target)
+    if target.target_type == "prometheus":
+        from . import prometheus_step         # a Prometheus server's own API: onboarding/prometheus_step.py
+        return prometheus_step.verify_prometheus(target)
+    from . import others                      # Kubernetes nodes and URL services: onboarding/others.py
+    return others.verify(target)
 
 
 def enable_collection(target, options=None):
@@ -59,22 +76,29 @@ def enable_collection(target, options=None):
     Expected behaviour: with no exporter present, either return the exact install command for the
     operator to run (key "install_command") or, only with options["install_over_ssh"], install it
     over SSH using the stored credential with a fixed command allow-list - never free text from the
-    form. A failed install leaves the host untouched and reports stderr in `last_error`. For an
+    form. A failed install leaves the host untouched and reports stderr in ``error``. For an
     SNMP device, enable the snmp_exporter module; for a Kubernetes node, point at kube-state-metrics.
-    Sets `target.state` to installing / installed / failed.
+    Return ``state`` installed (or exporter_found when one already answers) / failed; a result that
+    only carries an ``install_command`` leaves the state as it is.
     """
-    raise StepPending("enable_collection() is not implemented yet")
+    if target.target_type in ("linux", "windows"):
+        from . import servers                 # Linux and Windows servers: onboarding/servers.py
+        return servers.enable(target, options)
+    from . import others                      # devices, Kubernetes nodes, URL services, Prometheus: onboarding/others.py
+    return others.enable(target, options)
 
 
 def logs_config(target):
     """Return the log shipper configuration for `target`.
 
     Expected keys: "shipper" (promtail | vector), "config" (the text to paste, pre-filled with the
-    product's log-ingest URL and a token read from the vault), "verified" (bool: lines have
-    arrived), "lines" (how many arrived so far). The token is rendered once for the operator to
-    copy, exactly as the log-ingest integration already does; it is never stored in StepLog.
+    product's log-ingest URL and token), "token" (the token value, so the wizard can redact it),
+    "verified" (bool: lines have arrived), "lines" (how many arrived so far). The wizard renders the
+    full config in the one response that generated it, stores it with the token replaced by
+    ``<LOG_INGEST_TOKEN>`` and never keeps the token in StepLog or ``target.facts``.
     """
-    raise StepPending("logs_config() is not implemented yet")
+    from . import logs                        # Vector configuration + arrival check: onboarding/logs.py
+    return logs.logs_config(target)
 
 
 def activate(target):
@@ -87,8 +111,10 @@ def activate(target):
       * membership of the service-discovery endpoint (target.enabled = True);
       * a StepLog entry.
 
-    Must set target.ci / target.device / target.exporter and move the state to scraping (or live
-    once the first sample has landed, recording `first_sample_at`). Returns e.g.
+    Must save target.ci / target.device / target.exporter. The state defaults to scraping (the
+    wizard then checks Prometheus for ``up == 1`` and promotes the target to live, recording
+    ``first_sample_at``). Returns e.g.
     {"ci": <pk>, "device": <pk>, "exporter": <pk>, "created": [...], "linked": [...]}.
     """
-    raise StepPending("activate() is not implemented yet")
+    from . import activate as activation      # onboarding/activate.py
+    return activation.activate(target)

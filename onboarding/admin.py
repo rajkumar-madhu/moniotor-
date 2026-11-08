@@ -28,6 +28,10 @@ class CredentialAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at", "rotated_at", "last_used_at")
     exclude = ("secret",)
 
+    def has_add_permission(self, request):
+        # a row made here would have no secret; credentials are created in the wizard, which encrypts
+        return False
+
 
 @admin.register(StepLog)
 class StepLogAdmin(admin.ModelAdmin):

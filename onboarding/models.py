@@ -254,6 +254,8 @@ class OnboardingTarget(models.Model):
     def instance(self):
         """The Prometheus `instance` label this target will carry: host:port."""
         host = (self.address or self.hostname or "").strip()
+        if ":" in host:                      # IPv6 literal
+            host = f"[{host}]"
         return f"{host}:{self.port}" if host else ""
 
     @property
@@ -265,12 +267,19 @@ class OnboardingTarget(models.Model):
         host = (self.address or self.hostname or "").strip()
         if not host:
             return ""
+        if ":" in host:
+            host = f"[{host}]"
         scheme = "https" if self.port == 443 else "http"
         return f"{scheme}://{host}:{self.port}/metrics"
 
     @property
     def site(self):
         return self.run.site
+
+    @property
+    def served(self):
+        """True when the service-discovery endpoint hands this target to Prometheus right now."""
+        return bool(self.enabled and self.state in SD_STATES)
 
     @property
     def is_live(self):

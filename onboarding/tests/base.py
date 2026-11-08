@@ -1,5 +1,7 @@
 """Shared fixtures. No test may open a socket: every hook that would probe is either not wired up
-yet (it raises StepPending) or is patched."""
+yet (it raises StepPending) or is patched, and the base class makes any real connection attempt fail."""
+from unittest import mock
+
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import Client, TestCase, override_settings
@@ -27,6 +29,7 @@ class OnboardingTestCase(TestCase):
     def setUp(self):
         super().setUp()
         cache.clear()
+        self._no_network()
         User = get_user_model()
         self.client_row = LeClient.objects.create(name="NSE", code="nse")
         self.site_a = Site.objects.create(name="Mumbai", code="mumbai", client=self.client_row)
@@ -40,6 +43,15 @@ class OnboardingTestCase(TestCase):
         self.viewer = User.objects.create_user("viewer-a", password=PASSWORD)
         Membership.objects.create(user=self.viewer, site=self.site_a, role="viewer")
         self.c = Client()
+
+    def _no_network(self):
+        """Fail loudly if anything tries to reach a real address."""
+        def refuse(*args, **kwargs):
+            raise AssertionError("a test tried to open a network connection")
+        for target in ("socket.socket.connect", "socket.create_connection", "socket.getaddrinfo"):
+            patcher = mock.patch(target, side_effect=refuse)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def login(self, user):
         self.c = Client()

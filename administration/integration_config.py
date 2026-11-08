@@ -101,6 +101,19 @@ def prometheus_timeout():
     return float(_pick("prometheus", "timeout", "PROMETHEUS_TIMEOUT", settings.PROMETHEUS_TIMEOUT, cast=float))
 
 
+def prometheus_credential_id():
+    """Vault row (onboarding.Credential, kind basic_auth) holding the login for the Prometheus URL, or None.
+
+    The password itself is never kept here: only the id of the encrypted vault row. The id counts only while
+    the URL is still the one it was saved for, so changing the URL to another server on the Integrations page
+    can never send the old login to it."""
+    slug = _slug("prometheus")
+    cid = str(slug.get("credential_id") or "").strip()
+    if not cid.isdigit() or (slug.get("credential_url") or "") != (prometheus_url() or ""):
+        return None
+    return int(cid)
+
+
 def _flag(slug, field, default=False):
     v = _slug(slug).get(field)
     if v in (None, ""):

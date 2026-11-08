@@ -1,0 +1,9 @@
+.ob-logs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 4px 0 12px; }
+.ob-logs-stat { border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; background: var(--panel-2, transparent); min-width: 0; }
+.ob-logs-stat b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+.ob-logs-stat small { color: var(--muted); }
+.ob-logs-cfg { max-height: 420px; overflow: auto; }
+.ob-logs-samples td.msg { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; min-width: 0; }
+.ob-trouble { margin: 8px 0 0; padding-left: 18px; font-size: 13px; display: flex; flex-direction: column; gap: 6px; }
+.ob-trouble code { overflow-wrap: anywhere; }
+.ob-logs-top { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }

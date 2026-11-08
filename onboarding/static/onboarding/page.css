@@ -52,3 +52,6 @@
   .ob-rail-step > a, .ob-rail-step > span { padding: 8px 10px 9px; }
   .ob-links .btn { flex: 1 1 100%; justify-content: center; }
 }
+
+.ob-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; justify-content: flex-end; }
+.ob-actions form { margin: 0; }

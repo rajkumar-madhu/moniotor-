@@ -98,13 +98,50 @@ def labels_for(target):
     }
 
 
+def snmp_entry(target, exporter):
+    """The http_sd entry for a network device read through the snmp_exporter.
+
+    The scrape address is the exporter; the device goes in the ``target`` query parameter, with the module and
+    auth profile, and ``instance`` stays the plain device address (what the CMDB item and the device carry).
+    Prometheus reads ``__param_*``, ``__metrics_path__`` and ``__scheme__`` from the discovered labels, so one
+    ``http_sd_configs`` job needs no relabel_configs."""
+    from urllib.parse import urlsplit
+
+    from . import devices
+    parts = urlsplit(exporter)
+    if not parts.hostname:
+        return None
+    host = f"[{parts.hostname}]" if ":" in parts.hostname else parts.hostname
+    port = parts.port or (443 if parts.scheme == "https" else 80)
+    device = (target.address or target.hostname or "").strip()
+    cfg = devices.snmp_settings(target)
+    labels = labels_for(target)
+    labels.update({
+        "instance": device,
+        "__metrics_path__": f"{parts.path.rstrip('/')}/snmp",
+        "__scheme__": parts.scheme or "http",
+        "__param_target": device,
+        "__param_module": cfg["module"],
+        "__param_auth": cfg["auth_profile"],
+    })
+    return {"targets": [f"{host}:{port}"], "labels": labels}
+
+
 def targets_payload(tenant_key=None):
     """The http_sd document: one entry per enabled, scrape-ready target."""
+    from . import devices
+    from .models import TargetType
+    exporter = devices.exporter_url()
     out = []
     for target in enabled_sd_targets(tenant_key):
         instance = target.instance
         if not instance:
             continue
+        if exporter and target.target_type == TargetType.DEVICE:
+            entry = snmp_entry(target, exporter)
+            if entry is not None:
+                out.append(entry)
+                continue
         out.append({"targets": [instance], "labels": labels_for(target)})
     return out
 
@@ -120,6 +157,17 @@ def record_fetch(request, count, result="ok"):
 
 def recent_fetches(limit=10):
     return list(SDFetch.objects.filter(tenant_key=tenant())[:limit])
+
+
+def record_throttled(request):
+    """One 'throttled' record per source per window: a flood must not become a write flood."""
+    from core.audit import _ip
+    try:
+        first = cache.add(f"onboarding:sd:throttled:{_ip(request) or 'unknown'}", 1, RATE_WINDOW)
+    except Exception:                      # noqa: BLE001
+        first = False
+    if first:
+        record_fetch(request, 0, "throttled")
 
 
 def rate_limited(request):

@@ -5,10 +5,13 @@ that has already checked `admin` on the run's site.
 """
 import csv
 import io
+import logging
+import re
+from datetime import timedelta
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from core.access import can_on, scope_by_site, visible_sites
@@ -16,6 +19,8 @@ from core.audit import audit
 
 from .models import (DEFAULT_EXPORTERS, DEFAULT_PORTS, SD_STATES, STEP_SLUGS, STEP_STATUS, Credential,
                      OnboardingRun, OnboardingTarget, RunKind, RunStatus, StepLog, TargetState, TargetType)
+
+log = logging.getLogger("linkedeye.onboarding")
 
 MAX_TARGETS_PER_RUN = 500
 MAX_PASTE_BYTES = 256 * 1024
@@ -53,13 +58,24 @@ def targets_for(user):
     return OnboardingTarget.objects.filter(run__in=runs_for(user).values("pk")).select_related("run")
 
 
-def enabled_sd_targets(tenant_key=None):
-    """Every enabled onboarded target of the tenant that is ready to be scraped."""
-    return (OnboardingTarget.objects
-            .filter(run__tenant_key=tenant_key or tenant(), enabled=True, state__in=SD_STATES)
-            .exclude(run__status=RunStatus.FAILED)
-            .select_related("run", "run__client")
-            .order_by("hostname", "id"))
+def enabled_sd_targets(tenant_key=None, user=None):
+    """Every enabled onboarded target of the tenant that is ready to be scraped. With `user`, only
+    those on sites the user may see (the endpoint itself passes none: it serves the whole tenant)."""
+    qs = (OnboardingTarget.objects
+          .filter(run__tenant_key=tenant_key or tenant(), enabled=True, state__in=SD_STATES)
+          .exclude(run__status=RunStatus.FAILED)
+          .select_related("run", "run__client")
+          .order_by("hostname", "id"))
+    if user is not None:
+        allowed = visible_sites(user)
+        if allowed is not None:
+            qs = qs.filter(run__site__in=list(allowed) + ["", "All Sites"])
+    return qs
+
+
+def can_manage_discovery(user):
+    """The service-discovery token and fetch record are tenant-wide: only an admin on every site."""
+    return can_on(user, "admin", None)
 
 
 # ----------------------------------------------------------------------------- step log
@@ -81,27 +97,56 @@ def previous_step(step):
 
 
 def enter_step(run, step):
-    """Move the run onto `step` (idempotent; never moves a finished run backwards in status)."""
+    """Record that the operator acted on `step`. Idempotent and monotonic: `run.step` is the furthest
+    step reached, so closing the browser and coming back resumes there, and revisiting an earlier
+    step never moves the run (or its status) backwards. A finished run keeps its status.
+
+    The run row is locked while it is read and written, so two concurrent POSTs (a double click, two
+    tabs) cannot overwrite each other with a stale step."""
     if step not in STEP_SLUGS:
         return run
-    fields = []
-    if run.step != step:
-        run.step = step
-        fields.append("step")
-    status = STEP_STATUS.get(step, run.status)
-    if run.status != RunStatus.FAILED and run.status != status:
-        # a run that is already complete stays complete when the operator revisits an earlier step
-        if not (run.status == RunStatus.COMPLETE and status != RunStatus.COMPLETE):
-            run.status = status
-            fields.append("status")
-    if run.started_at is None and step != "scope":
-        run.started_at = timezone.now()
-        fields.append("started_at")
-    if status == RunStatus.COMPLETE and run.finished_at is None:
-        run.finished_at = timezone.now()
-        fields.append("finished_at")
-    if fields:
-        run.save(update_fields=fields + ["updated_at"])
+    with transaction.atomic():
+        cur = OnboardingRun.objects.select_for_update().filter(pk=run.pk).first()
+        if cur is None:                      # deleted under us
+            return run
+        fields = []
+        if STEP_SLUGS.index(step) > cur.step_index:
+            cur.step = step
+            fields.append("step")
+        if cur.status not in (RunStatus.FAILED, RunStatus.COMPLETE):
+            status = STEP_STATUS.get(cur.step, cur.status)
+            if status == RunStatus.COMPLETE:
+                status = cur.status             # only complete_run() completes a run
+            if cur.status != status:
+                cur.status = status
+                fields.append("status")
+        if cur.started_at is None and step != "scope":
+            cur.started_at = timezone.now()
+            fields.append("started_at")
+        if fields:
+            cur.save(update_fields=fields + ["updated_at"])
+    for name in ("step", "status", "started_at", "updated_at"):
+        setattr(run, name, getattr(cur, name))
+    return run
+
+
+def _complete(run, detail, auto=False):
+    """Complete the run with one conditional UPDATE, so that of two racing callers (the 60 s job and a
+    page poll) exactly one wins. Returns True for the winner, who alone logs the completion. `auto`
+    callers never complete a run an operator has marked failed."""
+    now = timezone.now()
+    blocked = [RunStatus.COMPLETE] + ([RunStatus.FAILED] if auto else [])
+    won = OnboardingRun.objects.filter(pk=run.pk).exclude(status__in=blocked).update(
+        status=RunStatus.COMPLETE, step="done", finished_at=now, updated_at=now)
+    if won:
+        run.status, run.step, run.finished_at = RunStatus.COMPLETE, "done", now
+        log_step(run, "done", "ok", detail)
+    return bool(won)
+
+
+def complete_run(run, detail="Run completed"):
+    """Mark the run complete (idempotent: the second call changes and logs nothing)."""
+    _complete(run, detail)
     return run
 
 
@@ -115,11 +160,55 @@ def fail_run(run, detail=""):
 
 def reopen_run(run):
     """A failed run can be picked up again where it stopped."""
-    run.status = STEP_STATUS.get(run.step, RunStatus.DRAFT)
+    status = STEP_STATUS.get(run.step, RunStatus.DRAFT)
+    run.status = RunStatus.WAITING_FOR_DATA if status == RunStatus.COMPLETE else status
     run.finished_at = None
     run.save(update_fields=["status", "finished_at", "updated_at"])
     log_step(run, run.step, "info", "Run reopened")
     return run
+
+
+#: a facts key containing one of these is dropped before anything is stored or rendered
+_SECRETISH = ("password", "passwd", "secret", "token", "private_key", "privatekey", "passphrase",
+              "api_key", "apikey", "authorization", "community", "auth_key", "priv_key")
+
+
+def scrub(value, _depth=0):
+    """A copy of a facts structure without secret-looking keys. Defence in depth: the hooks are
+    told never to return a secret, and this makes sure one cannot reach the database or a page."""
+    if _depth > 6:
+        return None
+    if isinstance(value, dict):
+        return {k: scrub(v, _depth + 1) for k, v in value.items()
+                if not any(w in str(k).lower() for w in _SECRETISH)}
+    if isinstance(value, (list, tuple)):
+        return [scrub(v, _depth + 1) for v in value][:200]
+    return value
+
+
+def hook_outcome(result, current_state, error_state, default_state=None):
+    """Split a hook's result into (state, error, facts).
+
+    A hook reports its verdict with the keys ``state`` (a TargetState value) and ``error``; every
+    other key is a fact. Without a ``state`` the verdict is `error_state` when there is an error,
+    else `default_state`, else the target's current state (a hook that only describes something,
+    such as an install command, does not move the target)."""
+    facts = scrub(dict(result or {}))
+    state = facts.pop("state", None)
+    error = str(facts.pop("error", "") or "")
+    valid = set(TargetState.values)
+    if state not in valid:
+        state = error_state if error else (default_state or current_state)
+    return state, error, facts
+
+
+def verify_default_state(facts):
+    """Verdict for a verify result that did not name a state."""
+    if facts.get("error") or facts.get("tcp") is False or facts.get("dns") is False:
+        return TargetState.UNREACHABLE
+    if facts.get("exporter"):
+        return TargetState.EXPORTER_FOUND
+    return TargetState.REACHABLE
 
 
 def set_target_state(target, state, error="", facts=None, first_sample_at=None):
@@ -128,7 +217,7 @@ def set_target_state(target, state, error="", facts=None, first_sample_at=None):
     target.state = state
     target.last_error = (error or "")[:500]
     if facts is not None:
-        target.facts = {**(target.facts or {}), **facts}
+        target.facts = {**(target.facts or {}), **scrub(facts)}
         fields.append("facts")
     if first_sample_at is not None:
         target.first_sample_at = first_sample_at
@@ -138,7 +227,15 @@ def set_target_state(target, state, error="", facts=None, first_sample_at=None):
 
 
 # ----------------------------------------------------------------------------- runs and targets
+def site_client(site):
+    """The client that owns the named site (or None)."""
+    from core.models import Site
+    row = Site.objects.filter(tenant_key=tenant(), name=site).select_related("client").first()
+    return row.client if row is not None else None
+
+
 def create_run(user, kind, site, client=None, environment="prod", notes="", request=None):
+    client = client or site_client(site)
     run = OnboardingRun.objects.create(
         tenant_key=tenant(), kind=kind or RunKind.SERVER, site=site or "", client=client,
         environment=environment or "prod", notes=notes or "", step="scope", status=RunStatus.DRAFT,
@@ -154,37 +251,67 @@ def default_target_type(run_kind):
         run_kind, TargetType.LINUX)
 
 
+_HOST_RE = re.compile(r"^[a-z0-9]([a-z0-9._\-]*[a-z0-9])?$|^[0-9a-f]*:[0-9a-f:.]*$")
+
+
 def _clean_host(value):
     host = (value or "").strip().strip(",;")
-    # accept "host:port", "http://host:port" and bare hosts
+    # accept "host:port", "http://host:port", "[v6]:port" and bare hosts
     if "://" in host:
         host = host.split("://", 1)[1]
     host = host.split("/", 1)[0]
     port = None
-    if host.count(":") == 1:
+    if host.startswith("[") and "]" in host:
+        host, _, rest = host[1:].partition("]")
+        if rest.startswith(":"):
+            try:
+                port = int(rest[1:])
+            except ValueError:
+                return "", None
+        elif rest:
+            return "", None
+    elif host.count(":") == 1:
         host, _, raw = host.partition(":")
         try:
             port = int(raw)
         except ValueError:
-            port = None
+            return "", None                   # "db-01:abc" is a typo, not a host called db-01
     if not host or len(host) > 255:
         return "", None
-    if any(c.isspace() for c in host):
+    host = host.strip("[]").lower()
+    if not host.isascii():
+        try:                                  # an internationalised name is stored as its punycode form
+            host = host.encode("idna").decode("ascii")
+        except UnicodeError:
+            return "", None
+    if len(host) > 255:
         return "", None
-    return host.lower(), port
+    # letters, digits, dot, dash, underscore, or an IPv6 literal: nothing that could break a PromQL
+    # selector, a YAML scrape block or a shell command later
+    if not _HOST_RE.match(host.replace("_", "-")):
+        return "", None
+    if ":" not in host and any(len(label) > 63 for label in host.split(".")):
+        return "", None                       # no resolver accepts a label over 63 characters
+    return host, port
 
 
 def parse_target_list(text, default_type=TargetType.LINUX, default_port=None):
     """Parse a pasted list or a CSV into [{hostname, address, target_type, port}], plus the lines
-    that could not be read. Accepts "host", "host:port", "host,type", "host,type,port" and a CSV
-    with a header row (hostname/address/type/port in any order)."""
+    that could not be read. Accepts "host", "host:port", "host,type", "host,type,port", a four-column
+    "hostname,address,type,port" row and a CSV with a header row (hostname/address/type/port in any order)."""
     rows, bad = [], []
-    text = (text or "")[:MAX_PASTE_BYTES]
+    text = text or ""
+    if len(text) > MAX_PASTE_BYTES:
+        # never act on a line cut in half: "db-0" would be taken for a real host
+        text = text[:MAX_PASTE_BYTES].rsplit("\n", 1)[0]
     lines = [ln for ln in (text.replace("\r\n", "\n").replace("\r", "\n")).split("\n") if ln.strip()]
     if not lines:
         return rows, bad
     header = None
-    first = [c.strip().lower() for c in next(csv.reader([lines[0]]))]
+    try:
+        first = [c.strip().lower() for c in next(csv.reader([lines[0]]))]
+    except (csv.Error, StopIteration):
+        first = []                       # an unreadable first line is reported with the others below
     if any(c in ("hostname", "host", "address", "ip") for c in first):
         header, lines = first, lines[1:]
     types = {t.value: t.value for t in TargetType}
@@ -209,9 +336,14 @@ def parse_target_list(text, default_type=TargetType.LINUX, default_port=None):
             port_cell = data.get("port") or ""
         else:
             host_cell = cells[0] if cells else ""
-            address = ""
-            type_cell = (cells[1].lower() if len(cells) > 1 else "")
-            port_cell = cells[2] if len(cells) > 2 else ""
+            if len(cells) >= 4:                       # no header row, the documented column order
+                address = cells[1]
+                type_cell = cells[2].lower()
+                port_cell = cells[3]
+            else:
+                address = ""
+                type_cell = (cells[1].lower() if len(cells) > 1 else "")
+                port_cell = cells[2] if len(cells) > 2 else ""
         host, inline_port = _clean_host(host_cell)
         if not host:
             bad.append(raw.strip()[:120])
@@ -221,11 +353,15 @@ def parse_target_list(text, default_type=TargetType.LINUX, default_port=None):
         seen.add(host)
         ttype = types.get(type_cell, default_type)
         port = None
-        try:
-            port = int(port_cell) if str(port_cell).strip() else None
-        except ValueError:
-            port = None
-        port = port or inline_port or default_port or DEFAULT_PORTS.get(ttype, 9100)
+        if str(port_cell).strip():
+            try:
+                port = int(port_cell)
+            except ValueError:
+                port = -1
+        elif inline_port is not None:
+            port = inline_port
+        if port is None:
+            port = default_port or DEFAULT_PORTS.get(ttype, 9100)
         if not 1 <= int(port) <= 65535:
             bad.append(raw.strip()[:120])
             continue
@@ -265,10 +401,15 @@ def add_targets(run, rows, request=None):
         if room <= 0:
             skipped += 1
             continue
-        target = OnboardingTarget.objects.create(
-            run=run, hostname=host, address=row.get("address") or "", target_type=ttype, port=port,
-            exporter_kind=DEFAULT_EXPORTERS.get(ttype, ""), state=TargetState.NEW,
-        )
+        try:
+            with transaction.atomic():           # a savepoint: a lost race must not poison the outer transaction
+                target = OnboardingTarget.objects.create(
+                    run=run, hostname=host, address=row.get("address") or "", target_type=ttype, port=port,
+                    exporter_kind=DEFAULT_EXPORTERS.get(ttype, ""), state=TargetState.NEW,
+                )
+        except IntegrityError:                   # a concurrent POST added the same host first
+            skipped += 1
+            continue
         existing[host] = target
         room -= 1
         created += 1
@@ -326,10 +467,13 @@ def run_summary(run):
 
 
 def csv_upload_text(uploaded):
-    """Decoded text of an uploaded CSV, bounded in size. Returns "" when there is nothing usable."""
+    """Decoded text of an uploaded CSV, bounded in size. Returns "" when there is nothing usable and
+    raises ValueError for a file over the limit: truncating it would cut a line in half."""
     if not uploaded:
         return ""
-    data = uploaded.read(MAX_PASTE_BYTES + 1)[:MAX_PASTE_BYTES]
+    data = uploaded.read(MAX_PASTE_BYTES + 1)
+    if len(data) > MAX_PASTE_BYTES:
+        raise ValueError(f"That file is larger than {MAX_PASTE_BYTES // 1024} KB. Split it into smaller files.")
     if isinstance(data, bytes):
         for encoding in ("utf-8-sig", "utf-8", "latin-1"):
             try:
@@ -348,3 +492,113 @@ def csv_safe(value):
 
 def read_csv(stream):
     return csv.reader(io.StringIO(stream))
+
+
+# ----------------------------------------------------------------------------- liveness
+WAITING_STATES = (TargetState.SCRAPING, TargetState.INSTALLED, TargetState.EXPORTER_FOUND)
+#: the background job stops polling a target that has not changed for this long (it never came up);
+#: it stays in service discovery and the operator's "Check now" still promotes it if it ever does
+GIVE_UP_AFTER = timedelta(days=30)
+POLL_LIMIT = 2000
+
+
+def waiting_targets(tenant_key=None):
+    """Targets the 60 s job should look at: waiting, enabled, on a run that is not failed, and not given up
+    on. Newest first, so a pile of dead targets can never starve the fresh ones out of the batch."""
+    return (OnboardingTarget.objects
+            .filter(run__tenant_key=tenant_key or tenant(), enabled=True, state__in=WAITING_STATES,
+                    updated_at__gte=timezone.now() - GIVE_UP_AFTER)
+            .exclude(run__status=RunStatus.FAILED).select_related("run", "run__client")
+            .order_by("-updated_at", "-id"))
+
+
+def _promql_str(value):
+    return str(value).replace("\\", "\\\\").replace('"', '\\"')
+
+
+def refresh_liveness(targets, run=None):
+    """Mark targets live once Prometheus reports ``up == 1`` for them, and complete a run whose
+    targets are all live. One instant query covers every target (matched by the `le_target` label
+    the service-discovery endpoint adds, or by `instance`). Returns the number newly live.
+
+    Prometheus is the operator-configured server (not a probed target). When it is not connected
+    or does not answer, nothing changes and the wizard keeps waiting."""
+    from core import prometheus
+
+    waiting = [t for t in targets if t.state in WAITING_STATES and t.enabled]
+    if not waiting or not prometheus.configured():
+        return 0
+    try:
+        rows = prometheus.query("up == 1")
+    except prometheus.PrometheusError as exc:
+        log.info("onboarding liveness check skipped: %s", exc)
+        return 0
+    except Exception as exc:              # noqa: BLE001 - an odd answer must not break the page poll or the job
+        log.info("onboarding liveness check skipped: %s", type(exc).__name__)
+        return 0
+    up_ids = {r["metric"].get("le_target") for r in rows if r["metric"].get("le_target")}
+    up_instances = {r["metric"].get("instance") for r in rows if r["metric"].get("instance")}
+    now = timezone.now()
+    live = 0
+    touched_runs = {}
+    for target in waiting:
+        if str(target.pk) in up_ids or target.instance in up_instances:
+            set_target_state(target, TargetState.LIVE, first_sample_at=target.first_sample_at or now)
+            log_step(target.run, "confirm", "ok", f"{target.hostname}: up == 1, first samples landed",
+                     target=target)
+            live += 1
+            touched_runs[target.run_id] = target.run
+    for run_obj in touched_runs.values():
+        finish_if_all_live(run_obj)
+    return live
+
+
+def finish_if_all_live(run):
+    """Complete the run (and say so on the event stream) when every target of it is live. Returns True
+    only for the call that completed it."""
+    if run.status in (RunStatus.COMPLETE, RunStatus.FAILED):
+        return False
+    states = list(run.targets.values_list("state", flat=True))
+    if not states or any(s != TargetState.LIVE for s in states):
+        return False
+    if not _complete(run, "Every target reports up == 1; run complete", auto=True):
+        return False
+    try:
+        from core.events import emit
+        emit("onboarding", f"Onboarding run #{run.pk} complete: {len(states)} target(s) live",
+             severity="info", site=run.site, kind="onboarding", obj=run)
+    except Exception:                     # an event listener must never break the check
+        log.exception("could not emit the onboarding completion event")
+    return True
+
+
+def status_payload(run):
+    """What the confirm page polls: the run and each target's state (no secrets, no facts)."""
+    return {
+        "run": {"status": run.status, "status_label": run.get_status_display(), "tone": run.tone,
+                "step": run.step},
+        "summary": run_summary(run),
+        "targets": [{"id": t.pk, "hostname": t.hostname, "instance": t.instance, "state": t.state,
+                     "state_label": t.get_state_display(), "tone": t.tone,
+                     "first_sample": (timezone.localtime(t.first_sample_at).strftime("%d %b %H:%M")
+                                          if t.first_sample_at else "")}
+                    for t in run.targets.all()],
+    }
+
+
+def poll_waiting_targets():
+    """Scheduled job: check every waiting target of the tenant. Never raises."""
+    try:
+        targets = list(waiting_targets()[:POLL_LIMIT])
+        return {"live": refresh_liveness(targets), "checked": len(targets)}
+    except Exception:
+        log.exception("onboarding liveness job failed")
+        return {"live": 0, "checked": 0, "error": True}
+
+
+def prune_fetches(days=30):
+    """Scheduled housekeeping: drop service-discovery fetch records older than `days`."""
+    from .models import SDFetch
+    cutoff = timezone.now() - timedelta(days=days)
+    n, _ = SDFetch.objects.filter(fetched_at__lt=cutoff).delete()
+    return n

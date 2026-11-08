@@ -1,17 +1,38 @@
-{% extends "onboarding/_step_base.html" %}{% load le %}
+{% extends "onboarding/_step_base.html" %}{% load le static ob_intake %}
+{% block page_css %}{{ block.super }}<link rel="stylesheet" href="{% static 'onboarding/intake.css' %}">{% endblock %}
 {% block step %}
 {% include "onboarding/_vault_warning.html" %}
+{% new_site_url as new_site %}
 <form class="panel" method="post" action="{% url 'onboarding:step' run.pk 'scope' %}">{% csrf_token %}
-  <div class="panel-h"><h2>Scope</h2><small>Only a site you administer can be onboarded into</small></div>
+  <div class="panel-h"><h2>What are you onboarding?</h2><small>Pick one: it sets the defaults for the next steps</small></div>
   {% for e in form.non_field_errors %}<p class="err">{{ e }}</p>{% endfor %}
+  <fieldset class="ob-kinds" style="border:0;margin:0;padding:0" aria-label="What are you onboarding">
+    {% for value, label in form.kind.field.choices %}
+    <label class="ob-kind">
+      <input type="radio" name="kind" value="{{ value }}"{% if form.kind.value == value %} checked{% endif %}{% if not can_manage %} disabled{% endif %}>
+      <b>{% if value == "site" %}{% icon "map-pin" 16 %}{% elif value == "server" %}{% icon "server" 16 %}{% elif value == "device" %}{% icon "network" 16 %}{% elif value == "prometheus" %}{% icon "analytics" 16 %}{% else %}{% icon "layers" 16 %}{% endif %}{{ label }}</b>
+      <small>{% if value == "site" %}A whole location: servers, devices and services together, mixed types.
+        {% elif value == "server" %}Linux or Windows servers, with an SSH login if LinkedEye should look inside.
+        {% elif value == "device" %}Switches, routers and firewalls over SNMP v2c or v3, read through the SNMP exporter.
+        {% elif value == "prometheus" %}An existing Prometheus: LinkedEye reads what it already scrapes.
+        {% else %}A long list pasted or uploaded as CSV, any type.{% endif %}</small>
+    </label>
+    {% endfor %}
+  </fieldset>
+  {% for e in form.kind.errors %}<p class="err">{{ e }}</p>{% endfor %}
+  <div class="panel-h" style="margin-top:18px"><h2>Where does it live?</h2><small>Only a site you administer can be onboarded into</small></div>
   <div class="form-grid">
-    {% include "administration/_field.html" with f=form.kind %}
     {% include "administration/_field.html" with f=form.site %}
     {% include "administration/_field.html" with f=form.client %}
     {% include "administration/_field.html" with f=form.environment %}
+    <div class="field"><label>Site not listed?</label>
+      {% if new_site %}<a class="btn" href="{{ new_site }}">{% icon "plus" 16 %}Create a site first</a>
+      {% else %}<span class="hint">An administrator for all sites creates sites (Administration → Sites). You then need the admin role on the new one to onboard into it.</span>{% endif %}
+    </div>
     {% include "administration/_field.html" with f=form.notes full=1 %}
     {% if can_manage %}<div class="field full ob-foot">
       <button class="btn primary" type="submit" name="action" value="save">{% icon "check" 16 %}Save and continue</button>
+      <button class="btn" type="submit" name="action" value="next" formnovalidate>Skip to targets{% icon "chevron-right" 16 %}</button>
     </div>{% endif %}
   </div>
 </form>

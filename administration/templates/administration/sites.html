@@ -1,4 +1,4 @@
-{% extends "core/base.html" %}{% load le static %}
+{% extends "core/base.html" %}{% load le static ob_nav %}
 {% block title %}Sites{% endblock %}
 {% block page_css %}<link rel="stylesheet" href="{% static 'administration/page.css' %}">{% endblock %}
 {% block crumbs %}{% include "administration/_crumbs.html" with here="Sites" %}{% endblock %}
@@ -9,6 +9,7 @@
   <div><h1>Sites</h1><p>Customer sites and locations. Monitoring records refer to sites by name; memberships grant roles per site.</p></div>
   <div class="actions">
     <form method="post" action="{% url 'administration:sites_bootstrap' %}">{% csrf_token %}<button class="btn" type="submit" title="Create a site record for every site name used by URL checks and domains">{% icon "refresh" 17 %}Create sites from existing data</button></form>
+    {% can_onboard_any as ob_ok %}{% if ob_ok %}<a class="btn" href="{% url 'onboarding:new' %}?kind=site" title="Onboard a site: servers, devices or Prometheus, then see everything for it">{% icon "radar" 17 %}Onboard a site</a>{% endif %}
     <a class="btn primary" href="{% url 'administration:site_create' %}">{% icon "plus" 17 %}New site</a>
   </div>
 </div>

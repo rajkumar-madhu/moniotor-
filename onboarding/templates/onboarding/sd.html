@@ -39,7 +39,7 @@
       <div class="table-wrap dense"><table>
         <thead><tr><th>Target</th><th>job</th><th>site</th><th>client</th><th>env</th><th>le_target</th></tr></thead>
         <tbody>{% for entry in payload_sample %}
-          <tr><td class="num">{{ entry.targets.0 }}</td><td>{{ entry.labels.job }}</td><td>{{ entry.labels.site|default:"—" }}</td><td>{{ entry.labels.client|default:"—" }}</td><td>{{ entry.labels.env }}</td><td class="num">{{ entry.labels.le_target }}</td></tr>
+          <tr><td><code>{{ entry.targets.0 }}</code></td><td>{{ entry.labels.job }}</td><td>{{ entry.labels.site|default:"—" }}</td><td>{{ entry.labels.client|default:"—" }}</td><td>{{ entry.labels.env }}</td><td>{{ entry.labels.le_target }}</td></tr>
         {% empty %}<tr><td colspan="6" class="empty">No enabled target is ready to be scraped yet.</td></tr>{% endfor %}</tbody>
       </table></div>
     </div>
@@ -48,7 +48,7 @@
       <div class="table-wrap dense"><table>
         <thead><tr><th>Time</th><th>Source</th><th class="num">Targets</th><th>Result</th><th>Agent</th></tr></thead>
         <tbody>{% for f in fetches %}
-          <tr><td title="{{ f.fetched_at|date:'Y-m-d H:i:s' }}">{{ f.fetched_at|short_dt }}</td><td class="num">{{ f.source_ip|default:"—" }}</td><td class="num">{{ f.target_count }}</td>
+          <tr><td title="{{ f.fetched_at|date:'Y-m-d H:i:s' }}">{{ f.fetched_at|short_dt }}</td><td>{{ f.source_ip|default:"—" }}</td><td class="num">{{ f.target_count }}</td>
             <td><span class="badge {% if f.result == 'ok' %}ok{% elif f.result == 'denied' %}crit{% else %}warn{% endif %}">{{ f.get_result_display }}</span></td>
             <td class="t-mute">{{ f.user_agent|default:"—"|truncatechars:40 }}</td></tr>
         {% empty %}<tr><td colspan="5" class="empty">Prometheus has not fetched the endpoint yet.</td></tr>{% endfor %}</tbody>
