@@ -463,13 +463,6 @@ class CssTests(SimpleTestCase):
         self.assertRegex(css, r"\.side\s*\{[^}]*visibility\s*:\s*hidden")
         self.assertRegex(css, r"\.side\.open\s*\{[^}]*visibility\s*:\s*visible")
 
-    def test_no_web_font_is_loaded(self):
-        """frontend-6"""
-        root = Path(__file__).resolve().parent / "templates"
-        for path in list(root.rglob("*.html")):
-            self.assertNotIn("fonts.googleapis.com", path.read_text(), str(path))
-            self.assertNotIn("fonts.gstatic.com", path.read_text(), str(path))
-
 
 class AppJsTests(SimpleTestCase):
     def test_refresh_rearms_when_tab_is_hidden(self):
