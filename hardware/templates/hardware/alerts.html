@@ -1,0 +1,21 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}Configure alerts: {{ device.name }}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'hardware/page.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{{ tab_url }}">{{ device.name }}</a>{% icon "chevron-right" 14 %}<span>Configure alerts</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-hw">
+<div class="head"><div class="glyph">{% icon "bell" 30 %}</div><div><h1>Configure alerts</h1><p>{{ device.name }}: when a temperature or fan counts as warning or critical, and whether health changes raise an event</p></div></div>
+<form method="post" class="panel hw-form hw-narrow" novalidate>{% csrf_token %}
+  {% if form.errors %}<div class="hw-note crit" role="alert">Please correct the highlighted field{{ form.errors|length|pluralize }}.</div>{% endif %}
+  <div class="form-grid">
+    {% for f in form %}
+    <div class="field{% if f.name == 'alerts_enabled' %} check full{% endif %}{% if f.errors %} has-err{% endif %}">
+      {% if f.name == 'alerts_enabled' %}<label class="inline-check">{{ f }} {{ f.label }}</label>{% else %}<label for="{{ f.id_for_label }}">{{ f.label }}</label>{{ f }}{% endif %}
+      {% if f.help_text %}<span class="hint">{{ f.help_text }}</span>{% endif %}{% for e in f.errors %}<span class="err" role="alert">{{ e }}</span>{% endfor %}</div>
+    {% endfor %}
+  </div>
+  <p class="small t-mute">Events go through the normal event stream (notifications, incidents). One event is raised per change of the overall health or of the connection, not one per reading.</p>
+  <div class="hw-form-foot"><a class="btn" href="{{ tab_url }}">Cancel</a><button class="btn primary" type="submit">Save</button></div>
+</form>
+</div>
+{% endblock %}

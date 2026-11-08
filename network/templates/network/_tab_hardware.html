@@ -1,4 +1,7 @@
 {% load le network_tags %}
+{% if hw %}{% include "hardware/_tab.html" %}
+<h2 class="hw-sub">SNMP system and inventory</h2>
+{% endif %}
 <section class="grid g-2 nw-reference-details">
   <div class="panel">
     <div class="panel-h">

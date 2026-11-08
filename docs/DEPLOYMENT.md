@@ -61,7 +61,7 @@ docker push registry.example.com/linkedeye:9.0
 
 | Build argument | Default | Purpose |
 |---|---|---|
-| `DB_EXTRAS` | `postgres` | Space-separated list of `requirements-<name>.txt` extras: `postgres` (psycopg 3 binary, no system libraries), `mysql` (mysqlclient; compiled in the build stage, `libmariadb3` at runtime), `images` (optional Pillow, see below), `apm` (optional `redis` client so LinkedEye can read the APM toolkit's Redis keys, see below). |
+| `DB_EXTRAS` | `postgres` | Space-separated list of `requirements-<name>.txt` extras: `postgres` (psycopg 3 binary, no system libraries), `mysql` (mysqlclient; compiled in the build stage, `libmariadb3` at runtime), `images` (optional Pillow, see below), `apm` (optional `redis` client so LinkedEye can read the APM toolkit's Redis keys, see below), `vsphere` (optional `pyvmomi` for vCenter snapshots and events, see below). |
 | `PYTHON_VERSION` | `3.12` | Base image `python:<version>-slim`. |
 | `VERSION`, `REVISION` | `9.0`, empty | OCI labels (`org.opencontainers.image.version` / `.revision`). |
 
@@ -81,6 +81,14 @@ goes through the probe network policy, so a private or loopback address must be 
 its password is stored in the credential vault (`LINKEDEYE_CREDENTIAL_KEY`). The job that reads Redis, the stale-source check and
 the retention job run in `manage.py run_probes`. The APM push API (`/api/apm/`) is a machine endpoint authenticated by a per-source
 bearer token; put it behind the same TLS reverse proxy as the console. Details: [APM.md](APM.md).
+
+**Hypervisor: snapshots and events from vCenter (optional `pyvmomi` package).** The hypervisor module reads vCenter read-only over the
+stable vSphere REST API with the standard library only (VM information, hosts, datastores, disks, NICs, tools, guest data). vCenter's
+REST API has no snapshots, creation dates or event history; those need `pyvmomi`: `docker build --build-arg DB_EXTRAS="postgres vsphere" ...`
+or `pip install -r requirements.txt -r requirements-vsphere.txt`, then tick "Read snapshots and events with pyvmomi" on the source. It is
+imported lazily and never required. The vCenter address goes through the probe network policy: list a private range in
+`LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS`. The login is a read-only vCenter account kept in the credential vault
+(`LINKEDEYE_CREDENTIAL_KEY`). The sync and retention jobs run in `manage.py run_probes`. Details: [HYPERVISOR.md](HYPERVISOR.md).
 
 Behind a TLS-intercepting proxy give pip your CA bundle as a build secret (never baked into a layer):
 `docker build --secret id=pip_ca,src=/etc/ssl/certs/corp-bundle.pem ...`

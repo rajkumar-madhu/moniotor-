@@ -1,0 +1,23 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}Hardware events: {{ device.name }}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'hardware/page.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{{ tab_url }}">{{ device.name }}</a>{% icon "chevron-right" 14 %}<span>Hardware events</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-hw">
+<div class="head"><div class="glyph">{% icon "bell" 30 %}</div><div><h1>Hardware events</h1><p>{{ device.name }}: the BMC's own log (system event log, lifecycle log, integrated management log)</p></div>
+  <div class="actions"><a class="btn" href="{% url 'hardware:export' endpoint.device_id %}">{% icon "download" 16 %}Download report (CSV)</a><a class="btn" href="{{ tab_url }}">{% icon "chevron-left" 16 %}Back</a></div></div>
+<form method="get" class="hw-filter panel">
+  <label class="sr" for="hw-q">Search</label><input id="hw-q" type="search" name="q" value="{{ q }}" placeholder="Search sensor or message" maxlength="80">
+  <label class="sr" for="hw-sev">Severity</label>
+  <select id="hw-sev" name="severity" data-autosubmit><option value="">Any severity</option><option value="info"{% if severity == "info" %} selected{% endif %}>Info</option><option value="warning"{% if severity == "warning" %} selected{% endif %}>Warning</option><option value="critical"{% if severity == "critical" %} selected{% endif %}>Critical</option></select>
+  <button class="btn" type="submit">{% icon "search" 15 %}Search</button>
+</form>
+<section class="panel">
+  {% if page.object_list %}
+  <div class="table-wrap"><table><thead><tr><th>Time</th><th>Severity</th><th>Sensor</th><th>Message</th><th>Log</th></tr></thead>
+    <tbody>{% for e in page.object_list %}<tr><td class="mono hw-time">{{ e.ts|date:"Y-m-d H:i:s" }}</td><td><span class="chip {% if e.severity == 'critical' %}crit{% elif e.severity == 'warning' %}warn{% else %}mute{% endif %}">{{ e.get_severity_display }}</span></td><td>{{ e.sensor|default:"–" }}</td><td class="hw-msg">{{ e.message }}</td><td class="t-mute small">{{ e.log|upper }}</td></tr>{% endfor %}</tbody></table></div>
+  {% include "core/_pager.html" %}
+  {% else %}<div class="hw-empty">{% icon "bell" 30 %}<h2>No log entries</h2><p>Nothing has been read from the BMC log yet, or nothing matches the filter.</p></div>{% endif %}
+</section>
+</div>
+{% endblock %}

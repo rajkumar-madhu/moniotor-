@@ -1,0 +1,81 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}{% if endpoint %}BMC endpoint of {{ device.name }}{% else %}Add a BMC endpoint{% endif %}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'hardware/page.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'hardware:endpoints' %}">BMC endpoints</a>{% icon "chevron-right" 14 %}<span>{% if endpoint %}{{ device.name }}{% else %}New endpoint{% endif %}</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-hw">
+<div class="head">
+  <div class="glyph">{% icon "server" 30 %}</div>
+  <div><h1>{% if endpoint %}{{ device.name }}: BMC endpoint{% else %}Add a BMC endpoint{% endif %}</h1><p>Use a read-only account on the iDRAC or iLO. LinkedEye only sends GET requests and never changes anything on the BMC.</p></div>
+  {% if endpoint %}<div class="actions"><a class="btn" href="{% url 'network:detail' endpoint.device_id %}?tab=hardware">{% icon "eye" 16 %}Open the Hardware tab</a></div>{% endif %}
+</div>
+<div class="hw-formgrid">
+<form method="post" class="panel hw-form" novalidate{% if endpoint %} action="{% url 'hardware:endpoint_edit' endpoint.pk %}"{% endif %}>{% csrf_token %}
+  {% if form.non_field_errors %}<div class="hw-note crit" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+  {% if form.errors and not form.non_field_errors and request.method == "POST" and not test %}<div class="hw-note crit" role="alert">Please correct the highlighted field{{ form.errors|length|pluralize }}.</div>{% endif %}
+  <h2 class="hw-h2">Controller</h2>
+  <div class="form-grid">
+    {% for f in form %}{% if f.name in "device host port poll_interval_s vendor_override" %}
+    <div class="field{% if f.errors %} has-err{% endif %}"><label for="{{ f.id_for_label }}">{{ f.label }}{% if f.field.required %} <span class="req">*</span>{% endif %}</label>{{ f }}{% if f.help_text %}<span class="hint">{{ f.help_text }}</span>{% endif %}{% for e in f.errors %}<span class="err" role="alert">{{ e }}</span>{% endfor %}</div>
+    {% endif %}{% endfor %}
+  </div>
+  <p class="small t-mute">Private BMC addresses are only reachable when their range is listed in <code>LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS</code> (see docs/HARDWARE.md).</p>
+  <h2 class="hw-h2">Login (read-only account)</h2>
+  <div class="form-grid">
+    {% for f in form %}{% if f.name == "username" or f.name == "password" %}
+    <div class="field{% if f.errors %} has-err{% endif %}"><label for="{{ f.id_for_label }}">{{ f.label }}{% if not endpoint %} <span class="req">*</span>{% endif %}</label>{{ f }}{% if f.name == "password" and form.has_password %}<span class="hint">A password is stored. Typing a new one replaces it.</span>{% elif f.help_text %}<span class="hint">{{ f.help_text }}</span>{% endif %}{% for e in f.errors %}<span class="err" role="alert">{{ e }}</span>{% endfor %}</div>
+    {% endif %}{% endfor %}
+  </div>
+  <h2 class="hw-h2">Certificate</h2>
+  <div class="form-grid">
+    {% for f in form %}{% if f.name == "verify_mode" or f.name == "insecure_http" or f.name == "confirm_unsafe" or f.name == "enabled" %}
+    <div class="field{% if f.name != 'verify_mode' %} check full{% endif %}{% if f.errors %} has-err{% endif %}">
+      {% if f.name == 'verify_mode' %}<label for="{{ f.id_for_label }}">Verification</label>{{ f }}
+      {% else %}<label class="inline-check">{{ f }} {{ f.label }}</label>{% endif %}
+      {% if f.help_text %}<span class="hint">{{ f.help_text }}</span>{% endif %}{% for e in f.errors %}<span class="err" role="alert">{{ e }}</span>{% endfor %}</div>
+    {% endif %}{% endfor %}
+  </div>
+  <div class="hw-form-foot"><a class="btn" href="{% url 'hardware:endpoints' %}">Cancel</a><button class="btn primary" type="submit">{% if endpoint %}Save changes{% else %}Create endpoint{% endif %}</button></div>
+</form>
+
+<div class="hw-side">
+{% if endpoint %}
+  <section class="panel">
+    <h2 class="hw-h2">Connection</h2>
+    <p class="small"><span class="chip {{ state.2 }}">{{ state.1 }}</span>{% if endpoint.last_ok_at %} last read {{ endpoint.last_ok_at|ago }}{% endif %}</p>
+    {% if endpoint.last_error and state.0 in "unreachable auth_failed not_configured" %}<p class="small t-crit">{{ endpoint.last_error }}</p>{% endif %}
+    {% if endpoint.auth_paused %}<p class="small t-warn">Polling is paused after {{ endpoint.auth_failures }} rejected logins so the BMC account is not locked. Save the correct password to resume.</p>{% endif %}
+    <p class="small t-mute">Pinned certificate: {% if endpoint.pinned_sha256 %}<code class="hw-fp">{{ endpoint.pinned_sha256 }}</code>{% else %}none{% endif %}</p>
+    <form method="post" action="{% url 'hardware:endpoint_test' endpoint.pk %}">{% csrf_token %}<button class="btn" type="submit">{% icon "plug" 16 %}Test connection</button></form>
+    <p class="small t-mute">The test looks at the certificate first and only sends the login to a server whose certificate passes the check.</p>
+  </section>
+  {% if test %}
+  <section class="panel hw-test" aria-live="polite">
+    <h2 class="hw-h2">Test result: {% if test.ok %}<span class="t-ok">passed</span>{% else %}<span class="t-crit">not passed</span>{% endif %}</h2>
+    <ul class="hw-steps">{% for s in test.steps %}<li class="{% if s.ok %}ok{% else %}bad{% endif %}">{% if s.ok %}{% icon "check-circle" 15 %}{% else %}{% icon "x-circle" 15 %}{% endif %}<b>{{ s.label }}</b>{% if s.detail %}<span class="small">{{ s.detail }}</span>{% endif %}</li>{% endfor %}</ul>
+    {% if test.vendor %}<p class="small">Detected: <b>{{ test.vendor }}</b>{% if test.overview.bmc_model %} · {{ test.overview.bmc_model }}{% endif %}{% if test.overview.bmc_firmware %} · firmware {{ test.overview.bmc_firmware }}{% endif %}</p>{% endif %}
+    {% if test.fingerprint and endpoint.verify_mode == "pin" and not endpoint.pinned_sha256 or test.mismatch %}
+    <div class="hw-note warn">{% icon "shield" 16 %}<span>The BMC presented this certificate (SHA-256):<br><code class="hw-fp">{{ test.fingerprint }}</code><br>
+      {% if test.mismatch %}It is <b>different</b> from the pinned one. Only pin it if you replaced the certificate on purpose. {% else %}Compare it with the fingerprint shown in the BMC's certificate page before you confirm. {% endif %}</span></div>
+    <form method="post" action="{% url 'hardware:endpoint_pin' endpoint.pk %}">{% csrf_token %}<input type="hidden" name="fingerprint" value="{{ test.fingerprint }}"><button class="btn primary" type="submit">{% icon "lock" 16 %}Pin this certificate</button></form>
+    {% elif test.fingerprint %}<p class="small t-mute">Certificate SHA-256: <code class="hw-fp">{{ test.fingerprint }}</code></p>{% endif %}
+  </section>
+  {% endif %}
+  <section class="panel">
+    <h2 class="hw-h2">Alerts</h2>
+    <p class="small t-mute">Warning and critical overrides and the health-change events of this BMC.</p>
+    <a class="btn" href="{% url 'hardware:alerts' endpoint.device_id %}">{% icon "bell" 16 %}Configure alerts</a>
+  </section>
+  <section class="panel hw-danger">
+    <h2 class="hw-h2">Delete</h2>
+    <p class="small t-mute">Deletes this endpoint, its stored login, readings and BMC log entries. The server device stays.</p>
+    <form method="post" action="{% url 'hardware:endpoint_delete' endpoint.pk %}" data-confirm="Delete the BMC endpoint of {{ device.name }} with its readings and stored login? This cannot be undone.">{% csrf_token %}<button class="btn hw-btn-danger" type="submit">{% icon "trash" 16 %}Delete endpoint</button></form>
+  </section>
+{% else %}
+  <section class="panel"><h2 class="hw-h2">How it works</h2>
+    <p class="small">Create a user with the <b>read-only</b> role on the iDRAC or iLO. After saving, run <b>Test connection</b>: LinkedEye shows the certificate fingerprint for you to confirm (like SSH host-key pinning) before the login is ever sent. Polling then starts by itself.</p></section>
+{% endif %}
+</div>
+</div>
+</div>
+{% endblock %}

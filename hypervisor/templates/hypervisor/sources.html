@@ -1,0 +1,40 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}vCenter sources{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'hypervisor/page.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'hypervisor:datastores' %}">Hypervisor</a>{% icon "chevron-right" 14 %}<span>vCenter sources</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-hypervisor">
+<div class="head">
+  <div class="glyph">{% icon "cloud" 30 %}</div>
+  <div><h1>vCenter sources</h1><p>Each source is one vCenter Server that LinkedEye reads, read-only, to fill the VM pages</p></div>
+  <div class="actions"><a class="btn primary" href="{% url 'hypervisor:source_new' %}">{% icon "plus" 17 %}Add a vCenter</a></div>
+</div>
+<p class="hv-callout">{% icon "lock" 16 %}<span>Read-only: LinkedEye logs in with a read-only account, only reads, and never changes anything in vCenter. Buttons such as “Power off” record a request for an operator to carry out by hand.</span></p>
+{% if not vault_ok %}<p class="hv-callout warn">{% icon "alert" 16 %}<span>The credential vault is not configured (<code>LINKEDEYE_CREDENTIAL_KEY</code>), so a vCenter login cannot be stored yet. See docs/DEPLOYMENT.md.</span></p>{% endif %}
+<section class="panel">
+  {% if rows %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Name</th><th>Site</th><th>vCenter</th><th>State</th><th>Last sync</th><th class="num">VMs</th><th class="num">Hosts</th><th class="num">Datastores</th><th>Certificate</th><th><span class="sr">Actions</span></th></tr></thead>
+    <tbody>{% for r in rows %}{% with s=r.s %}
+      <tr class="{% if not s.enabled %}off{% endif %}">
+        <td><a href="{% url 'hypervisor:source_edit' s.pk %}">{{ s.name }}</a>{% if s.is_example %} <span class="chip warn">example</span>{% elif s.description %}<div class="t-mute small">{{ s.description }}</div>{% endif %}</td>
+        <td>{{ s.site }}</td>
+        <td class="mono">{{ s.host }}{% if s.port != 443 %}:{{ s.port }}{% endif %}</td>
+        <td><span class="chip {% if r.code == 'connected' %}ok{% elif r.code in 'error auth' %}crit{% elif r.code == 'stale' %}warn{% else %}mute{% endif %}">{{ r.label }}</span>{% if s.last_error and r.code in "error auth" %}<div class="t-crit small">{{ s.last_error }}</div>{% endif %}</td>
+        <td>{% if s.last_ok_at %}{{ s.last_ok_at|timesince }} ago{% else %}never{% endif %}</td>
+        <td class="num">{{ s.vm_count }}</td><td class="num">{{ s.host_count }}</td><td class="num">{{ s.datastore_count }}</td>
+        <td>{{ s.get_tls_mode_display|truncatechars:22 }}{% if s.tls_mode == "skip" %} <span class="chip crit">unsafe</span>{% elif s.tls_mode == "pin" and not s.pinned_sha256 %} <span class="chip warn">not pinned</span>{% endif %}</td>
+        <td><div class="row-actions">
+          {% if r.can_manage %}<a class="btn icon" href="{% url 'hypervisor:source_edit' s.pk %}" title="Edit" aria-label="Edit {{ s.name }}">{% icon "edit" 15 %}</a>
+          <form method="post" action="{% url 'hypervisor:source_toggle' s.pk %}">{% csrf_token %}<button class="btn icon" type="submit" title="{% if s.enabled %}Disable{% else %}Enable{% endif %}" aria-label="{% if s.enabled %}Disable{% else %}Enable{% endif %} {{ s.name }}">{% if s.enabled %}{% icon "pause" 15 %}{% else %}{% icon "play" 15 %}{% endif %}</button></form>{% endif %}
+        </div></td>
+      </tr>{% endwith %}{% endfor %}</tbody>
+  </table></div>
+  {% else %}
+  <div class="hv-hero">{% icon "cloud" 34 %}<h2>No vCenter yet</h2><p>Add a vCenter with a read-only account. LinkedEye then fills each VM's Overview, Storage, Network, Snapshots and Guest OS tabs from it.</p>
+    <div class="actions"><a class="btn primary" href="{% url 'hypervisor:source_new' %}">{% icon "plus" 16 %}Add a vCenter</a></div></div>
+  {% endif %}
+</section>
+{% if not provider_ok %}<p class="hv-callout">{% icon "info" 16 %}<span>Snapshots, creation dates and event history are not in vCenter's stable REST API. They need the optional <code>pyvmomi</code> package: install <code>requirements-vsphere.txt</code> and restart. Everything else works without it.</span></p>{% endif %}
+</div>
+{% endblock %}

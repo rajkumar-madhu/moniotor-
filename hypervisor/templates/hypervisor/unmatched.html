@@ -1,0 +1,45 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}Unmatched VMs{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'hypervisor/page.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'hypervisor:datastores' %}">Hypervisor</a>{% icon "chevron-right" 14 %}<span>Unmatched VMs</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-hypervisor">
+<div class="head">
+  <div class="glyph">{% icon "layers" 30 %}</div>
+  <div><h1>Unmatched VMs</h1><p>VMs vCenter lists that LinkedEye could not tie to exactly one device. Nothing is ever merged silently: you decide.</p></div>
+</div>
+<section class="panel">
+  <div class="panel-h">
+    <span class="seg" role="group" aria-label="Show">{% for key, label, n in filters %}<a href="?state={{ key }}{% if source_id %}&amp;source={{ source_id }}{% endif %}" class="{% if state == key %}on{% endif %}"{% if state == key %} aria-current="true"{% endif %}>{{ label }} <small>{{ n }}</small></a>{% endfor %}</span>
+    <form method="get" class="right hv-filter"><input type="hidden" name="state" value="{{ state }}">
+      {% if sources.count > 1 %}<select name="source" aria-label="vCenter"><option value="">All vCenters</option>{% for s in sources %}<option value="{{ s.pk }}"{% if source_id == s.pk|stringformat:"s" %} selected{% endif %}>{{ s.name }}</option>{% endfor %}</select>{% endif %}
+      <input type="search" name="q" value="{{ q }}" placeholder="Search VMs" aria-label="Search VMs"><button class="btn sm" type="submit">{% icon "search" 15 %}Search</button></form>
+  </div>
+  {% if page.paginator.count %}
+  <div class="table-wrap"><table class="hv-table wide">
+    <thead><tr><th>VM</th><th>vCenter</th><th>Addresses</th><th>Result</th><th>Candidates</th><th><span class="sr">Decide</span></th></tr></thead>
+    <tbody>{% for vm in page %}<tr>
+      <td><b>{{ vm.name }}</b><div class="t-mute small">{{ vm.guest_full_name|default:"guest not read yet" }}{% if vm.power_state == "off" %} · powered off{% endif %}</div></td>
+      <td>{{ vm.source.name }}</td>
+      <td class="mono hv-wrap">{% if vm.guest_ips %}{{ vm.guest_ips|join:", " }}{% else %}<span class="t-mute">none reported</span>{% endif %}</td>
+      <td><span class="chip {% if vm.match_state == 'ambiguous' %}warn{% elif vm.match_state == 'matched' %}ok{% else %}mute{% endif %}">{{ vm.get_match_state_display }}</span><div class="t-mute small">{{ vm.match_reason }}{% if vm.matched_by and vm.match_state == "matched" %} · by {{ vm.matched_by }}{% endif %}</div></td>
+      <td>{% for d in vm.cand_devices %}<a href="{% url 'network:detail' d.pk %}">{{ d.name }}</a>{% if not forloop.last %}, {% endif %}{% empty %}{% if vm.device %}<a href="{% url 'network:detail' vm.device_id %}">{{ vm.device.name }}</a>{% else %}<span class="t-mute">none</span>{% endif %}{% endfor %}</td>
+      <td>{% if vm.can_resolve %}<div class="hv-decide">
+        {% if vm.match_state == "matched" %}
+          <form method="post" action="{% url 'hypervisor:match_unlink' vm.pk %}" data-confirm="Unlink “{{ vm.name }}” from its device?">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn sm" type="submit">Unlink</button></form>
+        {% elif vm.match_state == "ignored" %}
+          <form method="post" action="{% url 'hypervisor:match_unignore' vm.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn sm" type="submit">Stop ignoring</button></form>
+        {% else %}
+          {% if vm.cand_devices %}<form method="post" action="{% url 'hypervisor:match_link' vm.pk %}" class="hv-inline">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><select name="device" aria-label="Link {{ vm.name }} to">{% for d in vm.cand_devices %}<option value="{{ d.pk }}">{{ d.name }}</option>{% endfor %}</select><button class="btn sm" type="submit">Link</button></form>{% endif %}
+          <form method="post" action="{% url 'hypervisor:match_create' vm.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn sm primary" type="submit" title="Create a virtual-machine device named {{ vm.name }} and link it">{% icon "plus" 14 %}Create device</button></form>
+          <form method="post" action="{% url 'hypervisor:match_ignore' vm.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn sm" type="submit">Ignore</button></form>
+        {% endif %}</div>{% else %}<span class="t-mute small">operator role needed</span>{% endif %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% include "core/_pager.html" %}
+  {% else %}
+  <div class="hv-hero">{% icon "check-circle" 34 %}<h2>{% if state == "attention" %}Nothing to decide{% else %}Nothing here{% endif %}</h2><p>{% if state == "attention" %}Every VM vCenter lists is matched to a device, or ignored.{% else %}No VMs in this list.{% endif %}</p></div>
+  {% endif %}
+</section>
+<p class="hv-callout">{% icon "info" 16 %}<span>How a VM is matched: its BIOS or instance UUID equal to a device's serial number or <code>uuid:</code> tag, otherwise its name (or the guest's host name) or one of its IP addresses equal to a virtual-machine device's name or management IP. Exactly one device matches: linked. More than one, or a device another VM already uses: ambiguous. None: unmatched.</span></p>
+</div>
+{% endblock %}

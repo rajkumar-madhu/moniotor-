@@ -1,0 +1,83 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}{% if source %}Edit {{ source.name }}{% else %}Add a vCenter{% endif %}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'hypervisor/page.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'hypervisor:datastores' %}">Hypervisor</a>{% icon "chevron-right" 14 %}<a href="{% url 'hypervisor:sources' %}">vCenter sources</a>{% icon "chevron-right" 14 %}<span>{% if source %}{{ source.name }}{% else %}New vCenter{% endif %}</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-hypervisor">
+<div class="head">
+  <div class="glyph">{% icon "cloud" 30 %}</div>
+  <div><h1>{% if source %}{{ source.name }}{% else %}Add a vCenter{% endif %}</h1><p>{% if source %}Connection, certificate and sync state{% else %}Use a read-only vCenter account. The password goes straight into the encrypted credential vault and is never shown again.{% endif %}</p></div>
+  {% if source %}<div class="actions"><form method="post" action="{% url 'hypervisor:source_sync' source.pk %}">{% csrf_token %}<button class="btn" type="submit"{% if not source.enabled %} disabled{% endif %}>{% icon "refresh" 16 %}Sync now</button></form></div>{% endif %}
+</div>
+<div class="hv-formgrid">
+<form method="post" class="panel hv-form" novalidate>{% csrf_token %}
+  {% if form.non_field_errors %}<div class="hv-note crit" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+  {% if form.errors and not form.non_field_errors %}<div class="hv-note crit" role="alert">Please correct the highlighted field{{ form.errors|length|pluralize }}.</div>{% endif %}
+  <h2 class="hv-h2">Source</h2>
+  <div class="form-grid">
+    {% for f in form.main_fields %}
+    <div class="field{% if f.name == 'description' %} full{% endif %}{% if f.errors %} has-err{% endif %}">{% if f.name == "enabled" %}<label class="inline-check">{{ f }} {{ f.label }}</label>{% else %}<label for="{{ f.id_for_label }}">{{ f.label }}{% if f.field.required %} <span class="req">*</span>{% endif %}</label>{{ f }}{% endif %}{% if f.help_text %}<span class="hint">{{ f.help_text }}</span>{% endif %}{% for e in f.errors %}<span class="err" role="alert">{{ e }}</span>{% endfor %}</div>
+    {% endfor %}
+  </div>
+  <h2 class="hv-h2">Connection</h2>
+  <div class="form-grid">
+    {% for f in form.conn_fields %}
+    <div class="field{% if f.name == 'use_provider' %} check full{% endif %}{% if f.errors %} has-err{% endif %}">{% if f.name == "use_provider" %}<label class="inline-check">{{ f }} {{ f.label }}</label>{% else %}<label for="{{ f.id_for_label }}">{{ f.label }}{% if f.field.required %} <span class="req">*</span>{% endif %}</label>{{ f }}{% endif %}{% if f.help_text %}<span class="hint">{{ f.help_text }}</span>{% endif %}{% for e in f.errors %}<span class="err" role="alert">{{ e }}</span>{% endfor %}</div>
+    {% endfor %}
+  </div>
+  {% if not provider_ok %}<div class="hv-note warn">{% icon "info" 16 %}<span>The <code>pyvmomi</code> package is not installed on this server: install <code>requirements-vsphere.txt</code> and restart to read snapshots and events. You can still save the setting.</span></div>{% endif %}
+  <div class="hv-note warn" id="hv-skip-warn" hidden>{% icon "alert" 16 %}<span><b>Unsafe.</b> Without a certificate check anyone on the network path can impersonate the vCenter and read the password. Use “Pin the certificate fingerprint” instead.</span></div>
+  <div class="hv-form-foot"><a class="btn" href="{% url 'hypervisor:sources' %}">Cancel</a><button class="btn primary" type="submit">{% if source %}Save changes{% else %}Create source{% endif %}</button></div>
+</form>
+
+<div class="hv-side">
+{% if source %}
+  <section class="panel">
+    <h2 class="hv-h2">State</h2>
+    <p class="small"><span class="chip {% if state.0 == 'connected' %}ok{% elif state.0 in 'error auth' %}crit{% elif state.0 == 'stale' %}warn{% else %}mute{% endif %}">{{ state.1 }}</span>
+      {% if source.last_ok_at %} last good sync {{ source.last_ok_at|timesince }} ago{% endif %}{% if source.last_duration_ms %} · {{ source.last_duration_ms }} ms{% endif %}</p>
+    {% if source.last_error %}<p class="small t-crit">{{ source.last_error }}</p>{% endif %}
+    <p class="small t-mute">{{ stats.total }} VMs read: {{ stats.matched }} matched, {{ stats.ambiguous }} ambiguous, {{ stats.unmatched }} unmatched.{% if source.api_version %} vCenter {{ source.api_version }}.{% endif %}{% if stats.ambiguous or stats.unmatched %} <a href="{% url 'hypervisor:unmatched' %}?source={{ source.pk }}">Decide now</a>{% endif %}</p>
+    {% if provider_note %}<p class="small t-mute">{{ provider_note }}</p>{% endif %}
+    <form method="post" action="{% url 'hypervisor:source_test' source.pk %}">{% csrf_token %}<button class="btn" type="submit">{% icon "plug" 16 %}Test connection</button></form>
+  </section>
+  <section class="panel">
+    <h2 class="hv-h2">Certificate</h2>
+    <p class="small">{{ source.get_tls_mode_display }}</p>
+    {% if source.tls_mode == "pin" %}
+      <p class="small">Pinned: {% if fingerprint %}<code class="hv-fp">{{ fingerprint }}</code>{% else %}<b>nothing yet</b>. Nothing, not even the password, is sent until a certificate is pinned.{% endif %}</p>
+      {% if pending_fp and pending_fp != fingerprint %}
+      <p class="small">The last test saw this certificate{% if fingerprint %} (it is <b>different</b> from the pinned one){% endif %}:</p><code class="hv-fp">{{ pending_fp }}</code>
+      <form method="post" action="{% url 'hypervisor:source_pin' source.pk %}" data-confirm="Pin this certificate? LinkedEye will refuse any other certificate from this vCenter.">{% csrf_token %}
+        <input type="hidden" name="fingerprint" value="{{ pending_fp }}"><button class="btn primary" type="submit">{% icon "shield" 16 %}Confirm and pin this fingerprint</button></form>
+      <p class="small t-mute">Compare it with the certificate in the vCenter UI (Administration, Certificate Management) before you confirm.</p>
+      {% elif not fingerprint %}<p class="small t-mute">Run “Test connection” to see the certificate the server presents.</p>{% endif %}
+    {% elif source.tls_mode == "skip" %}<p class="small t-crit">The certificate is not checked.</p>{% endif %}
+  </section>
+  <section class="panel">
+    <h2 class="hv-h2">Rotate the login</h2>
+    <p class="small t-mute">Current account: <b>{{ username|default:"none" }}</b>. The stored password is never displayed.</p>
+    <form method="post" action="{% url 'hypervisor:source_rotate' source.pk %}" class="hv-mini">{% csrf_token %}
+      {% for f in rotate %}<div class="field"><label for="{{ f.id_for_label }}">{{ f.label }}</label>{{ f }}</div>{% endfor %}
+      <button class="btn" type="submit">{% icon "key" 16 %}Replace the login</button></form>
+  </section>
+  <section class="panel hv-danger">
+    <h2 class="hv-h2">Delete</h2>
+    <p class="small t-mute">Deletes this source, the stored login and everything read from it (VM records, snapshots, events, requests). Devices and compute records stay.</p>
+    <form method="post" action="{% url 'hypervisor:source_delete' source.pk %}" data-confirm="Delete “{{ source.name }}” and everything read from it? This cannot be undone.">{% csrf_token %}<button class="btn hv-btn-danger" type="submit">{% icon "trash" 16 %}Delete source</button></form>
+  </section>
+{% else %}
+  <section class="panel"><h2 class="hv-h2">How it works</h2><p class="small">LinkedEye logs in with the read-only account, reads hosts, datastores and VMs over the vSphere REST API (GET only) and fills the VM pages. It never powers anything on or off. The vCenter address must be allowed by the probe network policy: a private range needs <code>LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS</code>.</p></section>
+{% endif %}
+</div>
+</div>
+</div>
+<script>
+(function () {
+  var sel = document.getElementById('id_tls_mode'), warn = document.getElementById('hv-skip-warn');
+  if (!sel || !warn) return;
+  function f() { warn.hidden = sel.value !== 'skip'; }
+  sel.addEventListener('change', f); f();
+})();
+</script>
+{% endblock %}

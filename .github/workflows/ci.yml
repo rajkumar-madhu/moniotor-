@@ -67,9 +67,10 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      # + the optional Pillow extra so the print-colour conversion tests run here, and the optional redis client of the APM
-      # module (the Django 4.2 / 5.2 jobs above run without either: the code imports both lazily)
-      - run: pip install -r requirements.txt -r requirements-postgres.txt -r requirements-images.txt -r requirements-apm.txt
+      # + the optional Pillow extra so the print-colour conversion tests run here, the optional redis client of the APM
+      # module and the optional pyvmomi of the hypervisor module (the Django 4.2 / 5.2 jobs above run without them: the code
+      # imports all three lazily)
+      - run: pip install -r requirements.txt -r requirements-postgres.txt -r requirements-images.txt -r requirements-apm.txt -r requirements-vsphere.txt
       - name: Migrate (PostgreSQL)
         run: python manage.py migrate --noinput
       - name: Tests (PostgreSQL)

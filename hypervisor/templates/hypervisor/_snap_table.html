@@ -1,0 +1,7 @@
+{% load le %}
+{% if rows %}
+<div class="table-wrap dense"><table class="hv-table"><thead><tr><th>Name</th><th>Created on</th><th class="num">Size</th>{% if not compact %}<th>Description</th>{% endif %}</tr></thead><tbody>
+  {% for s in rows %}<tr><td class="mono">{{ s.name }}{% if s.current %} <span class="chip mute">current</span>{% endif %}{% if compact and s.description %}<div class="t-mute small">{{ s.description }}</div>{% endif %}</td><td>{% if compact %}{{ s.created_short }}{% else %}{{ s.created }}{% endif %}{% if s.review %}<br><span class="chip warn" title="Older than {{ hv.review_days }} days">{{ s.age_days }} d: review</span>{% endif %}</td><td class="num">{{ s.size|default:"–" }}</td>{% if not compact %}<td>{{ s.description|default:"–" }}</td>{% endif %}</tr>{% endfor %}
+</tbody></table></div>
+{% elif hv.snap_known %}<div class="nw-empty sm">{% icon "file" 24 %}<p>No snapshots on this VM.</p></div>
+{% else %}<div class="nw-empty sm">{% icon "file" 24 %}<p><b>Snapshots are not reported.</b> {{ hv.snap_note|default:"They are read on the next sync." }}</p></div>{% endif %}
