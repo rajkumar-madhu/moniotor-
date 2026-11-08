@@ -263,6 +263,8 @@ def device_list(request, device_type=None):
     export_q = _query(request)
     if device_type:
         export_q["type"] = device_type
+    site_filter = request.GET.get("site", "").strip()
+    fabric_q = urlencode({"site": site_filter}) if site_filter else ""
     ctx = {
         "page": page, "counts": counts, "pct": pct, "device_type": device_type, "title": title, "icon": icon, "intro": intro,
         "list_url": reverse(url_name), "vendors": vendors, "sites": sites, "statuses": DeviceStatus.choices,
@@ -281,6 +283,7 @@ def device_list(request, device_type=None):
         "view_mode": "cards" if request.GET.get("view") == "cards" else "table",
         "view_links": _view_links(request),
         "cards_url": reverse("network:cards_live"), "live_interval": LIVE_INTERVAL,
+        "fabric_url": reverse("network:fabric") + (f"?{fabric_q}" if fabric_q else ""),
         **_perms(request),
     }
     return render(request, "network/list.html", ctx)

@@ -91,3 +91,57 @@ def default_site_slug_from_workbook_stem(stem: str) -> str:
     if not s.endswith("-le"):
         s = f"{s}-le" if s else ""
     return s
+
+
+# Canonical console site names and legacy inventory labels (pre–Site row).
+FINSPOT_SITE_LABELS: dict[str, str] = {
+    "fs-dx-le": "FinSpot DX DR",
+    "fs-dr-le": "FinSpot DR",
+}
+LEGACY_DEVICE_SITE_FOR_SLUG: dict[str, str] = {
+    "fs-dx-le": "FinSpot DX",
+    "fs-dr-le": "DR Site",
+}
+
+
+def site_display_name(site_slug: str) -> str:
+    """Human site name for ``core.Site.name`` from a Lesites slug (e.g. fs-dx-le)."""
+    slug = (site_slug or "").strip().lower()
+    if slug in FINSPOT_SITE_LABELS:
+        return FINSPOT_SITE_LABELS[slug]
+    m = _FS_ENV_LE.match(slug)
+    if m:
+        return f"FinSpot {m.group('env').upper()}"
+    return slug.replace("-", " ").title() if slug else ""
+
+
+def lesites_environment_for_slug(site_slug: str) -> str:
+    """Lesites profile environment token from slug (DR, DX, PROD, …)."""
+    slug = (site_slug or "").strip().lower()
+    m = _FS_ENV_LE.match(slug)
+    if not m:
+        return "PROD"
+    env = m.group("env").upper()
+    # DX DR stacks use the DX token in Lesites; DR uses DR.
+    return env if env in ("PROD", "DR", "DEV", "UAT", "ISV", "DX") else "PROD"
+
+
+def device_environment_for_slug(site_slug: str) -> str:
+    """``network.Device.environment`` key from a Lesites slug."""
+    slug = (site_slug or "").strip().lower()
+    m = _FS_ENV_LE.match(slug)
+    if not m:
+        return "prod"
+    env = m.group("env")
+    if env in ("dr", "uat", "dev"):
+        return env
+    if env == "dx":
+        return "dr"
+    return "prod"
+
+
+def infer_slug_from_workbook_path(path: str) -> str:
+    """Legacy sitename slug from an .xlsx path (filename stem)."""
+    from pathlib import Path
+
+    return default_site_slug_from_workbook_stem(Path(path).stem)

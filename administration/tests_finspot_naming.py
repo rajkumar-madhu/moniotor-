@@ -2,10 +2,14 @@ from django.test import SimpleTestCase
 
 from administration.finspot_naming import (
     admin_lesites_url,
+    device_environment_for_slug,
     entity_host,
+    infer_slug_from_workbook_path,
+    lesites_environment_for_slug,
     lesites_url,
     portal_host,
     portal_url,
+    site_display_name,
     tool_host,
     tool_url,
     websocket_url,
@@ -29,6 +33,15 @@ class FinspotNamingTests(SimpleTestCase):
         self.assertEqual(portal_host("fs-le-dev-finspot"), "fs-le-dev.finspot.in")
         self.assertEqual(portal_host("fs-le-isv"), "fs-le-isv.finspot.in")
         self.assertEqual(portal_host("fs-dx-le"), "fs-le-dx.finspot.in")
+
+    def test_dx_dr_site_labels(self):
+        self.assertEqual(site_display_name("fs-dx-le"), "FinSpot DX DR")
+        self.assertEqual(lesites_environment_for_slug("fs-dx-le"), "DX")
+        self.assertEqual(device_environment_for_slug("fs-dx-le"), "dr")
+        self.assertEqual(
+            infer_slug_from_workbook_path("/tmp/fs-dx-le_Restore_Devices.xlsx"),
+            "fs-dx-le",
+        )
 
     def test_tool_hosts_prefix_pattern(self):
         self.assertEqual(tool_host("fs-dr-le", "grafana"), "grafana-fs-le-dr.finspot.in")
