@@ -33,6 +33,10 @@ MAX_COLUMNS = 80
 MAX_CELL_CHARS = 4000
 MAX_MEMBER_BYTES = 64 * 1024 * 1024   # per CSV inside a zip, before decompression is trusted
 MAX_ZIP_MEMBERS = 200
+MAX_TOTAL_BYTES = 100 * 1024 * 1024   # everything an archive may expand to (a zip of CSVs, or an .xlsx package)
+MAX_XLSX_MEMBERS = 2000
+MAX_SCANNED_ROWS = 2 * MAX_ROWS_PER_SHEET   # rows read from a sheet, blank ones included
+_XML_PROLOG_BYTES = 256 * 1024
 
 
 class SourceError(Exception):
@@ -94,8 +98,11 @@ def _row(columns, cells):
 
 def _sheet_from_rows(name, rows_iter):
     """Build a SheetData from an iterable of cell lists; the first non-empty row is the header."""
-    columns, rows = None, []
+    columns, rows, scanned = None, [], 0
     for cells in rows_iter:
+        scanned += 1
+        if scanned > MAX_SCANNED_ROWS:
+            break
         if columns is None:
             if not any(clean(c) for c in cells):
                 continue
@@ -130,6 +137,36 @@ def _sha256_parts(parts):
 
 
 # ----------------------------------------------------------------------------- xlsx
+def _check_package(handle):
+    """Refuse an .xlsx that is not a plain, modest zip package before openpyxl parses a byte of it.
+
+    * it must be a zip with a sane number of parts whose declared sizes add up to a bounded total, so a
+      small upload cannot expand into gigabytes (zip bomb);
+    * no XML part may carry a DOCTYPE or ENTITY declaration — a genuine workbook never does, and
+      refusing them rules out entity-expansion tricks whichever XML parser openpyxl ends up using.
+    """
+    try:
+        with zipfile.ZipFile(handle) as package:
+            infos = [i for i in package.infolist() if not i.is_dir()]
+            if len(infos) > MAX_XLSX_MEMBERS:
+                raise SourceError("The workbook package holds too many parts to be a real workbook.")
+            if sum(i.file_size for i in infos) > MAX_TOTAL_BYTES:
+                raise SourceError(f"The workbook expands to more than {MAX_TOTAL_BYTES // (1024 * 1024)} MB.")
+            for info in infos:
+                if not info.filename.lower().endswith((".xml", ".rels")):
+                    continue
+                with package.open(info) as part:
+                    head = part.read(_XML_PROLOG_BYTES).upper()
+                if b"<!DOCTYPE" in head or b"<!ENTITY" in head:
+                    raise SourceError("The workbook contains an XML DOCTYPE or ENTITY declaration, "
+                                      "which a real workbook never has — it was not read.")
+    except zipfile.BadZipFile as exc:
+        raise SourceError("The file is not a valid .xlsx workbook (it is not a zip package).") from exc
+    finally:
+        if hasattr(handle, "seek"):
+            handle.seek(0)
+
+
 def _load_openpyxl():
     try:
         import openpyxl  # noqa: PLC0415 - optional dependency, imported only when a workbook is read
@@ -152,6 +189,7 @@ def read_xlsx(source, name=None):
         sha = _sha256_file(path)
         handle = str(path)
         display = name or path.name
+    _check_package(handle)
     try:
         book = openpyxl.load_workbook(handle, read_only=True, data_only=True)
     except Exception as exc:  # openpyxl raises many shapes for a broken file
@@ -225,6 +263,8 @@ def read_zip(source, name=None):
             members = [i for i in archive.infolist() if not i.is_dir()]
             if len(members) > MAX_ZIP_MEMBERS:
                 raise SourceError(f"The archive holds more than {MAX_ZIP_MEMBERS} files.")
+            if sum(i.file_size for i in members if i.filename.lower().endswith(CSV_SUFFIX)) > MAX_TOTAL_BYTES:
+                raise SourceError(f"The archive expands to more than {MAX_TOTAL_BYTES // (1024 * 1024)} MB.")
             for info in members:
                 member_name = os.path.basename(info.filename)
                 if not member_name.lower().endswith(CSV_SUFFIX):

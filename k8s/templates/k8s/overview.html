@@ -38,6 +38,7 @@
   <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "share" 22 %}</div><div class="kpi-body"><div class="label">Services</div><div class="value">{{ extra.services.value|num }}</div></div></div><div class="sub">{% if extra.services.source %}From the {{ extra.services.source }}{% else %}Sheet not imported{% endif %}</div></div>
   <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "link" 22 %}</div><div class="kpi-body"><div class="label">Ingresses</div><div class="value">{{ extra.ingresses.value|num }}</div></div></div><div class="sub">{% if extra.ingresses.source %}From the {{ extra.ingresses.source }}{% else %}Sheet not imported{% endif %}</div></div>
   <div class="kpi stacked"><div class="kpi-top"><div class="tile s-mute">{% icon "hdd" 22 %}</div><div class="kpi-body"><div class="label">Volumes</div><div class="value">{{ extra.volumes.value|num }}</div></div></div><div class="sub">{% if storage_label %}{{ storage_label }} recorded{% elif extra.volumes.source %}From the {{ extra.volumes.source }}{% else %}Sheet not imported{% endif %}</div></div>
+  <a class="kpi stacked kpi-link" href="{% url 'k8s:workloads' %}?signal=latest"><div class="kpi-top"><div class="tile {% if extra.stale_images.value %}s-warn{% else %}s-mute{% endif %}">{% icon "alert" 22 %}</div><div class="kpi-body"><div class="label" title="Workloads whose image uses the latest tag">Stale image</div><div class="value">{{ extra.stale_images.value|num }}</div></div></div><div class="sub">{% if extra.stale_images.value is None %}Workloads not imported{% elif extra.stale_images.value %}On a <code>latest</code> tag{% else %}None on <code>latest</code>{% endif %}</div></a>
   <div class="kpi stacked"><div class="kpi-top"><div class="tile {% if extra.issues.value %}s-crit{% else %}s-mute{% endif %}">{% icon "alert" 22 %}</div><div class="kpi-body"><div class="label">Open issues</div><div class="value">{{ extra.issues.value|num }}</div></div></div><div class="sub">{% if extra.issues.source %}From the {{ extra.issues.source }}{% else %}Sheet not imported{% endif %}</div></div>
   <a class="kpi stacked kpi-link" href="{% url 'k8s:imports' %}"><div class="kpi-top"><div class="tile {% if last_run.status == 'failed' %}s-crit{% else %}s-ok{% endif %}">{% icon "upload" 22 %}</div><div class="kpi-body"><div class="label">Last import</div><div class="value" style="font-size:19px">{{ last_run.started_at|date:"d M H:i" }}</div></div></div><div class="sub">{{ last_run.total_rows|num }} rows · {{ last_run.get_status_display }}</div></a>
 </section>
@@ -46,6 +47,17 @@
 <div class="k8-alert warn">{% icon "info" 16 %}<p><b>{{ unlinked }} workbook client{{ unlinked|pluralize }} {{ unlinked|pluralize:"is,are" }} not linked to a LinkedEye client.</b>
   Linking them puts the Kubernetes estate behind the same client roll-ups as the rest of the console.
   <a href="{% url 'k8s:clients' %}">Review the clients</a>.</p></div>
+{% endif %}
+
+{% load k8s_ingress_tags %}{% ingress_overview %}
+{% load k8s_ops_tags %}{% ops_overview %}
+
+{% if client_bars %}
+<div class="panel">
+  <div class="panel-h"><h2>Estate by client</h2><small>Applications and open issues the workbook records, busiest clients first</small></div>
+  <div class="chart" data-chart="bars" data-src="k8-client-bars" style="height:210px"></div>
+</div>
+{{ client_bars|json_script:"k8-client-bars" }}
 {% endif %}
 
 <section class="grid g-main">

@@ -3,6 +3,7 @@ from pathlib import Path
 
 from django import forms
 from django.apps import apps
+from django.conf import settings
 
 from .models import GLOBAL_SITE
 from .readers import CSV_SUFFIX, XLSX_SUFFIXES, ZIP_SUFFIX
@@ -14,7 +15,8 @@ ACCEPTED_SUFFIXES = (*XLSX_SUFFIXES, ZIP_SUFFIX, CSV_SUFFIX)
 def site_choices():
     """"All Sites" plus the configured sites, for filing the imported records."""
     Site = apps.get_model("core", "Site")
-    names = list(Site.objects.order_by("name").values_list("name", flat=True))
+    names = list(Site.objects.filter(tenant_key=settings.LINKEDEYE_TENANT).order_by("name")
+                 .values_list("name", flat=True))
     return [(GLOBAL_SITE, GLOBAL_SITE)] + [(n, n) for n in names if n and n != GLOBAL_SITE]
 
 
@@ -48,6 +50,13 @@ class UploadForm(forms.Form):
         if suffix not in ACCEPTED_SUFFIXES:
             raise forms.ValidationError(
                 f"Expected one of {', '.join(ACCEPTED_SUFFIXES)} — {uploaded.name or 'the file'} is not.")
+        # The extension is only a hint: a workbook or a zip must really be a zip package, and a CSV must be text.
+        head = uploaded.read(4)
+        uploaded.seek(0)
+        if suffix in (*XLSX_SUFFIXES, ZIP_SUFFIX) and head[:2] != b"PK":
+            raise forms.ValidationError(f"{uploaded.name or 'The file'} is not a real {suffix} file.")
+        if suffix == CSV_SUFFIX and b"\0" in head:
+            raise forms.ValidationError(f"{uploaded.name or 'The file'} is not a text file.")
         return uploaded
 
 

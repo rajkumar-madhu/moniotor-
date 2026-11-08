@@ -17,6 +17,8 @@ Sheets 04–12 are registered by their own modules; they run after these, so ``c
 """
 from datetime import datetime, timezone as dt_timezone
 
+from django.utils import timezone
+
 from ..crosslink import ensure_compute, link_node
 from ..importer import register_sheet
 from ..models import (Confidence, Exposure, HEALTH_FROM_WORKBOOK, Health, KubeCluster, MappingStatus, Namespace,
@@ -43,6 +45,7 @@ def _health(value):
 
 # ----------------------------------------------------------------------------- 15_RAW_Discovery
 RAW_SHEET = "15_RAW_Discovery"
+MAX_RAW_ENTRIES = 500       # the run keeps an audit trail, not a copy of the sheet: bound what is stored
 TIMESTAMP_NAMES = {"discovery timestamp", "timestamp"}
 CONTEXT_NAMES = {"cluster context", "context", "current_context"}
 
@@ -75,17 +78,22 @@ def import_raw_discovery(ctx, sheet):
             ctx.count(RAW_SHEET, "skipped")
             continue
         if category.lower() == "command":
-            commands.append({"name": name, "command": reference, "return_code": code, "details": details})
+            if len(commands) < MAX_RAW_ENTRIES:
+                commands.append({"name": name[:120], "command": reference[:300], "return_code": code,
+                                 "details": details[:300]})
         elif category.lower() == "resource count":
             number = parse_int(details, minimum=0, maximum=MAX_COUNT)
             if number is None:
                 ctx.count(RAW_SHEET, "skipped")
                 continue
-            counts[name] = number
+            if len(counts) < MAX_RAW_ENTRIES:
+                counts[name[:120]] = number
         elif category.lower() == "safety":
-            safety.append({"name": name, "note": details or reference})
+            if len(safety) < MAX_RAW_ENTRIES:
+                safety.append({"name": name[:120], "note": (details or reference)[:300]})
         else:
-            metadata[name] = details or reference
+            if len(metadata) < MAX_RAW_ENTRIES:
+                metadata[name[:120]] = (details or reference)[:300]
             if name.lower() in TIMESTAMP_NAMES:
                 ctx.discovered_at = _parse_timestamp(details)
             elif name.lower() in CONTEXT_NAMES:
@@ -102,6 +110,7 @@ def import_raw_discovery(ctx, sheet):
         ctx.note("discovered_at", ctx.discovered_at.isoformat())
     if ctx.cluster_context:
         ctx.note("cluster_context", ctx.cluster_context)
+    ctx.touched[RAW_SHEET] = len(sheet.rows)     # read, even though it writes no model rows
 
 
 register_sheet(RAW_SHEET, 10, import_raw_discovery)
@@ -254,7 +263,8 @@ def import_client_master(ctx, sheet):
     if unlinked:
         ctx.warn(CLIENT_SHEET, f"{len(unlinked)} workbook client(s) have no matching LinkedEye client yet — "
                                f"link them on the Kubernetes → Clients page")
-    ctx.track(ClientProfile, CLIENT_SHEET)
+    # summary-only rows belong to the roll-up sheet, which retires them itself
+    ctx.track(ClientProfile, CLIENT_SHEET, summary_only=False)
 
 
 register_sheet(CLIENT_SHEET, 30, import_client_master)
@@ -273,6 +283,7 @@ def import_client_summary(ctx, sheet):
     """
     existing = {p.workbook_name.strip().lower(): p
                 for p in ClientProfile.objects.filter(tenant_key=ctx.tenant)}
+    seen = set()
     for row in sheet.rows:
         name = clean(_get(row, "Client Group", "Client", "Client Name"))
         if not name:
@@ -300,6 +311,12 @@ def import_client_summary(ctx, sheet):
         profile, _created = ctx.upsert(ClientProfile, {"workbook_name": name[:150]}, values,
                                        sheet=SUMMARY_SHEET)
         existing.setdefault(name.strip().lower(), profile)
+        seen.add(profile.pk)
+    if seen:
+        gone = (ClientProfile.objects.filter(tenant_key=ctx.tenant, summary_only=True, missing_since__isnull=True)
+                .exclude(pk__in=seen).update(missing_since=timezone.now()))
+        if gone:
+            ctx.count(SUMMARY_SHEET, "missing", gone)
 
 
 register_sheet(SUMMARY_SHEET, 40, import_client_summary)

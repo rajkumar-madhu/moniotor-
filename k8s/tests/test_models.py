@@ -192,13 +192,17 @@ class SiteRegistryTests(TestCase):
 class TabTests(TestCase):
     def test_only_built_pages_are_in_the_strip(self):
         keys = [t["key"] for t in tabs.enabled_tabs()]
-        self.assertEqual(keys, ["overview", "clients", "namespaces", "nodes", "imports"])
+        self.assertEqual(keys, [t["key"] for t in tabs.TABS if t["enabled"]])      # strip order = TABS order
+        for built in ("overview", "clients", "namespaces", "nodes", "workloads", "services", "volumes", "imports"):
+            self.assertIn(built, keys)
+        self.assertLess(keys.index("overview"), keys.index("imports"))
         self.assertTrue(tabs.is_enabled("nodes"))
 
     def test_pending_tabs_cover_the_remaining_sheets(self):
         pending = {t["key"] for t in tabs.pending_tabs()}
-        self.assertEqual(pending, {"workloads", "services", "ingresses", "volumes", "certificates", "tools",
-                                   "issues"})
+        # a tab leaves this set when its page lands; whatever is left must be a sheet that still has no page
+        self.assertTrue(pending <= {"ingresses", "certificates", "secrets", "tools", "issues"}, pending)
+        self.assertEqual(pending & {"workloads", "services", "volumes", "nodes", "overview"}, set())
         for tab in tabs.pending_tabs():
             self.assertFalse(tabs.is_enabled(tab["key"]))
 

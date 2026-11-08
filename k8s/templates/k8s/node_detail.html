@@ -38,6 +38,19 @@
       {% else %}<p class="empty">No labels recorded.</p>{% endif %}
     </div>
 
+    {% if node_workloads is not None %}
+    <div class="panel">
+      <div class="panel-h"><h2>Running here</h2>{% if node_workloads.rows %}<div class="right"><a class="btn sm ghost-primary" href="{% url 'k8s:workloads' %}?node={{ node.pk }}">View workloads</a></div>{% endif %}</div>
+      {% if node_workloads.rows %}
+      <p class="k8-note">{{ node_workloads.rows|num }} container row{{ node_workloads.rows|pluralize }} in {{ node_workloads.pods|num }} pod{{ node_workloads.pods|pluralize }}, as the workbook recorded them.</p>
+      <div class="table-wrap dense"><table>
+        <thead><tr><th>Namespace</th><th class="num">Containers</th></tr></thead>
+        <tbody>{% for r in node_workloads.by_namespace %}<tr><td class="mono">{{ r.namespace__name }}</td><td class="num">{{ r.n|num }}</td></tr>{% endfor %}</tbody>
+      </table></div>
+      {% else %}<p class="empty">No workload in the application inventory ran on this node.</p>{% endif %}
+    </div>
+    {% endif %}
+
     <div class="panel">
       <div class="panel-h"><h2>Taints ({{ node.taints|length }})</h2></div>
       {% if node.taints %}

@@ -52,6 +52,11 @@ def can_import(user):
     return bool(user) and user.is_authenticated and can(user, "admin") and _tenant_wide(user, "admin")
 
 
+def sees_all_sites(user):
+    """True when `user` is not limited to particular sites (superuser, or a role held on every site)."""
+    return visible_sites(user) is None
+
+
 def visible_site_names(user):
     names = visible_sites(user)
     return None if names is None else set(names)

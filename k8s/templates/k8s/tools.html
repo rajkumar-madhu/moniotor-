@@ -1,0 +1,105 @@
+{% extends "core/base.html" %}{% load le static k8s_tags %}
+{% block title %}Kubernetes tools{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'k8s/page.css' %}"><link rel="stylesheet" href="{% static 'k8s/ops.css' %}">{% endblock %}
+{% block crumbs %}{% include "k8s/_crumbs.html" with section="Tools" %}{% endblock %}
+{% block content %}
+<div class="pg-k8s">
+<div class="head">
+  <div class="glyph bg-info">{% icon "plug" 30 %}</div>
+  <div><h1>Tools</h1><p>The monitoring, CI/CD and platform tools the discovery found running in the clusters, grouped by tool{% if site_filter %} · {{ site_filter }}{% endif %}.</p></div>
+  <div class="actions"><a class="btn" href="{% url 'k8s:tools_export' %}?{{ query.urlencode }}">{% icon "download" 17 %}Export CSV</a></div>
+</div>
+{% k8s_tabs "tools" %}
+
+<section class="kpis k8-kpis" aria-label="Summary">
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "plug" 22 %}</div><div class="kpi-body"><div class="label">Tool instances</div><div class="value">{{ totals.instances|num }}</div></div></div><div class="sub">{{ totals.tools|num }} different tool{{ totals.tools|pluralize }}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-purple">{% icon "users" 22 %}</div><div class="kpi-body"><div class="label">Clients</div><div class="value">{{ totals.clients|num }}</div></div></div><div class="sub">Clients running at least one</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile {% if totals.attention %}s-warn{% else %}s-ok{% endif %}">{% icon "alert" 22 %}</div><div class="kpi-body"><div class="label">Need attention</div><div class="value">{{ totals.attention|num }}</div></div></div><div class="sub">{% if totals.attention %}Warning status or no replica{% else %}Every instance reported healthy{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-mute">{% icon "link" 22 %}</div><div class="kpi-body"><div class="label">With a URL</div><div class="value">{{ totals.with_url|num }}</div></div></div><div class="sub">Reachable through an ingress</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile {% if totals.exporters %}s-ok{% else %}s-mute{% endif %}">{% icon "exporters" 22 %}</div><div class="kpi-body"><div class="label">Linked exporters</div><div class="value">{{ totals.exporters|num }}</div></div></div><div class="sub">Monitoring tools tied to an exporter</div></div>
+</section>
+
+<nav class="ops-cats" aria-label="Tool category">
+  {% for value, label, count, icon in category_tabs %}<a href="?{% if cat_query %}{{ cat_query }}&amp;{% endif %}category={{ value }}" class="{% if category == value %}on{% endif %}">{% icon icon 14 %}{{ label }} <b>{{ count|num }}</b></a>{% endfor %}
+</nav>
+
+<div class="panel">
+  <div class="panel-h"><h2>By tool ({{ groups|length }})</h2><small>Instances, clients and where to open them</small></div>
+  <div class="table-wrap dense"><table>
+    <thead><tr><th>Tool</th><th class="num">Instances</th><th>Clients</th><th class="num">Namespaces</th><th>Health</th><th>Open</th></tr></thead>
+    <tbody>
+    {% for g in groups %}
+      <tr{% if g.gone == g.n %} class="gone"{% endif %}>
+        <td class="ops-wrap"><a class="ops-name" href="?{% if cat_query %}{{ cat_query }}&amp;{% endif %}tool={{ g.tool|urlencode }}">{{ g.tool }}</a>
+          <span class="ops-sub">{{ g.category_label }}{% if g.capability %} · {{ g.capability }}{% endif %}</span></td>
+        <td class="num">{{ g.n|num }}</td>
+        <td class="ops-wrap wide"><span class="ops-chips">
+          {% for client, n in g.clients %}<a class="chip" href="?client={{ client|urlencode }}&amp;tool={{ g.tool|urlencode }}">{{ client }}<b>{{ n }}</b></a>{% endfor %}
+          {% if g.unmapped %}<span class="chip mute" title="Namespaces not mapped to a client">not mapped<b>{{ g.unmapped }}</b></span>{% endif %}
+          {% if not g.clients and not g.unmapped %}–{% endif %}</span></td>
+        <td class="num">{{ g.namespaces|num }}</td>
+        <td>{% if g.attention %}<span class="chip warn">{{ g.attention }} to check</span>{% else %}<span class="chip ok">Healthy</span>{% endif %}</td>
+        <td class="ops-wrap wide">{% for url in g.urls %}<a class="ops-url" href="{{ url }}" target="_blank" rel="noopener noreferrer">{{ url }}</a>{% if not forloop.last %}<br>{% endif %}{% empty %}<span class="t-mute">–</span>{% endfor %}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="6" class="empty">{% if filtered or category %}No tools match these filters.{% else %}No tools imported yet. <a href="{% url 'k8s:import_inventory' %}">Import a workbook</a> that includes the monitoring and CI/CD sheets.{% endif %}</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  <p class="k8-note">Tool names are normalised (the workbook spells “Idrac”, “Argocd”…). “Not mapped” counts instances in namespaces no client was found for.</p>
+</div>
+
+<div class="panel">
+  <div class="panel-h"><h2>Instances ({{ page.paginator.count }})</h2>
+    <div class="right"><a class="btn sm ghost-primary" href="{% url 'k8s:tools_export' %}?{{ query.urlencode }}">{% icon "download" 15 %}CSV</a></div></div>
+  <form class="toolbar compact" method="get">
+    {% if request.GET.per %}<input type="hidden" name="per" value="{{ request.GET.per }}">{% endif %}
+    {% if category %}<input type="hidden" name="category" value="{{ category }}">{% endif %}
+    <label class="search">{% icon "search" 16 %}<input type="search" name="q" value="{{ request.GET.q|default:'' }}" placeholder="Tool, service, host, namespace…" aria-label="Search tools"></label>
+    {% if tools_list %}<select name="tool" data-autosubmit aria-label="Tool"><option value="">All tools</option>{% for t in tools_list %}<option value="{{ t }}"{% if request.GET.tool == t %} selected{% endif %}>{{ t }}</option>{% endfor %}</select>{% endif %}
+    {% if clients %}<select name="client" data-autosubmit aria-label="Client"><option value="">All clients</option>{% for c in clients %}<option value="{{ c }}"{% if request.GET.client == c %} selected{% endif %}>{{ c }}</option>{% endfor %}</select>{% endif %}
+    {% if namespaces %}<select name="namespace" data-autosubmit aria-label="Namespace"><option value="">All namespaces</option>{% for n in namespaces %}<option value="{{ n }}"{% if request.GET.namespace == n %} selected{% endif %}>{{ n }}</option>{% endfor %}</select>{% endif %}
+    {% if environments %}<select name="environment" data-autosubmit aria-label="Environment"><option value="">All environments</option>{% for e in environments %}<option value="{{ e }}"{% if request.GET.environment == e %} selected{% endif %}>{{ e }}</option>{% endfor %}</select>{% endif %}
+    <select name="state" data-autosubmit aria-label="State"><option value="">Any state</option>
+      <option value="attention"{% if request.GET.state == 'attention' %} selected{% endif %}>Needs attention</option>
+      <option value="no_url"{% if request.GET.state == 'no_url' %} selected{% endif %}>No URL</option>
+      <option value="no_exporter"{% if request.GET.state == 'no_exporter' %} selected{% endif %}>Monitoring, no exporter</option>
+      <option value="gone"{% if request.GET.state == 'gone' %} selected{% endif %}>No longer present</option></select>
+    {% include "k8s/_site_filter.html" %}
+    <a class="btn icon blue" href="{% url 'k8s:tools' %}" title="Clear filters" aria-label="Clear filters">{% icon "refresh" 16 %}</a>
+  </form>
+
+  {% if can_link and link_candidates %}
+  <div class="ops-linkbox">
+    <p>Optionally tie the {{ link_candidates|num }} monitoring tool{{ link_candidates|pluralize }} in view that {{ link_candidates|pluralize:"has,have" }} a URL to the exporter inventory. Nothing is scraped: a new exporter is created <b>disabled</b> with no metrics URL; an existing exporter for the same URL is linked, never duplicated.</p>
+    <form method="post" action="{% url 'k8s:tools_link_exporters' %}">{% csrf_token %}
+      {% for key, value in filter_items %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
+      <button class="btn sm" type="submit">{% icon "exporters" 15 %}Create / link exporters</button>
+    </form>
+  </div>
+  {% endif %}
+
+  <div class="table-wrap dense"><table>
+    <thead><tr><th>Tool · service</th><th>Client · namespace</th><th>Endpoint</th><th>Ports · storage</th><th>Status</th><th>Secret name</th><th>Exporter</th></tr></thead>
+    <tbody>
+    {% for t in items %}
+      <tr{% if t.is_missing %} class="gone"{% endif %}>
+        <td class="ops-wrap"><span class="ops-name">{{ t.tool }}</span>{% if t.is_missing %} <span class="chip warn">gone</span>{% endif %}
+          <span class="ops-sub mono">{{ t.service|default:"–" }}</span></td>
+        <td class="ops-wrap">{% if t.client_display %}{{ t.client_display }}{% else %}<span class="t-mute">not mapped</span>{% endif %}
+          <span class="ops-sub mono">{{ t.namespace.name }}{% if t.environment %} · {{ t.environment }}{% endif %}</span></td>
+        <td class="ops-wrap wide">{% if t.url %}<a class="ops-url" href="{{ t.url }}" target="_blank" rel="noopener noreferrer">{{ t.url }}</a>{% elif t.hostname %}<span class="ops-url">{{ t.hostname }}</span>{% else %}<span class="t-mute">–</span>{% endif %}</td>
+        <td class="ops-wrap"><span class="mono">{{ t.port_text|default:"–" }}</span>{% if t.storage %}<span class="ops-sub mono">{{ t.storage }}</span>{% endif %}</td>
+        <td>{% if t.status %}<span class="chip {{ t.status_tone }}">{{ t.status }}</span>{% else %}<span class="t-mute">–</span>{% endif %}
+          {% if t.replica_count is not None %}<span class="ops-sub">{{ t.replica_count }} replica{{ t.replica_count|pluralize }}</span>{% endif %}</td>
+        <td class="ops-wrap mono">{{ t.credential_reference|default:"–" }}</td>
+        <td class="ops-wrap">{% if t.exporter_id %}<a href="{{ t.exporter.get_absolute_url }}">{{ t.exporter.name }}</a>{% else %}<span class="t-mute">–</span>{% endif %}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="7" class="empty">{% if filtered or category %}No tool instances match these filters.{% else %}No tools imported yet.{% endif %}</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  {% include "core/_pager.html" with pager_noun="instances" %}
+  <p class="k8-note">The secret column holds the <b>name</b> of a Kubernetes Secret the tool refers to — never its value. A dash means the discovery recorded nothing.</p>
+</div>
+</div>
+{% endblock %}

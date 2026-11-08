@@ -34,8 +34,38 @@ BINARY_SUFFIXES = {"KI": 1024, "MI": 1024 ** 2, "GI": 1024 ** 3, "TI": 1024 ** 4
 DECIMAL_SUFFIXES = {"K": 1000, "M": 1000 ** 2, "G": 1000 ** 3, "T": 1000 ** 4, "P": 1000 ** 5, "E": 1000 ** 6}
 AGE_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800, "y": 31536000}
 
-_QUANTITY_RE = re.compile(r"^([+-]?\d+(?:\.\d+)?)\s*([A-Za-z]{0,2})$")
-_AGE_RE = re.compile(r"(\d+(?:\.\d+)?)\s*([smhdwy])", re.IGNORECASE)
+# Largest values the importers will store: they fit a signed 64-bit column (bytes) and a 32-bit one
+# (counts, millicores, days) on every database, so a crafted cell can never overflow an integer column.
+MAX_BIGINT = 2 ** 63 - 1
+MAX_INT = 2 ** 31 - 1
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+# Defence in depth for the "names only" rule: if a free-text cell ever carries a credential (a pasted
+# "password=…", a bearer token, a JWT, a PEM block), it is masked on the way in, whichever sheet it is on.
+_SECRET_PAIR = re.compile(
+    r"(?i)(?<![A-Za-z0-9])(--?)?(password|passwd|pwd|passphrase|token|api[ _-]?key|access[ _-]?key|secret[ _-]?key|"
+    r"private[ _-]?key|client[ _-]?secret)(?![A-Za-z0-9])(\s*[:=]\s*|(?<=--token)\s+|(?<=--password)\s+)"
+    r"(?:bearer\s+|basic\s+)?[^\s,;\"']+")
+# a token has at least one digit, which keeps prose such as "basic authentication failed" intact
+_BEARER = re.compile(r"(?i)\b(bearer|basic)\s+(?=[A-Za-z._~+/=-]*\d)[A-Za-z0-9._~+/=-]{12,}")
+_JWT = re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*")
+_PEM = re.compile(r"-----BEGIN [A-Z ]*(?:PRIVATE KEY|CERTIFICATE|SECRET)[A-Z ]*-----[\s\S]*?(?:-----END [A-Z ]*-----|$)")
+REDACTED = "[redacted]"
+_SECRET_HINTS = ("pass", "pwd", "token", "key", "secret", "authorization", "bearer", "basic", "eyj", "-----begin")
+
+
+def redact_secrets(text):
+    """Mask anything in `text` that looks like a credential value. Names of Secrets are left alone."""
+    lowered = text.lower()
+    if not any(hint in lowered for hint in _SECRET_HINTS):
+        return text
+    text = _PEM.sub(REDACTED, text)
+    text = _JWT.sub(REDACTED, text)
+    text = _BEARER.sub(lambda m: f"{m.group(1)} {REDACTED}", text)
+    return _SECRET_PAIR.sub(lambda m: f"{m.group(2)}={REDACTED}", text)
+
+
+_QUANTITY_RE = re.compile(r"^([+-]?\d{1,30}(?:\.\d{1,30})?)\s*([A-Za-z]{0,2})$")
+_AGE_RE = re.compile(r"(\d{1,15}(?:\.\d{1,15})?)\s*([smhdwy])", re.IGNORECASE)
 _PORT_RE = re.compile(r"^(\d+)(?:\s*/\s*([A-Za-z]+))?$")
 
 
@@ -52,12 +82,13 @@ def clean(value):
         value = int(value) if value.is_integer() else value
     if not isinstance(value, str):
         value = str(value)
-    text = value.replace(" ", " ").strip()
+    # a NUL byte (or another control character) in a cell would be refused by PostgreSQL
+    text = _CONTROL_CHARS.sub("", value.replace("\u00a0", " ")).strip()
     if not text:
         return ""
     if text.upper() in PLACEHOLDERS:
         return ""
-    return text
+    return redact_secrets(text)
 
 
 def is_unmapped(value):
@@ -73,11 +104,13 @@ def parse_int(value, minimum=None, maximum=None):
     text = text.replace(",", "")
     try:
         number = int(float(text))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):   # "nan", "inf", "1e999"
         return None
     if minimum is not None and number < minimum:
         return None
-    if maximum is not None and number > maximum:
+    if maximum is None:
+        maximum = MAX_INT
+    if number > maximum:
         return None
     return number
 
@@ -121,7 +154,7 @@ def parse_quantity(value):
     else:
         return None
     total = amount * factor
-    if total < 0:
+    if total < 0 or total > MAX_BIGINT:
         return None
     return int(round(total))
 
@@ -138,7 +171,7 @@ def parse_cpu(value):
         cores = float(text)
     except ValueError:
         return None
-    if cores < 0:
+    if not 0 <= cores * 1000 <= MAX_INT:   # also rejects nan and inf
         return None
     return int(round(cores * 1000))
 
@@ -146,7 +179,7 @@ def parse_cpu(value):
 def parse_pods(value):
     """Pod capacity: "110" -> 110, "1k" -> 1000 (kubectl shortens large capacities)."""
     quantity = parse_quantity(value)
-    if quantity is None:
+    if quantity is None or quantity > MAX_INT:
         return None
     return int(quantity)
 
@@ -156,6 +189,8 @@ def parse_age(value):
     text = clean(value)
     if not text:
         return None
+    if text.startswith("-"):
+        return None
     seconds = 0.0
     found = False
     for amount, unit in _AGE_RE.findall(text):
@@ -164,7 +199,8 @@ def parse_age(value):
     if not found:
         plain = parse_int(text)
         return plain if plain is not None and plain >= 0 else None
-    return int(seconds // 86400)
+    days = int(seconds // 86400)
+    return days if days <= MAX_INT else None
 
 
 def parse_labels(value, pair_sep=";", kv_sep="="):

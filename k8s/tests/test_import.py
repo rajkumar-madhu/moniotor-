@@ -45,7 +45,7 @@ class ParsingTests(TestCase):
         self.assertEqual(parsing.parse_quantity("10Gi"), 10 * 1024 ** 3)
         self.assertEqual(parsing.parse_quantity("74098976Ki"), 74098976 * 1024)
         self.assertEqual(parsing.parse_quantity("2.70 Ti"), int(round(2.70 * 1024 ** 4)))
-        self.assertEqual(parsing.parse_quantity("140.00 Gi"), int(round(140 * 1024 ** 3)))
+        self.assertEqual(parsing.parse_quantity("150.00 Gi"), int(round(150 * 1024 ** 3)))
         self.assertEqual(parsing.parse_quantity("0 Gi"), 0)
         self.assertEqual(parsing.parse_quantity("1k"), 1000)
         self.assertEqual(parsing.parse_quantity("5M"), 5_000_000)
@@ -149,7 +149,7 @@ class ReaderTests(TestCase):
         self.assertEqual(set(source.sheets), set(fixtures.SHEETS))
         node = source.get("03_Node_Inventory").rows[0]
         self.assertEqual(node["Hostname"], "cp-1.example.com")
-        self.assertEqual(node["Memory Capacity"], "32866108Ki")
+        self.assertEqual(node["Memory Capacity"], "16314368Ki")
         # the workbook's int cells arrive as plain text, not "8.0"
         self.assertEqual(source.get("15_RAW_Discovery").rows[0]["Return Code"], "0")
 
@@ -207,8 +207,8 @@ class ImportTests(TestCase):
         self.assertEqual(cp.role, NodeRole.CONTROL_PLANE)
         self.assertEqual(cp.exposure, Exposure.PRIVATE)
         self.assertEqual(cp.cpu_capacity_millicores, 8000)
-        self.assertEqual(cp.memory_capacity_bytes, 32866108 * 1024)
-        self.assertEqual(cp.memory_capacity_raw, "32866108Ki")
+        self.assertEqual(cp.memory_capacity_bytes, 16314368 * 1024)
+        self.assertEqual(cp.memory_capacity_raw, "16314368Ki")
         self.assertEqual(cp.pod_capacity, 110)
         self.assertEqual(cp.age_days, 134)
         self.assertIs(cp.ready, True)
@@ -252,7 +252,7 @@ class ImportTests(TestCase):
         self.assertEqual(acme.project_names, ["acme-prod", "acme-uat"])
         self.assertEqual(acme.environments, ["PROD", "UAT"])
         self.assertEqual(acme.app_count, 12)
-        self.assertEqual(acme.total_storage_bytes, int(round(140 * 1024 ** 3)))
+        self.assertEqual(acme.total_storage_bytes, int(round(150 * 1024 ** 3)))
         self.assertEqual(acme.status, Health.OK)
         # the roll-up sheet filled the summary columns of the same row
         self.assertEqual(acme.summary_namespaces, 2)
@@ -338,13 +338,13 @@ class ImportTests(TestCase):
         importer.run_import(self.dir)
         node = Node.objects.get(hostname="worker-1.example.com")
         rows = [list(r) for r in fixtures.NODE_INVENTORY]
-        rows[2][7] = "Ubuntu 26.04 LTS"       # OS column
+        rows[2][7] = "Ubuntu 25.10"       # OS column
         fixtures.write_csv_dir(self.dir, sheets={**fixtures.SHEETS, "03_Node_Inventory": rows})
         result = importer.run_import(self.dir)
         self.assertEqual(result.counts["03_Node_Inventory"]["updated"], 1)
         self.assertEqual(result.counts["03_Node_Inventory"]["created"], 0)
         node.refresh_from_db()
-        self.assertEqual(node.os, "Ubuntu 26.04 LTS")
+        self.assertEqual(node.os, "Ubuntu 25.10")
         self.assertEqual(Node.objects.count(), 3)
 
     def test_partial_source_does_not_retire_other_sheets(self):

@@ -69,6 +69,9 @@ Namespaces page, so a guess is never presented as a mapping.
   that stamp is cleared. Nothing is ever deleted by an import.
 * **Scoped.** A source that holds only some sheets only speaks for those sheets — the rows owned by a sheet
   that is absent are left untouched rather than retired.
+* **Damaged sheets retire nothing.** A sheet that failed, or whose rows could not be read at all (its key
+  column was renamed or removed), is not taken to mean "everything is gone": its rows are left as they were,
+  and namespaces that only other sheets mention are kept while any sheet of the run was unreadable.
 * **Per sheet.** Each sheet runs in its own transaction, so one broken sheet is reported and rolled back
   while the others still import. The run ends as "failed" if anything was reported.
 * **Audited.** The upload writes an `AuditEvent` and emits a `core.events` event; every run is kept as an
@@ -139,7 +142,7 @@ Parsed centrally by `k8s.parsing`, with the raw string kept beside every parsed 
 | Column | Parsed as | Examples |
 |---|---|---|
 | `CPU Capacity` / `CPU Allocatable` | millicores | `16` → 16000, `500m` → 500 |
-| `Memory Capacity` / `Memory Allocatable` | bytes | `74098976Ki`, `2.70 Ti`, `140.00 Gi`, `0 Gi` |
+| `Memory Capacity` / `Memory Allocatable` | bytes | `74098976Ki`, `2.70 Ti`, `150.00 Gi`, `0 Gi` |
 | `Pod Capacity` | count | `110`, `1k` → 1000 |
 | `Age` | whole days | `134d` → 134, `3d4h` → 3, `12h` → 0 |
 | `Labels` | dict | `a=1; b=2; node-role.kubernetes.io/control-plane=` |

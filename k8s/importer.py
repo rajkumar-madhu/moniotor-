@@ -42,6 +42,11 @@ def tenant():
     return settings.LINKEDEYE_TENANT
 
 
+def _max_length(model, field):
+    """The column width of `model.field`, so a key taken from a cell is clipped instead of refused by PostgreSQL."""
+    return model._meta.get_field(field).max_length
+
+
 # ----------------------------------------------------------------------------- registry
 _SHEETS = {}
 
@@ -147,6 +152,8 @@ class ImportContext:
         self.dropped_messages = 0
         self.seen = {}
         self.scopes = {}
+        self.failed_sheets = set()
+        self.touched = {}       # sheet -> rows it actually wrote or confirmed (see sweep)
         # filled by the discovery-metadata sheet (15) and used as defaults for the cluster row
         self.cluster_context = ""
         self.discovered_at = None
@@ -238,6 +245,8 @@ class ImportContext:
                 self.count(sheet, "updated")
             created = False
         self.seen.setdefault(label, set()).add(obj.pk)
+        if sheet:
+            self.touched[sheet] = self.touched.get(sheet, 0) + 1
         return obj, created
 
     def track(self, model, sheet, **scope):
@@ -250,13 +259,33 @@ class ImportContext:
         """
         self.scopes[model._meta.label_lower] = (sheet, scope)
 
+    def unreadable_sheets(self):
+        """Sheets of this run that failed, or that had rows of which none could be read."""
+        return set(self.failed_sheets) | {name for name, c in self.counts.items()
+                                           if c.get("rows") and not self.touched.get(name)}
+
+    # rows that any sheet may contribute (a namespace seen on the workload, ingress… sheets): they are
+    # retired only when every sheet of the run was readable
+    SHARED_MODELS = {"k8s.namespace"}
+
     def sweep(self):
         """Stamp ``missing_since`` on tracked rows this run did not see; returns the total."""
         now = timezone.now()
         total = 0
         for label, (sheet, scope) in self.scopes.items():
+            if sheet in self.failed_sheets:
+                continue    # a sheet that blew up half way has not said what is gone: keep its rows as they were
             model = apps.get_model(label)
             seen = self.seen.get(label, set())
+            if label in self.SHARED_MODELS and self.unreadable_sheets() - {sheet}:
+                self.warn(sheet, "another sheet could not be read, so namespaces nothing mentions any more "
+                                 "were not retired")
+                continue
+            if not self.touched.get(sheet) and (self.counts.get(sheet) or {}).get("rows"):
+                # the sheet had rows but none could be read (a key column renamed or removed): that is a damaged
+                # sheet, not an empty estate, so nothing is retired
+                self.warn(sheet, "no row could be read, so existing records were left untouched")
+                continue
             qs = model.objects.filter(tenant_key=self.tenant, missing_since__isnull=True, **scope)
             if seen:
                 qs = qs.exclude(pk__in=seen)
@@ -300,7 +329,7 @@ class ImportContext:
 
     def cluster_for(self, name="", **defaults):
         """The ``KubeCluster`` called `name` (the workbook's single "kubernetes" cluster by default)."""
-        cluster_name = clean(name) or DEFAULT_CLUSTER_NAME
+        cluster_name = (clean(name) or DEFAULT_CLUSTER_NAME)[:_max_length(KubeCluster, "name")]
         cached = self._clusters.get(cluster_name)
         if cached is not None:
             return cached
@@ -314,6 +343,11 @@ class ImportContext:
         self._clusters[cluster_name] = cluster
         return cluster
 
+    def forget_caches(self):
+        """Drop cached rows after a sheet's transaction was rolled back: they may no longer exist."""
+        self._clusters.clear()
+        self._namespaces.clear()
+
     def remember_namespace(self, namespace):
         """Cache a Namespace a sheet importer just wrote, so later sheets reuse it without a query."""
         if namespace is not None and namespace.cluster_id:
@@ -323,7 +357,7 @@ class ImportContext:
     def resolve_namespace(self, name, cluster=None, client_label="", environment="", sheet=None):
         """The ``Namespace`` row for `name`, created as "not mapped" when a sheet mentions one that the
         namespace-mapping sheet did not list. Other sheets' importers use this to attach their rows."""
-        ns_name = clean(name)
+        ns_name = clean(name)[:_max_length(Namespace, "name")]
         if not ns_name:
             return None
         cluster = cluster or self.cluster_for()
@@ -348,6 +382,11 @@ class ImportContext:
                 self.warn(sheet, f"namespace “{ns_name}” is not in the namespace mapping sheet")
         else:
             self.seen.setdefault(Namespace._meta.label_lower, set()).add(existing.pk)
+            if existing.missing_since is not None:
+                # a stub that was retired because nothing mentioned it, and is mentioned again
+                existing.missing_since = None
+                existing.last_seen = self.stamp
+                existing.save(update_fields=["missing_since", "last_seen", "updated_at"])
         self._namespaces[key] = existing
         return existing
 
@@ -414,6 +453,8 @@ def _execute(source_arg, user, dry_run, site, create_compute, source_name):
         except Exception as exc:  # one broken sheet must not lose the others
             log.exception("k8s import: sheet %s failed", name)
             ctx.error(name, f"{type(exc).__name__}: {exc}"[:400])
+            ctx.failed_sheets.add(name)
+            ctx.forget_caches()
             failed = True
     try:
         with transaction.atomic():

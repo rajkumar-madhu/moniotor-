@@ -16,14 +16,16 @@ TABS = [
     {"key": "namespaces", "label": "Namespaces", "icon": "layers", "url": "k8s:namespaces", "enabled": True},
     {"key": "nodes", "label": "Nodes", "icon": "server", "url": "k8s:nodes", "enabled": True},
     # Pages owned by the other sheets of the workbook. Flip "enabled" on when the page lands.
-    {"key": "workloads", "label": "Workloads", "icon": "app", "url": "k8s:workloads", "enabled": False},
-    {"key": "services", "label": "Services", "icon": "share", "url": "k8s:services", "enabled": False},
-    {"key": "ingresses", "label": "Ingresses", "icon": "link", "url": "k8s:ingresses", "enabled": False},
-    {"key": "volumes", "label": "Volumes", "icon": "hdd", "url": "k8s:volumes", "enabled": False},
+    {"key": "workloads", "label": "Workloads", "icon": "app", "url": "k8s:workloads", "enabled": True},
+    {"key": "services", "label": "Services", "icon": "share", "url": "k8s:services", "enabled": True},
+    {"key": "ingresses", "label": "Ingresses", "icon": "link", "url": "k8s:ingresses", "enabled": True},
+    {"key": "volumes", "label": "Volumes", "icon": "hdd", "url": "k8s:volumes", "enabled": True},
     {"key": "certificates", "label": "Certificates", "icon": "shield", "url": "k8s:certificates",
-     "enabled": False},
-    {"key": "tools", "label": "Tools", "icon": "template", "url": "k8s:tools", "enabled": False},
-    {"key": "issues", "label": "Issues", "icon": "alert", "url": "k8s:issues", "enabled": False},
+     "enabled": True},
+    {"key": "secrets", "label": "Secrets", "icon": "key", "url": "k8s:secrets", "enabled": True},
+    {"key": "tools", "label": "Tools", "icon": "plug", "url": "k8s:tools", "enabled": True},
+    {"key": "monitoring", "label": "Monitoring", "icon": "activity", "url": "k8s:monitoring", "enabled": True},
+    {"key": "issues", "label": "Issues", "icon": "alert", "url": "k8s:issues", "enabled": True},
     {"key": "imports", "label": "Imports", "icon": "upload", "url": "k8s:imports", "enabled": True},
 ]
 

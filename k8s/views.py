@@ -132,7 +132,7 @@ def _client_node_hostnames(user, client_label):
     qs = (qs.filter(client_label__iexact=client_label) if "client_label" in names
           else qs.filter(namespace__client_label__iexact=client_label))
     try:
-        return {h for h in qs.values_list("node", flat=True) if h}
+        return {h for h in qs.values_list("node__hostname", flat=True) if h}
     except Exception:  # pragma: no cover - a half-built model must not break the page
         return None
 
@@ -152,6 +152,10 @@ def overview(request):
     ns_stats = services.namespace_totals(namespaces)
     profile_stats = services.profile_totals(profiles)
     extra = services.optional_counts(user, run)
+    from .views_workload import workload_signals  # lazy: that module imports this one
+    extra.update(workload_signals(user, site))
+    from .views_ops import ops_signals  # lazy, like workload_signals
+    extra.update(ops_signals(user, site))
     rollup = services.client_rollup(user)
     if site:
         rollup = [r for r in rollup if r["profile"].site == site]
@@ -163,7 +167,19 @@ def overview(request):
                               "namespaces": namespaces.filter(cluster=cluster).count(),
                               "totals": services.node_totals(own)})
 
+    chart_rows = [r for r in rollup if (r["profile"].app_count or r["profile"].open_issues)]
+    chart_rows.sort(key=lambda r: -((r["profile"].app_count or 0) + (r["profile"].open_issues or 0)))
+    chart_rows = chart_rows[:12]
+    names = [r["profile"].display_name for r in chart_rows]
+    client_bars = ({"labels": [n if len(n) <= 12 else n[:11] + "\u2026" for n in names], "tipLabels": names,
+                    "series": [{"name": "Applications", "color": "#2b4cff",
+                                "values": [r["profile"].app_count or 0 for r in chart_rows]},
+                               {"name": "Open issues", "color": "#d92d20",
+                                "values": [r["profile"].open_issues or 0 for r in chart_rows]}]}
+                   if chart_rows else None)
+
     ctx = _base(request, "overview",
+                client_bars=client_bars,
                 clusters=cluster_rows,
                 cluster_count=len(cluster_rows),
                 nodes=node_stats,
@@ -281,7 +297,21 @@ def node_detail(request, pk):
                     ("Pods", node.pod_capacity_raw, "", str(node.pod_capacity or "")),
                 ],
                 namespaces=services.namespaces_for(request.user).filter(cluster=node.cluster).count())
+    ctx.update(_node_workload_summary(node))
     return render(request, "k8s/node_detail.html", ctx)
+
+
+def _node_workload_summary(node):
+    """What runs on this node: container rows, distinct pods and the busiest namespaces (read-only)."""
+    Workload = _workload_model()
+    if Workload is None:
+        return {"node_workloads": None}
+    from django.db.models import Count
+    qs = Workload._default_manager.filter(tenant_key=services.tenant(), node=node)
+    total = qs.count()
+    pods = qs.exclude(pod_name="").values("pod_name").distinct().count()
+    by_ns = list(qs.values("namespace__name").annotate(n=Count("id")).order_by("-n", "namespace__name")[:8])
+    return {"node_workloads": {"rows": total, "pods": pods, "by_namespace": by_ns}}
 
 
 # ----------------------------------------------------------------------------- namespaces
@@ -582,10 +612,14 @@ def imports(request):
 @require("view")
 def import_detail(request, pk):
     run = get_object_or_404(services.runs_for(request.user), pk=pk)
-    discovery = (run.metadata or {}).get("discovery") or {}
+    # An import covers the whole estate, so its warnings (they name namespaces and hosts from every site) and
+    # its discovery log are shown only to users who may see every site; the rest get the sheet counts.
+    restricted = not services.sees_all_sites(request.user)
+    discovery = {} if restricted else ((run.metadata or {}).get("discovery") or {})
     counts = discovery.get("resource_counts") or {}
     ctx = _base(request, "imports",
                 run=run,
+                restricted=restricted,
                 sheets=run.sheet_rows,
                 commands=discovery.get("commands") or [],
                 resource_counts=sorted(counts.items()) if isinstance(counts, dict) else [],

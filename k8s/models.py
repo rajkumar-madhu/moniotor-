@@ -399,3 +399,11 @@ class ClientProfile(SiteScopedModel, ImportedModel):
     @property
     def links(self):
         return [("Application", self.primary_url), ("Monitoring", self.monitoring_url), ("CI/CD", self.cicd_url)]
+
+
+# Workloads, services and volumes (sheets 04, 05, 07) live in their own module; imported last so they can use the bases above.
+from .models_workload import KubeService, Volume, Workload  # noqa: E402,F401
+# Ingress rules, certificates and Secret-name references (sheets 06, 09, 08).
+from .models_ingress import Certificate, Ingress, SecretRef  # noqa: E402,F401
+# Monitoring / CI/CD tools and the issue register (sheets 10, 11, 12).
+from .models_ops import InventoryIssue, ToolInstance  # noqa: E402,F401

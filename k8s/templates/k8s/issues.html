@@ -1,0 +1,84 @@
+{% extends "core/base.html" %}{% load le static k8s_tags %}
+{% block title %}Kubernetes issues{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'k8s/page.css' %}"><link rel="stylesheet" href="{% static 'k8s/ops.css' %}">{% endblock %}
+{% block crumbs %}{% include "k8s/_crumbs.html" with section="Issues" %}{% endblock %}
+{% block content %}
+<div class="pg-k8s">
+<div class="head">
+  <div class="glyph bg-info">{% icon "alert" 30 %}</div>
+  <div><h1>Issues</h1><p>Problems the discovery flagged — pending pods, unavailable replicas, failing jobs, released volumes{% if site_filter %} · {{ site_filter }}{% endif %}.</p></div>
+  <div class="actions"><a class="btn" href="{% url 'k8s:issues_export' %}?{{ query.urlencode }}">{% icon "download" 17 %}Export CSV</a></div>
+</div>
+{% k8s_tabs "issues" %}
+
+<section class="kpis k8-kpis" aria-label="Issues by severity">
+  {% for s in sev_counts %}
+  <a class="kpi stacked kpi-link{% if request.GET.severity == s.value %} on{% endif %}" href="?{% for k, v in filter_items %}{% if k != 'severity' and k != 'page' %}{{ k }}={{ v|urlencode }}&amp;{% endif %}{% endfor %}severity={{ s.value }}"><div class="kpi-top"><div class="tile {% if s.value == 'high' %}s-crit{% elif s.value == 'medium' %}s-warn{% else %}s-info{% endif %}">{% icon "alert" 22 %}</div><div class="kpi-body"><div class="label">{{ s.label }}</div><div class="value">{{ s.count|num }}</div></div></div><div class="sub">{% if status == 'open' %}Open{% elif status == 'closed' %}Closed{% else %}Open and closed{% endif %} · {{ s.label|lower }} severity</div></a>
+  {% endfor %}
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-mute">{% icon "clipboard" 22 %}</div><div class="kpi-body"><div class="label">In view</div><div class="value">{{ total|num }}</div></div></div><div class="sub">{{ sev_total|num }} across all severities</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile {% if with_incident %}s-ok{% else %}s-mute{% endif %}">{% icon "headset" 22 %}</div><div class="kpi-body"><div class="label">With an incident</div><div class="value">{{ with_incident|num }}</div></div></div><div class="sub">{{ open_high|num }} open High without one</div></div>
+</section>
+
+{% if total %}
+<section class="ops-charts" aria-label="Chart">
+  <div class="panel"><div class="panel-h"><h2>Issues by category</h2><small>Split by severity</small></div>
+    <div class="chart" data-chart="bars" data-src="ops-issue-cats" style="height:210px"></div>
+    <div class="donut-legend" style="margin-top:6px">{% for s in sev_counts %}<span><i class="dot" style="background:{% if s.value == 'high' %}#d92d20{% elif s.value == 'medium' %}#b7791f{% else %}#2b4cff{% endif %}"></i>{{ s.label }}</span><b>{{ s.count|num }}</b>{% endfor %}</div>
+  </div>
+</section>
+{{ chart|json_script:"ops-issue-cats" }}
+{% endif %}
+
+<div class="panel">
+  <div class="panel-h"><h2>Issue register ({{ page.paginator.count }})</h2>
+    <div class="right"><a class="btn sm ghost-primary" href="{% url 'k8s:issues_export' %}?{{ query.urlencode }}">{% icon "download" 15 %}CSV</a></div></div>
+  <form class="toolbar compact" method="get">
+    {% if request.GET.per %}<input type="hidden" name="per" value="{{ request.GET.per }}">{% endif %}
+    <label class="search">{% icon "search" 16 %}<input type="search" name="q" value="{{ request.GET.q|default:'' }}" placeholder="Id, resource, issue, namespace…" aria-label="Search issues"></label>
+    <select name="severity" data-autosubmit aria-label="Severity"><option value="">Any severity</option>{% for v, l in severities %}<option value="{{ v }}"{% if request.GET.severity == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    {% if categories %}<select name="category" data-autosubmit aria-label="Category"><option value="">All categories</option>{% for c in categories %}<option value="{{ c }}"{% if request.GET.category == c %} selected{% endif %}>{{ c }}</option>{% endfor %}</select>{% endif %}
+    {% if clients %}<select name="client" data-autosubmit aria-label="Client"><option value="">All clients</option>{% for c in clients %}<option value="{{ c }}"{% if request.GET.client == c %} selected{% endif %}>{{ c }}</option>{% endfor %}</select>{% endif %}
+    {% if namespaces %}<select name="namespace" data-autosubmit aria-label="Namespace"><option value="">All namespaces</option>{% for n in namespaces %}<option value="{{ n }}"{% if request.GET.namespace == n %} selected{% endif %}>{{ n }}</option>{% endfor %}</select>{% endif %}
+    <select name="status" data-autosubmit aria-label="Status"><option value="open"{% if status == 'open' %} selected{% endif %}>Open</option><option value="closed"{% if status == 'closed' %} selected{% endif %}>Closed</option><option value="all"{% if status == 'all' %} selected{% endif %}>Open and closed</option></select>
+    <select name="incident" data-autosubmit aria-label="Incident"><option value="">Incident or not</option><option value="with"{% if request.GET.incident == 'with' %} selected{% endif %}>Has an incident</option><option value="without"{% if request.GET.incident == 'without' %} selected{% endif %}>No incident</option></select>
+    {% include "k8s/_site_filter.html" %}
+    <a class="btn icon blue" href="{% url 'k8s:issues' %}" title="Clear filters" aria-label="Clear filters">{% icon "refresh" 16 %}</a>
+  </form>
+
+  {% if can_incident and total %}
+  <form id="issue-bulk" method="post" action="{% url 'k8s:issues_open_incidents' %}" class="ops-bulk">{% csrf_token %}
+    <span><b data-selected-count>0</b> selected · only open <b>High</b> issues qualify. An issue that already has an open incident updates it instead of opening another.</span>
+    <span class="sp">
+      <button class="btn sm" type="submit" data-needs-selection disabled>{% icon "headset" 15 %}Open incident for selected</button>
+      <button class="btn sm" type="submit" name="scope" value="filtered" title="Every open High issue matching the filters, up to 500">{% icon "headset" 15 %}For all open High in view</button>
+    </span>
+    {% for key, value in filter_items %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
+  </form>
+  {% endif %}
+
+  <div class="table-wrap dense"><table class="ops-issue">
+    <thead><tr>{% if can_incident %}<th class="cb"><input type="checkbox" data-check-all="ids" aria-label="Select all issues on this page"></th>{% endif %}<th>Issue</th><th>Severity</th><th>Client · namespace</th><th>Resource</th><th>Evidence · impact</th><th>Recommended action</th><th>Incident</th></tr></thead>
+    <tbody>
+    {% for i in items %}
+      <tr{% if i.is_missing or not i.is_open %} class="gone"{% endif %}>
+        {% if can_incident %}<td class="cb"><input type="checkbox" name="ids" value="{{ i.pk }}" form="issue-bulk" aria-label="Select {{ i.issue_id }}"{% if not i.is_open or i.severity != 'high' %} disabled title="Only open High issues can open an incident"{% endif %}></td>{% endif %}
+        <td class="ops-wrap"><span class="ops-name">{{ i.issue|default:"–" }}</span><span class="ops-sub mono">{{ i.issue_id }}{% if i.category %} · {{ i.category }}{% endif %}</span>
+          {% if not i.is_open %}<span class="chip mute">closed</span>{% endif %}</td>
+        <td><span class="chip {{ i.tone }}">{{ i.get_severity_display }}</span></td>
+        <td class="ops-wrap">{% if i.client_display %}{{ i.client_display }}{% else %}<span class="t-mute">not mapped</span>{% endif %}
+          <span class="ops-sub mono">{% if i.namespace_id %}{{ i.namespace.name }}{% else %}cluster level{% endif %}{% if i.environment %} · {{ i.environment }}{% endif %}</span></td>
+        <td class="ops-wrap res">{{ i.resource|default:"–" }}</td>
+        <td class="ops-wrap wide">{{ i.evidence|default:"–" }}{% if i.impact %}<span class="ops-sub">{{ i.impact }}</span>{% endif %}</td>
+        <td class="ops-wrap wide">{{ i.recommended_action|default:"–" }}</td>
+        <td class="ops-wrap">{% if i.incident_id %}<a href="{{ i.incident.get_absolute_url }}">{{ i.incident.number }}</a><span class="ops-sub">{{ i.incident.get_status_display }}</span>{% else %}<span class="t-mute">–</span>{% endif %}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="{% if can_incident %}8{% else %}7{% endif %}" class="empty">{% if filtered %}No issues match these filters.{% else %}{% if status == 'open' %}No open issues.{% else %}No issues imported yet. <a href="{% url 'k8s:import_inventory' %}">Import a workbook</a> that includes the issue sheet.{% endif %}{% endif %}</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  {% include "core/_pager.html" with pager_noun="issues" %}
+  <p class="k8-note">Issues are what the read-only discovery observed at the moment it ran; an issue a later import no longer lists is closed automatically. A dash means the discovery recorded no value.</p>
+</div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{% static 'k8s/ops.js' %}" defer></script>{% endblock %}

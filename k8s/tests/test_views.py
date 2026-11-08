@@ -93,13 +93,12 @@ class PageTests(Base):
     def test_overview_counts_unbuilt_sheets_from_the_last_import(self):
         self.login(self.viewer)
         run = ImportRun.objects.first()
-        run.counts = {**run.counts, "04_Application_Inventory": {"rows": 42}}
+        run.counts = {**run.counts, "12_Issues_Risks": {"rows": 42}}
         run.save(update_fields=["counts"])
         extra = self.client.get(reverse("k8s:overview")).context["extra"]
-        self.assertEqual(extra["workloads"], {"value": 42, "source": "last import",
-                                              "sheet": "04_Application_Inventory"})
-        self.assertIsNone(extra["services"]["value"])
-        self.assertIsNone(extra["services"]["source"])
+        self.assertEqual(extra["issues"], {"value": 42, "source": "last import", "sheet": "12_Issues_Risks"})
+        self.assertIsNone(extra["tools"]["value"])
+        self.assertIsNone(extra["tools"]["source"])
 
     def test_node_detail_shows_labels_taints_capacity_and_the_linked_ci(self):
         ci = ConfigurationItem.objects.create(tenant_key=T, name="cp-1.example.com", site=MUM)
@@ -111,9 +110,19 @@ class PageTests(Base):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "node-role.kubernetes.io/control-plane")
         self.assertContains(response, "NoSchedule")
-        self.assertContains(response, "32866108Ki")
+        self.assertContains(response, "16314368Ki")
         self.assertContains(response, ci.name)
         self.assertContains(response, reverse("cmdb:item_detail", args=[ci.pk]))
+
+    def test_overview_client_chart_only_when_clients_carry_numbers(self):
+        self.login(self.viewer)
+        response = self.client.get(reverse("k8s:overview"))
+        bars = response.context["client_bars"]
+        if bars:
+            self.assertEqual({s["name"] for s in bars["series"]}, {"Applications", "Open issues"})
+            self.assertContains(response, 'data-src="k8-client-bars"')
+        else:
+            self.assertNotContains(response, "k8-client-bars")
 
     def test_node_detail_404_for_an_unknown_node(self):
         self.login(self.viewer)
@@ -133,9 +142,10 @@ class PageTests(Base):
         cluster = KubeCluster.objects.get()
         self.assertEqual(self.client.get(url, {"cluster": cluster.pk}).context["total"], 3)
         self.assertEqual(self.client.get(url, {"cluster": "abc"}).context["total"], 3)
-        # the client filter is not offered until the application-inventory page lands
-        self.assertFalse(self.client.get(url).context["client_filter_available"])
-        self.assertEqual(self.client.get(url, {"client": "Acme"}).context["total"], 3)
+        # the client filter is offered now that workloads exist; with none imported it matches no node
+        # (the filtered result with workloads is in test_workloads.py)
+        self.assertTrue(self.client.get(url).context["client_filter_available"])
+        self.assertEqual(self.client.get(url, {"client": "Acme"}).context["total"], 0)
 
     def test_namespace_filters_and_review_highlight(self):
         self.login(self.viewer)
@@ -460,7 +470,7 @@ class UploadTests(Base):
         from django.core.files.uploadedfile import SimpleUploadedFile
         self.login(self.admin)
         response = self.client.post(reverse("k8s:import_inventory"),
-                                    {"file": SimpleUploadedFile("inventory.xlsx", b"not a workbook"),
+                                    {"file": SimpleUploadedFile("inventory.xlsx", b"PK\x03\x04 not a workbook"),
                                      "site": MUM})
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.context["result"].ok)
