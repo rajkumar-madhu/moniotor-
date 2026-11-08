@@ -2,15 +2,82 @@
 <html lang="en" class="landing-page"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LinkedEye · IT operations, connected</title><meta name="description" content="LinkedEye connects infrastructure health, telemetry, and operational response.">
 <link rel="icon" href="{% static 'linkedeye/img/logo-favicon.png' %}"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="{% static 'linkedeye/pages/landing.css' %}?v=product-landing-2"></head>
-<body>
-  <div class="announcement"><i></i><b>Connected operations, now clearer.</b><span>Bring infrastructure, telemetry, and service response into one view.</span><a href="#platform">Explore the platform →</a></div>
-  <header class="site-header"><a class="brand" href="#top"><img src="{% static 'linkedeye/img/logo-favicon.png' %}" alt=""><span>LinkedEye</span></a><nav aria-label="Primary navigation"><a href="#platform">Platform</a><a href="#loop">How it works</a><a href="#enterprise">Enterprise</a></nav><div class="header-actions">{% if user.is_authenticated %}<form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="text-action" type="submit">Sign out</button></form><a class="button primary" href="{% url 'dashboard' %}">Open console →</a>{% else %}<a class="text-action" href="{% url 'login' %}">Sign in</a><a class="button primary" href="{% url 'login' %}">Request access →</a>{% endif %}</div></header>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'linkedeye/pages/landing.css' %}?v=infra-landing-6"></head>
+<body class="landing-shell">
+  <header class="landing-header"><div class="landing-wrap landing-header-inner">
+    <a class="landing-brand" href="#top"><span class="landing-mark silicon-die-glow"><img src="{% static 'linkedeye/img/logo-in.png' %}" alt="" width="20" height="20"></span><span class="landing-brand-text"><span class="landing-brand-title">Linked<span class="accent">Eye</span></span><span class="landing-brand-sub">linkedeye.in</span></span></a>
+    <nav class="landing-nav" aria-label="Primary navigation"><a href="#platform">Platform</a><a href="#loop">How it works</a><a href="#enterprise">Enterprise</a></nav>
+    <div class="landing-header-actions">{% if user.is_authenticated %}<form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="landing-link" type="submit">Sign out</button></form><a class="landing-btn landing-btn-coral" href="{% url 'dashboard' %}">Open console</a>{% else %}<a class="landing-link" href="{% url 'login' %}">Sign in</a><a class="landing-btn landing-btn-coral" href="{% url 'login' %}">Request access</a>{% endif %}</div>
+  </div></header>
   <main id="top">
-    <section class="hero"><p class="eyebrow">Enterprise IT operations</p><h1>Know what changed and why,<br><em>before it becomes an outage.</em></h1><p>LinkedEye connects infrastructure health, telemetry, and service operations—so teams can see risk early and act with the right context.</p><div class="hero-actions">{% if user.is_authenticated %}<a class="button primary" href="{% url 'dashboard' %}">Open your console →</a>{% else %}<a class="button primary" href="{% url 'login' %}">Request access →</a>{% endif %}<a class="button secondary" href="#platform">Explore the platform</a></div><small>Accounts and site access are provisioned by your organization’s administrator.</small></section>
-    <section class="product-proof" id="platform"><div class="product-chrome"><i></i><i></i><i></i><b>linkedeye / operations overview</b><small><em></em> Live · updated just now</small></div><div class="product-body"><aside><div class="rail-brand"><img src="{% static 'linkedeye/img/logo-favicon.png' %}" alt=""><b>LinkedEye</b></div><p>Operations</p><a class="active" href="#platform">Overview</a><a href="#loop">Signals</a><a href="#enterprise">Incidents <strong>3</strong></a><a href="#platform">Services</a><a href="#platform">Infrastructure</a><p>Analyze</p><a href="#platform">Telemetry</a><a href="#platform">Reports</a></aside><div class="product-main"><div class="product-heading"><div><h2>Operations overview</h2><p>Infrastructure, services, and critical signals at a glance.</p></div><div class="periods"><span>1h</span><span>24h</span><b>7d</b><span>30d</span></div></div><div class="metrics"><article><span>Availability</span><b>99.97%</b><small>↑ 0.02 pp <i>vs. prior 7d</i></small></article><article><span>Active incidents</span><b class="danger">3</b><small>↓ 2 <i>vs. yesterday</i></small></article><article><span>Device health</span><b>96.4%</b><small>↑ 0.8 pp <i>vs. prior 7d</i></small></article><article><span>First response</span><b>12m</b><small>↓ 4m <i>vs. prior 7d</i></small></article></div><div class="product-grid"><article class="trend"><div class="panel-title"><div><b>Service availability</b><span>Last 7 days</span></div><small>Healthy · Degraded · Unavailable</small></div><div class="bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="chart-days"><span>Nov 1</span><span>Nov 2</span><span>Nov 3</span><span>Nov 4</span><span>Nov 5</span><span>Nov 6</span><span>Nov 7</span></div></article><article class="incidents"><div class="panel-title"><div><b>Active incidents</b><span>3 open</span></div><a href="#enterprise">View all</a></div><ul><li><i class="critical"></i><div><b>Email service latency</b><small>Customer communications</small></div><em>High</em><span>12m</span></li><li><i class="warning"></i><div><b>Branch network degraded</b><small>East region</small></div><em>Medium</em><span>2h</span></li><li><i class="warning"></i><div><b>VPN authentication errors</b><small>Identity service</small></div><em>Medium</em><span>3h</span></li></ul></article><article class="device-health"><div class="panel-title"><div><b>Devices by health</b><span>3,987 total</span></div></div><div class="health-bar"><i></i><i></i><i></i></div><dl><div><dt><i class="healthy"></i>Healthy</dt><dd>3,842</dd></div><div><dt><i class="warning"></i>Warning</dt><dd>108</dd></div><div><dt><i class="critical"></i>Critical</dt><dd>37</dd></div></dl></article><article class="response"><div class="panel-title"><div><b>Response queue</b><span>Last 7 days</span></div></div><dl><div><dt>Requests closed</dt><dd>92% <i>↑ 3 pp</i></dd></div><div><dt>Resolution time</dt><dd>1h 36m <i>↓ 18m</i></dd></div><div><dt>Escalations</dt><dd>8 <i>↓ 2</i></dd></div></dl></article></div></div></div></section>
-    <section class="operating-loop" id="loop"><p class="eyebrow">The operating loop</p><h2>See the signal. Understand the impact.<br>Guide the response.</h2><div class="loop-steps"><article><b>01</b><h3>See the signal</h3><p>Bring health, changes, and service events together before they become customer impact.</p></article><article><b>02</b><h3>Understand impact</h3><p>Connect telemetry to the services, devices, sites, and people that rely on them.</p></article><article><b>03</b><h3>Guide response</h3><p>Route the right work with shared context and a complete operational record.</p></article></div></section>
-    <section class="enterprise" id="enterprise"><div><p class="eyebrow">Built for your real ops model</p><h2>One operational picture,<br>across every site.</h2><p>Whether you run a single data center or a distributed estate, LinkedEye keeps teams aligned without flattening the way your organization works.</p></div><div class="assurances"><article><b>Sites</b><p>Consistent visibility across locations, regions, and hybrid infrastructure.</p></article><article><b>Roles</b><p>Give operations, infrastructure, and service desk teams the view they need.</p></article><article><b>Auditability</b><p>Maintain a clear record of changes, events, and operational responses.</p></article></div></section>
-    <section class="closing"><p class="eyebrow">Ready when your team is</p><h2>See what changed.<br>Stay ahead of outages.</h2><p>Give your operations team a connected view of the work that keeps services healthy.</p>{% if user.is_authenticated %}<a class="button light" href="{% url 'dashboard' %}">Open your console →</a>{% else %}<a class="button light" href="{% url 'login' %}">Request access →</a>{% endif %}</section>
-  </main><footer><a class="brand" href="#top"><img src="{% static 'linkedeye/img/logo-favicon.png' %}" alt=""><span>LinkedEye</span></a><span>Enterprise IT operations, connected.</span><span>© 2026 LinkedEye</span></footer>
+    <section class="landing-hero silicon-circuit"><div class="landing-wrap landing-hero-grid">
+      <div class="landing-hero-copy">
+        <img class="landing-brand-art" src="{% static 'linkedeye/img/logo-in.png' %}" alt="" width="120" height="120" decoding="async">
+        <p class="landing-eyebrow">LinkedEye operations</p>
+        <h1>Know what changed and why, <em>before it becomes an outage.</em></h1>
+        <p class="landing-lead">Infrastructure health, telemetry, and service operations in one connected console—so teams see risk early and act with the right context.</p>
+        <div class="landing-hero-actions">{% if user.is_authenticated %}<a class="landing-btn landing-btn-coral" href="{% url 'dashboard' %}">Open your console</a>{% else %}<a class="landing-btn landing-btn-coral" href="{% url 'login' %}">Request access</a><a class="landing-btn landing-btn-ghost" href="{% url 'login' %}">Sign in</a>{% endif %}<a class="landing-btn landing-btn-ghost" href="#platform">Explore the platform</a></div>
+        <ul class="landing-trust"><li>Site-scoped access</li><li>Prometheus-ready</li><li>Audit on action</li></ul>
+      </div>
+      <div class="landing-hero-aside">
+        <aside class="ops-panel landing-demo">
+          <p class="landing-demo-tag"><span class="dot-coral" aria-hidden="true"></span>Operations overview · live</p>
+          <h2 class="landing-demo-title">Live monitoring surface</h2>
+          <p class="landing-demo-lead">Device detail, charts, and incident context in one place—URL checks, network gear, and VM metrics together.</p>
+          <dl class="landing-demo-stats">
+            <div><dt>Monitored devices</dt><dd class="mono">3,987</dd></div>
+            <div><dt>Active incidents</dt><dd class="mono crit">3</dd></div>
+            <div><dt>Availability (7d)</dt><dd class="mono ok">99.97%</dd></div>
+          </dl>
+          <a class="landing-demo-link" href="{% url 'login' %}">Open the console →</a>
+        </aside>
+        <figure class="landing-showcase">
+          <img class="landing-showcase-bg" src="{% static 'linkedeye/img/login-bg-img1.png' %}" alt="" width="1200" height="400" loading="lazy" decoding="async">
+          <img class="landing-showcase-shot" src="{% static 'linkedeye/img/Monitors.png' %}" alt="LinkedEye monitoring console" width="600" height="470" loading="lazy" decoding="async">
+          <figcaption>Operations console</figcaption>
+        </figure>
+      </div>
+    </div></section>
+    <section class="landing-platform" id="platform"><div class="landing-wrap">
+      <p class="landing-eyebrow landing-eyebrow-coral">Platform</p>
+      <h2 class="landing-section-title">One picture from probes to service desk.</h2>
+      <div class="landing-feature-grid">
+        <article class="ops-panel"><h3>Network &amp; devices</h3><p>Switches, firewalls, VMs, and probes with live charts, front panels, and reachability in one detail view.</p></article>
+        <article class="ops-panel"><h3>Telemetry</h3><p>Prometheus-backed ranges and KPIs—no fabricated numbers when an integration is not wired yet.</p></article>
+        <article class="ops-panel"><h3>Incidents &amp; events</h3><p>State changes flow through a single event stream into service desk fingerprints and the operations dashboard.</p></article>
+        <article class="ops-panel"><h3>Multi-site roles</h3><p>Viewer, operator, and admin access per site—built for how B2B IT teams actually divide responsibility.</p></article>
+        <article class="ops-panel"><h3>Automation</h3><p>Rules and runbooks react to emitted events without breaking the idempotent worker model.</p></article>
+        <article class="ops-panel"><h3>On your estate</h3><p>Run on-prem or hybrid—your data stays in your database and your Prometheus, not a shared SaaS silo.</p></article>
+      </div>
+    </div></section>
+    <section class="landing-loop" id="loop"><div class="landing-wrap">
+      <p class="landing-eyebrow landing-eyebrow-coral">The operating loop</p>
+      <h2 class="landing-section-title">See the signal. Understand impact. Guide the response.</h2>
+      <div class="landing-loop-grid">
+        <article><b class="mono">01</b><h3>See the signal</h3><p>Bring health checks, metrics, and service events together before they become customer impact.</p></article>
+        <article><b class="mono">02</b><h3>Understand impact</h3><p>Connect telemetry to the devices, sites, and services that depend on each other.</p></article>
+        <article><b class="mono">03</b><h3>Guide response</h3><p>Route the right work with shared context and a complete operational record.</p></article>
+      </div>
+    </div></section>
+    <section class="landing-enterprise" id="enterprise"><div class="landing-wrap landing-enterprise-grid">
+      <div><p class="landing-eyebrow landing-eyebrow-coral">Built for your ops model</p><h2 class="landing-section-title">One operational picture, across every site.</h2><p class="landing-body">Whether you run a single data center or a distributed estate, LinkedEye keeps teams aligned without flattening how your organization works.</p></div>
+      <div class="landing-assurances">
+        <article><b>Sites</b><p>Consistent visibility across locations, regions, and hybrid infrastructure.</p></article>
+        <article><b>Roles</b><p>Operations, infrastructure, and service desk each get the view they need.</p></article>
+        <article><b>Auditability</b><p>A clear record of changes, events, and operational responses.</p></article>
+      </div>
+    </div></section>
+    <section class="landing-closing silicon-circuit"><div class="landing-wrap landing-closing-inner">
+      <p class="landing-eyebrow">Ready when your team is</p>
+      <h2 class="landing-section-title">See what changed. Stay ahead of outages.</h2>
+      <p class="landing-lead">Give your operations team a connected view of the work that keeps services healthy.</p>
+      {% if user.is_authenticated %}<a class="landing-btn landing-btn-coral" href="{% url 'dashboard' %}">Open your console</a>{% else %}<a class="landing-btn landing-btn-coral" href="{% url 'login' %}">Request access</a>{% endif %}
+    </div></section>
+  </main>
+  <footer class="landing-footer"><div class="landing-wrap landing-footer-inner">
+    <a class="landing-brand" href="#top"><span class="landing-mark"><img src="{% static 'linkedeye/img/logo-favicon.png' %}" alt="" width="20" height="20"></span><span class="landing-brand-title">LinkedEye</span></a>
+    <span>Enterprise IT operations, connected.</span>
+    <span>© 2026 <a href="https://linkedeye.in/" rel="noopener">LinkedEye.in</a></span>
+  </div></footer>
 </body></html>
