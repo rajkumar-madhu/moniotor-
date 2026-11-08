@@ -84,6 +84,7 @@
     var toggle = document.querySelector('[data-live-toggle]');
     var body = wrap.querySelector('tbody'), status = document.querySelector('[data-live-status]');
     var lastId = +wrap.dataset.lastId || 0, timer = null, busy = false, MAX_ROWS = 300;
+    var DRAIN_MS = 200, drain = null;
     if (!toggle) return;
     if (store('ob-live') === '1' && !toggle.disabled) toggle.checked = true;
 
@@ -118,13 +119,16 @@
             while (body.rows.length > MAX_ROWS) body.deleteRow(body.rows.length - 1);
           }
           status.textContent = 'Live · ' + d.rows.length + ' new · ' + new Date().toLocaleTimeString();
+          // the page was full: more lines are waiting behind the cursor, so drain them instead of skipping
+          if (d.more && toggle.checked) { clearTimeout(drain); drain = setTimeout(poll, DRAIN_MS); }
         })
         .catch(function () { status.textContent = 'Live tail: could not refresh – retrying'; })
         .finally(function () { busy = false; });
     }
     function apply() {
       clearInterval(timer);
-      timer = null;
+      clearTimeout(drain);
+      timer = drain = null;
       if (toggle.checked) { poll(); timer = setInterval(poll, POLL_MS); status.textContent = 'Live tail on'; }
       else status.textContent = '';
     }

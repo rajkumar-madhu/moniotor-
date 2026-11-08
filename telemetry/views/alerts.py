@@ -17,7 +17,7 @@ from core.audit import audit
 
 from .. import alerts as svc
 from ..models import Alert
-from .common import csv_response, paginate, perms, query_without_page
+from .common import csv_response, is_pk, paginate, perms, query_without_page
 
 LABEL_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 RESOLVED_WINDOW_DAYS = 7
@@ -144,7 +144,9 @@ def alert_list(request):
 def alert_detail(request, pk):
     a = get_object_or_404(_scoped(request).select_related("acknowledged_by"), pk=pk)
     from core.models import Event
-    events = Event.objects.filter(fingerprint=a.event_fingerprint).order_by("-occurred_at")[:20]
+    # the fingerprint is only unique per tenant: another tenant's copy of the same rule shares it
+    events = (Event.objects.filter(tenant_key=settings.LINKEDEYE_TENANT, fingerprint=a.event_fingerprint)
+              .order_by("-occurred_at")[:20])
     from ..alert_insight import alert_detail_context
 
     return render(request, "telemetry/alert_detail.html", {
@@ -191,7 +193,7 @@ def _selected(request, pk=None):
     qs = _scoped(request)
     if pk is not None:
         return [get_object_or_404(qs, pk=pk)]
-    ids = [i for i in request.POST.getlist("ids") if str(i).isdigit()][:500]
+    ids = [i for i in request.POST.getlist("ids") if is_pk(i)][:500]
     return list(qs.filter(pk__in=ids))
 
 

@@ -1,0 +1,94 @@
+{% extends "core/base.html" %}{% load le static network_tags %}
+{% block title %}Product catalog{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'network/page.css' %}"><link rel="stylesheet" href="{% static 'network/device-card.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'network:all' %}">Network Devices</a>{% icon "chevron-right" 14 %}<span>Product catalog</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-network nw-catalog">
+<div class="head">
+  <div class="glyph bg-info">{% icon "image" 30 %}</div>
+  <div><h1>Product catalog</h1><p>Your own product photos by vendor and model. A device whose vendor and model match a row gets that photo automatically.</p></div>
+  <div class="actions">
+    <a class="btn" href="{% url 'network:photos' %}">{% icon "search" 17 %}Devices missing a photo</a>
+    <a class="btn" href="{% url 'network:catalog_export' %}">{% icon "download" 17 %}Export CSV</a>
+    <a class="btn primary" href="{% url 'network:catalog_create' %}">{% icon "plus" 17 %}Add photo</a>
+  </div>
+</div>
+
+<div class="nw-alert info" role="note">{% icon "info" 16 %}<span><b>LinkedEye does not bundle vendor photos; add yours here.</b> Each photo is uploaded, or downloaded once through the safe fetcher, and stored by LinkedEye, so it keeps working if the vendor moves or removes the original and nothing is loaded from another site. Only add images you are allowed to use.</span></div>
+{% if legacy_count %}<div class="nw-alert warn" role="status">{% icon "alert" 16 %}<span><b>{{ legacy_count }} row{{ legacy_count|pluralize }} only link{{ legacy_count|pluralize:"s," }} to a picture on another site.</b> Use “Store a copy” on each row (or edit it) to download the picture once and keep it.</span></div>{% endif %}
+
+{% if report %}
+<section class="panel nw-import-report" id="import-report">
+  <div class="panel-h"><h2>{% if dry_run %}Dry run{% else %}Import{% endif %} result</h2>
+    <span class="right t-mute small">{% if dry_run %}Nothing was saved. The photos were downloaded and checked only.{% else %}Saved.{% endif %}</span></div>
+  <div class="nw-import-counts">
+    <span class="badge ok">{{ counts.created }} {% if dry_run %}to add{% else %}added{% endif %}</span>
+    <span class="badge ok">{{ counts.updated }} {% if dry_run %}to update{% else %}updated{% endif %}</span>
+    <span class="badge mute">{{ counts.unchanged }} unchanged</span>
+    {% if counts.skipped %}<span class="badge warn">{{ counts.skipped }} not attempted</span>{% endif %}
+    <span class="badge {% if counts.error %}crit{% else %}mute{% endif %}">{{ counts.error }} with errors</span>
+  </div>
+  <div class="table-wrap dense"><table>
+    <thead><tr><th class="num">Line</th><th>Vendor</th><th>Type</th><th>Model</th><th>Result</th><th>Photo</th><th>Detail</th></tr></thead>
+    <tbody>{% for r in report %}
+      <tr><td class="num">{{ r.line }}</td><td>{{ r.vendor|default:"–" }}</td><td>{{ r.device_type|default:"any" }}</td><td>{{ r.model_key|default:"(any model)" }}</td>
+        <td><span class="badge {{ r.tone }}">{{ r.status|capfirst }}</span></td><td class="mono small">{{ r.detail|default:"–" }}</td><td>{{ r.message }}</td></tr>
+    {% endfor %}</tbody></table></div>
+</section>
+{% endif %}
+
+<section class="grid g-2 nw-catalog-tools">
+  <div class="panel">
+    <div class="panel-h"><h2>Import from CSV</h2></div>
+    <form method="post" action="{% url 'network:catalog_import' %}" enctype="multipart/form-data" class="nw-form-pad">{% csrf_token %}
+      <p class="hint">Columns: <code>{{ csv_columns|join:", " }}</code>. Each <code>image_url</code> must be an <b>https</b> address of a PNG, JPEG or WebP (up to {{ max_bytes_mb }} MB, 4096 × 4096 px). Up to {{ max_rows }} rows per import; <code>device_type</code> is one of {% for v, l in types %}<code>{{ v }}</code>{% if not forloop.last %}, {% endif %}{% endfor %} or empty (any type); an empty <code>model_key</code> makes a vendor default.</p>
+      <div class="field"><label for="csv_file">CSV file</label><input type="file" id="csv_file" name="csv_file" accept=".csv,text/csv"></div>
+      <div class="field"><label for="csv_text">…or paste it</label><textarea id="csv_text" name="csv_text" rows="5" class="in mono" placeholder="vendor,device_type,model_key,image_url,product_page_url">{{ csv_text }}</textarea></div>
+      <div class="field nw-check"><label class="inline-check"><span class="switch"><input type="checkbox" name="dry_run" {% if dry_run is None or dry_run %}checked{% endif %}><span></span></span>Dry run: download and check every photo, save nothing</label></div>
+      <div class="nw-form-foot"><button class="btn primary" type="submit">{% icon "upload" 16 %}Run import</button></div>
+    </form>
+  </div>
+  <div class="panel">
+    <div class="panel-h"><h2>How photos are handled</h2></div>
+    <ul class="nw-list-plain">
+      <li>Downloads go through the same SSRF-safe fetcher as the URL checker: https only, public addresses only, redirects re-checked, size and time limited. Private addresses are refused unless listed in <code>LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS</code>.</li>
+      <li>The bytes are checked, not trusted: PNG, JPEG and WebP only, decoded size read from the file header; SVG, GIF, animated images and files with anything appended are refused.</li>
+      <li>Photos are stored in the database (deduplicated by content) and served only to signed-in users, with fixed headers. The address they came from is recorded without any query string.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="panel nw-catalog-list">
+  <div class="panel-h"><h2>Catalog ({{ page.paginator.count }}{% if page.paginator.count != total %} of {{ total }}{% endif %})</h2></div>
+  <form class="toolbar compact" method="get">
+    <label class="search">{% icon "search" 16 %}<input type="search" name="q" value="{{ request.GET.q }}" placeholder="Search vendor, model, notes…" aria-label="Search the catalog"></label>
+    <select name="type" data-autosubmit aria-label="Type"><option value="">Any type</option>{% for v, l in types %}<option value="{{ v }}"{% if request.GET.type == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <select name="photo" data-autosubmit aria-label="Photo"><option value="">Any photo</option><option value="stored"{% if request.GET.photo == "stored" %} selected{% endif %}>Stored</option><option value="linked"{% if request.GET.photo == "linked" %} selected{% endif %}>Link only</option></select>
+    <a class="btn icon blue" href="{% url 'network:catalog' %}" title="Clear filters" aria-label="Clear filters">{% icon "refresh" 16 %}</a>
+  </form>
+  <div class="table-wrap dense"><table>
+    <thead><tr><th>Photo</th><th>Vendor</th><th>Type</th><th>Model match</th><th>Source</th><th>Datasheet</th><th>Actions</th></tr></thead>
+    <tbody>
+    {% for r in page %}
+      <tr>
+        <td>{% if r.image_id %}<div class="dc dc-thumb"><div class="dc-photo has-photo"><span class="dc-zoom"><img src="{{ r.image.url }}" alt="{{ r.vendor }} {{ r.model_key }}" width="{{ r.image.width }}" height="{{ r.image.height }}" loading="lazy"></span></div></div>{% else %}<span class="t-mute">–</span>{% endif %}</td>
+        <td>{{ r.vendor }}</td>
+        <td>{{ r.device_type|default:"any" }}</td>
+        <td class="mono">{{ r.model_key|default:"(vendor default)" }}</td>
+        <td>{% if r.image_id %}<span class="badge ok">Stored</span> <span class="t-mute small">{{ r.image.get_source_display }} · {{ r.image.width }}×{{ r.image.height }} · {{ r.image.byte_size|filesizeformat }}</span>{% elif r.product_image_url %}<span class="badge warn">Link only</span>{% else %}<span class="badge crit">No photo</span>{% endif %}</td>
+        <td>{% if r.product_page_url %}<a href="{{ r.product_page_url }}" target="_blank" rel="noopener noreferrer">{% icon "external" 13 %} Open</a>{% else %}<span class="t-mute">–</span>{% endif %}</td>
+        <td><div class="row-actions">
+          {% if not r.image_id and r.product_image_url %}<form method="post" action="{% url 'network:catalog_store_copy' r.pk %}">{% csrf_token %}<button class="btn sm" type="submit" title="Download the picture once and keep a copy">{% icon "download" 14 %}Store a copy</button></form>{% endif %}
+          <a class="btn icon blue" href="{% url 'network:photo_find' %}?catalog={{ r.pk }}" title="Get photo from datasheet" aria-label="Get photo from datasheet for {{ r.vendor }} {{ r.model_key }}">{% icon "search" 15 %}</a>
+          <a class="btn icon blue" href="{% url 'network:catalog_edit' r.pk %}" title="Edit" aria-label="Edit {{ r.vendor }} {{ r.model_key }}">{% icon "edit" 15 %}</a>
+          <form method="post" action="{% url 'network:catalog_delete' r.pk %}" data-confirm="Remove the catalog row for {{ r.vendor }} {{ r.model_key|default:'(any model)' }}? Devices that already use its photo keep it.">{% csrf_token %}<button class="btn icon" type="submit" title="Delete" aria-label="Delete {{ r.vendor }} {{ r.model_key }}">{% icon "trash" 15 %}</button></form>
+        </div></td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="7" class="empty">{% if total %}No catalog rows match these filters.{% else %}The catalog is empty. LinkedEye does not bundle vendor photos; <a href="{% url 'network:catalog_create' %}">add yours</a> or import a CSV above.{% endif %}</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  {% include "core/_pager.html" with pager_noun="rows" %}
+</section>
+</div>
+{% endblock %}

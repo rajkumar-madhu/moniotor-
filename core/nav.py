@@ -16,6 +16,7 @@ NAV = [
         {"label": "Heatmap", "url": "cmdb:heatmap"},
         {"label": "Fleet", "url": "telemetry:fleet"},
         {"label": "Infrastructure", "url": "telemetry:infrastructure"},
+        {"label": "Discovery", "url": "telemetry:discovery"},
         {"label": "Nagios Status", "url": "telemetry:nagios"},
         {"label": "Prometheus Metrics", "url": "telemetry:prometheus"},
         {"label": "Alert Manager", "url": "telemetry:alertmanager"},

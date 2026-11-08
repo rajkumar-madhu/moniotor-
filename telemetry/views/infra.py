@@ -1,11 +1,12 @@
 from django.apps import apps
-from django.http import Http404
+from django.http import Http404, JsonResponse
 from django.shortcuts import render
+from django.urls import reverse
 
 from core import prometheus
 from core.access import require, scope_by_site, visible_sites
 
-from .. import fleet, hosts as svc, hosts_full as full, palette as pal
+from .. import discovery as disc, fleet, hosts as svc, hosts_full as full, palette as pal
 from ..fmt import finite, human_duration, human_rate
 from ..models import Alert
 from .common import csv_response, matches, paginate, perms, prom_context, query_without_page
@@ -100,6 +101,8 @@ def infrastructure(request):
             "center": {"value": str(summary["total"]), "label": "Hosts"}},
         "top_cpu": svc.top(hosts, "cpu"), "top_memory": svc.top(hosts, "memory"), "top_disk": svc.top(hosts, "disk"),
         "thresholds": svc.thresholds(),
+        # discovered hosts that are not in the CMDB yet (the Discovery page is where they are reviewed)
+        "undiscovered": disc.unlinked_host_count(request.user),
     })
     return render(request, "telemetry/infrastructure.html", ctx)
 
@@ -135,10 +138,12 @@ def host_detail(request, instance):
     return render(request, "telemetry/host_detail.html", ctx, status=status)
 
 
-@require("view")
-def host_metrics(request, instance):
-    """Full node_exporter view of one host (Netdata-style): same scoping and error handling as host_detail."""
-    ctx = {**prom_context(), **perms(request), "instance": instance, "error": "", "host": None, "full": None}
+def _load_host_metrics(request, instance):
+    """The one access + fetch path shared by host_metrics (HTML) and host_metrics_json (Live poll).
+
+    Raises Http404 when the host's CMDB site is outside the user's sites (exactly like host_detail). Returns
+    {range_key, ci, site, host, full, error, prom_configured}: host is None when Prometheus has no such instance,
+    error is the Prometheus failure text, and both fetches honour the cache unless ?refresh=1."""
     range_key = request.GET.get("range", "1h")
     if range_key not in svc.RANGES:
         range_key = "1h"
@@ -146,21 +151,51 @@ def host_metrics(request, instance):
     site = (getattr(ci, "site", "") or "") if ci is not None else ""
     if not _site_ok(request.user, site):
         raise Http404("No such host")
-    status = 200
-    if ctx["prom_configured"]:
+    d = {"range_key": range_key, "ci": ci, "site": site, "host": None, "full": None, "error": "",
+         "prom_configured": prometheus.configured()}
+    if d["prom_configured"]:
         use_cache = request.GET.get("refresh") != "1"
         try:
-            ctx["host"] = svc.fetch_host(instance, range_key, use_cache=use_cache)
-            if ctx["host"] is None:
-                status = 404
-            else:
-                ctx["full"] = full.fetch_host_full(ctx["host"], range_key, use_cache=use_cache)
+            d["host"] = svc.fetch_host(instance, range_key, use_cache=use_cache)
+            if d["host"] is not None:
+                d["full"] = full.fetch_host_full(d["host"], range_key, use_cache=use_cache)
         except prometheus.PrometheusError as e:
-            ctx["error"] = str(e)
-    ctx.update({"ci": ci, "ci_url": svc.ci_url(ci), "site": site, "range_key": range_key,
+            d["error"] = str(e)
+    return d
+
+
+@require("view")
+def host_metrics(request, instance):
+    """Full node_exporter view of one host (Netdata-style): same scoping and error handling as host_detail."""
+    d = _load_host_metrics(request, instance)
+    ctx = {**prom_context(), **perms(request), "instance": instance, "error": d["error"], "host": d["host"],
+           "full": d["full"]}
+    status = 404 if (ctx["prom_configured"] and not d["error"] and d["host"] is None) else 200
+    ci, range_key = d["ci"], d["range_key"]
+    ctx.update({"ci": ci, "ci_url": svc.ci_url(ci), "site": d["site"], "range_key": range_key,
                 "ranges": [(k, v[0]) for k, v in svc.RANGES.items()],
                 "compute_installed": apps.is_installed("compute"), "cache_seconds": svc.CACHE_SECONDS,
                 "vms": full.placed_vms(instance, request.user) if ctx["host"] else None,
+                "live_url": reverse("telemetry:host_metrics_json", args=[instance]) + "?range=" + range_key,
                 "toc": [("summary", "Summary"), ("compute", "Compute"), ("memory", "Memory"), ("storage", "Storage"),
                         ("network", "Network"), ("system", "System info"), ("workloads", "Containers & VMs")]})
     return render(request, "telemetry/host_metrics.html", ctx, status=status)
+
+
+@require("view")
+def host_metrics_json(request, instance):
+    """Live-mode poll for host_metrics: the same loader (site scoping, 404, cache, ?refresh=1, ?range=) as the
+    page, returned as JSON. Errors are {"error": text} with 404 (no such host) or 503 (Prometheus)."""
+    def fail(text, status):
+        return JsonResponse({"error": text}, status=status, headers={"Cache-Control": "no-store"})
+    try:
+        d = _load_host_metrics(request, instance)
+    except Http404:
+        return fail("No such host", 404)
+    if not d["prom_configured"]:
+        return fail("Prometheus is not configured", 503)
+    if d["error"]:
+        return fail(d["error"], 503)
+    if d["host"] is None:
+        return fail("No such host", 404)
+    return JsonResponse(full.live_payload(d["host"], d["full"]), headers={"Cache-Control": "no-store"})

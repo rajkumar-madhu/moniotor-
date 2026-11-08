@@ -156,3 +156,34 @@ def sort_link(query, field, current, label):
     q["sort"] = f"-{field}" if desc else field
     arrow = " ↑" if current == field else " ↓" if current == f"-{field}" else ""
     return format_html('<a class="sort" href="?{}">{}{}</a>', q.urlencode(), label, arrow)
+
+
+@register.simple_tag
+def device_art(device):
+    """The fallback illustration for a device without a photo (see network.art)."""
+    from ..art import art_kind, illustration
+    return illustration(art_kind(device))
+
+
+@register.filter
+def art_label(device):
+    from ..art import LABELS, art_kind
+    return LABELS[art_kind(device)]
+
+
+@register.simple_tag
+def photo_link(device, variant):
+    """Where the photo links to: the full-size stored photo (or the vendor page of a legacy link) on the detail header,
+    the device page everywhere else. Empty when there is nothing to open."""
+    if variant == "hero":
+        if device.image_id:
+            return device.image.url
+        return device.product_page_url if device.product_image_url else ""
+    return device.get_absolute_url()
+
+
+@register.filter
+def to_json(value):
+    """JSON text for a data-* attribute (the template engine escapes it for the attribute context)."""
+    import json
+    return json.dumps(value, separators=(",", ":"))

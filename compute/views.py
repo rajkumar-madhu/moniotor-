@@ -212,12 +212,15 @@ def servers(request):
     u = request.user
     base = services.servers_for(u)
     counts = services.status_counts(base)
-    qs = _filter_servers(request, base).order_by("name")
+    qs = _filter_servers(request, base).select_related("image").defer("image__data").order_by("name")
     page = Paginator(qs, _per_page(request)).get_page(request.GET.get("page"))
     rows = _decorate_servers(request, list(page))
     live, prom_error, prom_on = metrics.server_metrics(rows)
+    from network.live import LIVE_INTERVAL, card_data   # the device card: photo next to live figures
+    cards = card_data(rows)
     for d in rows:
         d.m = live.get(d.pk)
+        d.card = cards[d.pk]
     with_instance = base.exclude(prometheus_instance="").count()
     hosting = services.placements_for(u).exclude(host=None).values("host_id").distinct().count()
     return render(request, "compute/servers.html", {
@@ -225,6 +228,7 @@ def servers(request):
         "hosting": hosting, "prom_on": prom_on, "prom_error": prom_error, "matched": len(live),
         "sites": _sites_of(base), "statuses": STATUS_CHOICES,
         "clusters": services.clusters_for(u).order_by("name"), "query": _query(request),
+        "cards_url": reverse("network:cards_live"), "live_interval": LIVE_INTERVAL,
     })
 
 

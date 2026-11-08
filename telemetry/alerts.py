@@ -10,9 +10,14 @@ repeat notifications do not flood the event stream:
 Event fingerprints are "am:<fingerprint>", so Service Desk opens one incident per alert and moves it to
 Mitigated when the alert resolves.
 
+Rows are keyed by (tenant, fingerprint): the same rule in two tenants shares one Alertmanager fingerprint.
+
 A "firing" notification for a resolved alert is a re-fire only when its startsAt is newer than the stored end (or
 start) of the alert: a delayed duplicate of the original firing notification (same startsAt, e.g. from an
-Alertmanager HA peer) is counted but does not re-open the alert.
+Alertmanager HA peer) is counted but does not re-open the alert. Deliveries are at-least-once and can arrive out
+of order, so a "resolved" notification that ended before the stored instance started (the previous instance's
+resolve arriving after a re-fire) is counted and otherwise ignored, and a notification never moves starts_at
+backwards.
 
 Every alert row is upserted, but one notification emits at most MAX_EVENTS_PER_INGEST events (most severe first);
 the remaining state changes are summarised in one aggregate event (fingerprint "am:ingest-overflow"), so an alert
@@ -135,11 +140,29 @@ def _is_newer_firing(a, starts_at):
     return starts_at > reference
 
 
+def _is_stale_resolve(a, ends_at):
+    """Is a resolved notification ending at `ends_at` about a previous instance of alert `a`: one that ended before
+    the stored instance started (a delayed or retried resolve delivered after a newer firing)? Compared on endsAt,
+    not startsAt: Alertmanager merges overlapping instances from an HA Prometheus pair to the earliest startsAt, so
+    a genuine resolve can carry an older startsAt than the firing we stored."""
+    if ends_at is None or a.starts_at is None:
+        return False
+    return ends_at <= a.starts_at
+
+
+def _count_only(a, fields):
+    """Record the delivery without changing the alert's state."""
+    a.receive_count += 1
+    a.last_received_at = fields["last_received_at"]
+    a.save(update_fields=["receive_count", "last_received_at", "updated_at"])
+    return a, None, False
+
+
 def _upsert(fp, fields, site, instance, status, severity):
     """Create or update one alert row under a row lock. Returns (alert, event reason or None, created)."""
     reason = None
     with transaction.atomic():
-        a = Alert.objects.select_for_update().filter(fingerprint=fp).first()
+        a = Alert.objects.select_for_update().filter(tenant_key=settings.LINKEDEYE_TENANT, fingerprint=fp).first()
         created = a is None
         if created:
             if not site:
@@ -150,12 +173,16 @@ def _upsert(fp, fields, site, instance, status, severity):
             reason = "new" if status == Alert.FIRING else None
         else:
             prev_status, prev_sev = a.status, (a.severity or "").lower()
+            if status == Alert.RESOLVED and _is_stale_resolve(a, fields["ends_at"]):
+                # the previous instance's resolve delivered out of order: it must not resolve the newer firing
+                return _count_only(a, fields)
             if prev_status == Alert.RESOLVED and status == Alert.FIRING and not _is_newer_firing(a, fields["starts_at"]):
                 # a late duplicate of the firing we already resolved: count it, change nothing else
-                a.receive_count += 1
-                a.last_received_at = fields["last_received_at"]
-                a.save(update_fields=["receive_count", "last_received_at", "updated_at"])
-                return a, None, False
+                return _count_only(a, fields)
+            if fields["starts_at"] is not None and a.starts_at is not None and fields["starts_at"] < a.starts_at:
+                # never move the start backwards: a delayed repeat of the previous instance's firing would otherwise
+                # make that instance's late resolve look current (see _is_stale_resolve)
+                fields = {**fields, "starts_at": a.starts_at}
             if prev_status == Alert.RESOLVED and status == Alert.FIRING:
                 reason = "refired"
                 a.acknowledged_at = None
@@ -204,8 +231,8 @@ def ingest(payload, alerts, now=None):
         try:
             a, reason, created = _upsert(fp, fields, site, instance, status, severity)
         except IntegrityError:
-            # another notification for the same fingerprint (Alertmanager HA peers deliver duplicates in parallel)
-            # inserted the row between our SELECT and INSERT: it exists now, so the retry takes the update path
+            # another notification for the same (tenant, fingerprint) (Alertmanager HA peers deliver duplicates in
+            # parallel) inserted the row between our SELECT and INSERT: it exists now, so the retry takes the update path
             a, reason, created = _upsert(fp, fields, site, instance, status, severity)
         stats["created" if created else "updated"] += 1
         if reason:

@@ -21,6 +21,9 @@
   {% include "telemetry/_not_connected.html" with nc_title="Prometheus" nc_env="LINKEDEYE_PROMETHEUS_URL" nc_extra="(for example http://prometheus.internal:9090)" nc_text="Host inventory, CPU, memory, disk, load, network and uptime come from node_exporter metrics in Prometheus (targets in jobs whose name contains node)." %}
 {% else %}
 {% if error %}{% include "telemetry/_error.html" with err_message=error %}{% endif %}
+{% if undiscovered %}
+<p class="tm-note info">{% icon "radar" 15 %}<span><b>{{ undiscovered }}</b> discovered host{{ undiscovered|pluralize }} {{ undiscovered|pluralize:"is,are" }} not in the CMDB yet. <a href="{% url 'telemetry:discovery' %}">Review</a></span></p>
+{% endif %}
 
 <section class="kpis tm-kpis" aria-label="Summary">
   <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "server" 22 %}</div><div class="kpi-body"><div class="label">Hosts</div><div class="value">{{ summary.total }}</div></div></div><div class="sub">{{ jobs|length }} node job{{ jobs|length|pluralize }}</div></div>

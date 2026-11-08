@@ -305,3 +305,76 @@
   .pg-fleet .fl-leader { grid-template-columns: minmax(70px, 110px) 1fr 30px; }
   .pg-fleet .head .actions .seg { order: -1; }
 }
+
+/* ---------- discovery (telemetry/discovery.html, discovery_detail.html) ---------- */
+.pg-telemetry .tile.s-teal { background: var(--teal-bg, var(--info-bg)); color: var(--teal, var(--info)); }
+/* 7 KPIs: wide enough that "Not in CMDB" still fits when the nav rail is pinned open
+   (.kpi .label is nowrap + ellipsis above 860px, so a narrower track truncates it). */
+.pg-telemetry .kpis.disc-kpis { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.pg-telemetry .kpis.disc-kpis .kpi .value { font-size: 26px; }
+.pg-telemetry .tm-facts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; font-size: 13px; color: var(--ink-2); }
+.pg-telemetry .tm-facts li { display: flex; gap: 8px; align-items: flex-start; }
+.pg-telemetry .tm-facts .ic { color: var(--ok); flex: none; margin-top: 2px; }
+.pg-telemetry .tm-bulk-site { display: inline-flex; gap: 6px; align-items: center; }
+.pg-telemetry .tm-bulk-site select { max-width: 190px; }
+.pg-telemetry .tm-bulk [data-sel-count] { margin-right: auto; }
+.pg-telemetry .tm-table tr.gone td { opacity: .62; }
+.pg-telemetry .tm-table td .host-name { font-weight: 600; }
+.pg-telemetry .tm-table td.num small { color: var(--muted); font-size: 11px; font-weight: 500; }
+.pg-telemetry .tm-actions { margin-top: 12px; border-top: 1px solid var(--line-soft); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.pg-telemetry .tm-actions select { max-width: 230px; }
+.pg-telemetry details.tm-disc-labels { margin-top: 10px; }
+.pg-telemetry details.tm-disc-labels > summary { display: inline-flex; cursor: pointer; list-style: none; }
+.pg-telemetry details.tm-disc-labels > summary::-webkit-details-marker { display: none; }
+/* only the discovered-target label lists scroll; the alert detail page's field groups must not */
+.pg-telemetry .tm-label-pairs { max-height: 320px; overflow: auto; }
+@media (max-width: 860px) { .pg-telemetry .tm-label-pairs { max-height: none; overflow: visible; } }
+
+/* Prometheus page: alert & recording rules */
+.pg-telemetry .tm-rule-grp { margin-top: 14px; }
+.pg-telemetry .tm-rule-grp:first-of-type { margin-top: 0; }
+.pg-telemetry .tm-rule-grp h3 { font: 700 14.5px/1.3 var(--font); display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.pg-telemetry .tm-rule-grp h3 .file { font: 11.5px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+.pg-telemetry .tm-table td.q { white-space: normal; min-width: 180px; max-width: 420px; overflow-wrap: anywhere; font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); }
+
+@media (max-width: 860px) {
+  .pg-telemetry .tm-bulk { gap: 6px; }
+  .pg-telemetry .tm-bulk [data-sel-count] { flex: 1 1 100%; margin-right: 0; }
+  .pg-telemetry .tm-bulk-site { flex: 1 1 100%; }
+  .pg-telemetry .tm-bulk-site select { flex: 1 1 auto; max-width: none; }
+  .pg-telemetry .tm-actions select { max-width: none; flex: 1 1 auto; }
+}
+
+/* ---------- host metrics: Live mode, gauges, sparklines, interactive legend (charts.js v2 contract) ---------- */
+.pg-telemetry .hm-help { margin: 8px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+.pg-telemetry .hm-live { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pg-telemetry #hm-live[aria-pressed="true"] { background: var(--ok-bg); border-color: var(--ok-line); color: var(--ok-ink); }
+.pg-telemetry #hm-live[aria-pressed="true"] .ic { animation: hm-pulse 2s ease-in-out infinite; }
+@keyframes hm-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .pg-telemetry #hm-live .ic { animation: none; } }
+.pg-telemetry .hm-updated { color: var(--muted); font: 500 11.5px var(--mono); letter-spacing: .03em; white-space: nowrap; }
+.pg-telemetry .hm-updated:empty { display: none; }
+.pg-telemetry .hm-live-err { display: inline-block; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--crit-line); background: var(--crit-bg); color: var(--crit-ink);
+  font-size: 12px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-telemetry .hm-live-err[hidden] { display: none; }
+/* gauge tiles: label on top, the 3/4 arc with the value inside, delta text under it (drawn by charts.js) */
+.pg-telemetry .hm-kpi-gauge { gap: 4px; align-items: stretch; }
+.pg-telemetry .hm-kpi-gauge .label { display: flex; align-items: center; gap: 6px; }
+.pg-telemetry .hm-kpi-gauge .label .ic { color: var(--muted); }
+.pg-telemetry .hm-kpi-gauge .hm-gauge { height: 108px; }
+.pg-telemetry .hm-kpi-gauge .sub { text-align: center; }
+.pg-telemetry .hm-vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.pg-telemetry .hm-spark { height: 26px; margin-top: 6px; }
+/* legend rows are controls: click hides a series, shift-click isolates it (charts.js adds .off) */
+.pg-telemetry .hm-legend tbody tr[data-series] { cursor: pointer; }
+.pg-telemetry .hm-legend tbody tr[data-series]:hover td { background: var(--panel-2); }
+.pg-telemetry .hm-legend tbody tr.off td { opacity: .45; }
+.pg-telemetry .hm-legend tbody tr.off td.name { text-decoration: line-through; }
+.pg-telemetry .hm-legend td[data-col="last"] { font-variant-numeric: tabular-nums; }
+/* the global .table-wrap rule ends in overflow:hidden, which silently cuts Min/Max off the wider legends
+   in a narrow panel (phone width): give the legend back its horizontal scroller. */
+.pg-telemetry .hm-legend { overflow-x: auto; }
+@media (max-width: 860px) {
+  .pg-telemetry .hm-kpi-gauge .hm-gauge { height: 96px; }
+  .pg-telemetry .hm-live-err { max-width: 100%; }
+}

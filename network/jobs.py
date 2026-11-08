@@ -4,6 +4,7 @@
   DevicePoll row, updates the device status and emits an event on up <-> down.
 * network.metrics – interface rates/states and uptime from Prometheus (snmp_exporter).
 * network.discovery – starts queued discovery runs, fails interrupted ones.
+* network.photo_candidates – deletes datasheet photo candidates nobody picked within their hour (every 15 minutes).
 Jobs are idempotent, bounded by timeouts and never raise."""
 import logging
 import time
@@ -16,8 +17,8 @@ from django.utils import timezone
 from core import prometheus
 from core.events import emit
 
-from . import discovery, metrics, probe
-from .models import Device, DevicePoll, DeviceStatus
+from . import discovery, metrics, probe, vm_metrics
+from .models import Device, DevicePoll, DeviceStatus, DeviceType
 
 log = logging.getLogger("linkedeye.network")
 
@@ -33,6 +34,18 @@ def _tenant():
 
 def _timeout():
     return min(REACH_TIMEOUT, float(settings.PROBE_TIMEOUT))
+
+
+# ------------------------------------------------------------------ photo candidates
+def prune_photo_candidates():
+    """Delete datasheet / product page picture candidates nobody picked within their hour (registered every 15 minutes)."""
+    try:
+        from . import images
+        n = images.prune_candidates()
+        return f"removed {n} expired photo candidate(s)" if n else None
+    except Exception:  # noqa: BLE001 - jobs must not raise
+        log.exception("photo candidate prune failed")
+        return "error"
 
 
 # ------------------------------------------------------------------ reachability
@@ -96,15 +109,25 @@ def record(device, result, now=None):
     device.last_error = result.error[:300]
     if new != prev:
         device.status_changed_at = now
+    # Which status the last event was emitted for. The recovery event must also fire when the device
+    # passed through Unknown in between (monitoring turned off and on again, or a check the probe policy
+    # refused), otherwise the incident opened by the critical event is never mitigated.
+    alerted = device.last_alert_status
+    down_alert = new == DeviceStatus.DOWN and prev != DeviceStatus.DOWN
+    up_alert = new == DeviceStatus.UP and (prev == DeviceStatus.DOWN or alerted == DeviceStatus.DOWN)
+    if down_alert:
+        device.last_alert_status = DeviceStatus.DOWN
+    elif up_alert:
+        device.last_alert_status = DeviceStatus.UP
     device.save(update_fields=["status", "last_checked_at", "last_latency_ms", "last_error", "last_seen",
-                               "consecutive_failures", "status_changed_at"])
-    if new == DeviceStatus.DOWN and prev != DeviceStatus.DOWN:
+                               "consecutive_failures", "status_changed_at", "last_alert_status"])
+    if down_alert:
         emit(source="network", title=f"{device.name} is down", severity="critical",
              message=f"{device.get_device_type_display()} {device.name} ({device.mgmt_ip}) is not reachable on TCP "
                      f"{device.check_port}: {result.error}",
              site=device.site, obj=device, fingerprint=f"network:{device.pk}",
              ci=device.name, host=device.mgmt_ip, port=device.check_port, device_type=device.device_type, status="down")
-    elif new == DeviceStatus.UP and prev == DeviceStatus.DOWN:
+    elif up_alert:
         emit(source="network", title=f"{device.name} is up again", severity="ok",
              message=f"{device.get_device_type_display()} {device.name} ({device.mgmt_ip}) answers on TCP {device.check_port} "
                      f"({result.latency_ms:g} ms).",
@@ -143,21 +166,46 @@ def update_metrics(devices):
         by_instance.setdefault(d.prometheus_instance.strip(), []).append(d)
     names = list(by_instance)
     updated = 0
+    guests = []   # VMs with no SNMP data: try node_exporter next
     now = timezone.now()
     for i in range(0, len(names), metrics.CHUNK):
         chunk = names[i:i + metrics.CHUNK]
         data, errors = metrics.fetch(chunk)
         for inst in chunk:
+            result = data.get(inst)
+            snmp_empty = not result or (not result.get("interfaces") and result.get("uptime") is None)
             for d in by_instance[inst]:
                 try:
-                    transitions = metrics.apply(d, data.get(inst), errors, now)
+                    transitions = metrics.apply(d, result, errors, now)
                 except Exception:  # noqa: BLE001
                     log.exception("could not store metrics for device %s", d.pk)
                     continue
                 updated += 1
                 for iface, old, new in transitions:
                     _interface_event(d, iface, old, new)
+                if snmp_empty and d.device_type == DeviceType.VIRTUAL_MACHINE:
+                    guests.append(d)
+    _guest_uptimes(guests, now)
     return f"metrics for {updated} device(s)"
+
+
+def _guest_uptimes(devices, now):
+    """Virtual machines are usually scraped by node_exporter, not snmp_exporter: take their uptime from
+    node_boot_time_seconds so they show a real uptime and no SNMP error."""
+    names = sorted({d.prometheus_instance.strip() for d in devices})
+    uptimes = {}
+    for i in range(0, len(names), metrics.CHUNK):
+        try:
+            uptimes.update(vm_metrics.guest_uptimes(names[i:i + metrics.CHUNK]))
+        except prometheus.PrometheusError as e:
+            log.warning("node_exporter uptime query failed: %s", e)
+            break
+    for d in devices:
+        up = uptimes.get(d.prometheus_instance.strip())
+        if up is None:
+            continue
+        d.uptime_seconds, d.metrics_updated_at, d.metrics_error = up, now, ""
+        d.save(update_fields=["uptime_seconds", "metrics_updated_at", "metrics_error"])
 
 
 def _interface_event(device, iface, old, new):

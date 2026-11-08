@@ -11,6 +11,8 @@
     {% if prom_configured %}
     <a class="btn" href="?{{ query.urlencode }}{% if query.urlencode %}&amp;{% endif %}format=csv">{% icon "download" 17 %}Export</a>
     <a class="btn" href="?{{ query.urlencode }}{% if query.urlencode %}&amp;{% endif %}refresh=1">{% icon "refresh" 17 %}Refresh</a>
+    <a class="btn" href="#rules">{% icon "bell" 17 %}Rules{% if rule_kpis.firing %} <span class="chip crit">{{ rule_kpis.firing }}</span>{% endif %}</a>
+    <a class="btn" href="{% url 'telemetry:discovery' %}">{% icon "radar" 17 %}Discovery{% if discovered %} <span class="chip warn">{{ discovered }}</span>{% endif %}</a>
     {% endif %}
     <a class="btn primary" href="{% url 'telemetry:explorer' %}">{% icon "analytics" 17 %}Metrics Explorer</a>
   </div>
@@ -85,6 +87,47 @@
     {% endfor %}
     </tbody></table></div>
   {% include "core/_pager.html" with pager_noun="targets" %}
+</div>
+
+<div class="panel" id="rules">
+  <div class="panel-h"><h2>Alert &amp; Recording Rules</h2>
+    <div class="right tm-meta">Read live from /api/v1/rules · cached 60 s · nothing is stored</div></div>
+  {% if rules_restricted %}
+    <p class="tm-limits">{% icon "info" 14 %} Rules are not tied to a site, so they are shown only to users who can see every site.</p>
+  {% elif rules_error %}
+    <p class="tm-note" role="alert">{% icon "alert" 15 %}<span>Rules could not be read: {{ rules_error }}</span></p>
+  {% elif not rule_groups %}
+    <p class="tm-limits">{% icon "info" 14 %} Prometheus has no rule groups loaded. Alerting rules live in its own configuration (<code>rule_files</code>); LinkedEye only shows them.</p>
+  {% else %}
+  <section class="kpis tm-kpis" aria-label="Rule summary" style="margin-bottom:14px">
+    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "layers" 22 %}</div><div class="kpi-body"><div class="label">Groups</div><div class="value">{{ rule_kpis.groups }}</div></div></div><div class="sub">{{ rule_kpis.rules }} rule{{ rule_kpis.rules|pluralize }}</div></div>
+    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-warn">{% icon "bell" 22 %}</div><div class="kpi-body"><div class="label">Alerting</div><div class="value">{{ rule_kpis.alerting }}</div></div></div><div class="sub">{{ rule_kpis.recording }} recording</div></div>
+    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-crit">{% icon "flame" 22 %}</div><div class="kpi-body"><div class="label">Firing</div><div class="value{% if rule_kpis.firing %} t-crit{% endif %}">{{ rule_kpis.firing }}</div></div></div><div class="sub">{{ rule_kpis.pending }} pending</div></div>
+    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-mute">{% icon "alert" 22 %}</div><div class="kpi-body"><div class="label">Rule Errors</div><div class="value{% if rule_kpis.errors %} t-crit{% endif %}">{{ rule_kpis.errors }}</div></div></div><div class="sub">Evaluation failures</div></div>
+  </section>
+  {% for g in rule_groups %}
+  <div class="tm-rule-grp">
+    <h3>{{ g.name|default:"(unnamed group)" }}
+      {% if g.firing %}<span class="chip crit">{{ g.firing }} firing</span>{% endif %}
+      <span class="chip mute">{{ g.alerting }} alerting · {{ g.recording }} recording</span>
+      {% if g.interval %}<span class="chip mute">every {{ g.interval|floatformat:"-0" }}s</span>{% endif %}
+      <span class="file">{{ g.file }}</span></h3>
+    <div class="table-wrap dense tm-table" style="margin-top:8px"><table>
+      <thead><tr><th>Rule</th><th>Type</th><th>State</th><th>Severity</th><th class="num">Active</th><th>Expression</th><th>Last evaluation</th></tr></thead>
+      <tbody>{% for r in g.rules %}
+        <tr>
+          <td class="wrap"><b>{{ r.name }}</b>{% if r.summary %}<span class="sub">{{ r.summary|truncatechars:120 }}</span>{% endif %}{% if r.error %}<span class="sub t-crit">{{ r.error|truncatechars:120 }}</span>{% endif %}</td>
+          <td><span class="chip {% if r.type == 'alerting' %}purple{% else %}mute{% endif %}">{{ r.type }}</span>{% if r.duration %}<span class="sub">for {{ r.duration|floatformat:"-0" }}s</span>{% endif %}</td>
+          <td>{% if r.type == 'alerting' %}{% if r.state == 'firing' %}{% badge "critical" "Firing" %}{% elif r.state == 'pending' %}{% badge "warning" "Pending" %}{% else %}{% badge "ok" "Inactive" %}{% endif %}{% else %}<span class="t-mute">–</span>{% endif %}</td>
+          <td>{% if r.severity %}<span class="sev {% if r.severity == 'critical' %}t-crit{% elif r.severity == 'warning' %}t-warn{% else %}t-info{% endif %}">{{ r.severity }}</span>{% else %}<span class="t-mute">–</span>{% endif %}</td>
+          <td class="num">{% if r.type == 'alerting' %}{{ r.active }}{% else %}–{% endif %}</td>
+          <td class="q">{{ r.query|truncatechars:160 }}</td>
+          <td title="{{ r.last_eval|date:'Y-m-d H:i:s' }}">{{ r.last_eval|since }}{% if r.eval_seconds %}<span class="sub">{{ r.eval_seconds|ms_from_s }}</span>{% endif %}</td>
+        </tr>
+      {% endfor %}</tbody></table></div>
+  </div>
+  {% endfor %}
+  {% endif %}
 </div>
 {{ donut|json_script:"d-donut" }}
 {% endif %}

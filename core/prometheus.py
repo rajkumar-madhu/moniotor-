@@ -1,4 +1,4 @@
-"""Minimal Prometheus HTTP API client (instant/range queries, targets, alerts).
+"""Minimal Prometheus HTTP API client (instant/range queries, targets, alerts, rules).
 
 Only used when settings.PROMETHEUS_URL is set. Queries go server-side; the
 browser never talks to Prometheus. Errors raise PrometheusError with a
@@ -60,9 +60,16 @@ def query(promql, at=None):
 
 
 def query_range(promql, seconds=3600, step=None):
-    """Range query over the last `seconds` -> list of {"metric", "values": [(ts, float|None)]}."""
-    end = time.time()
-    step = step or max(15, int(seconds / 120))
+    """Range query over the last `seconds` -> list of {"metric", "values": [(ts, float|None)]}.
+
+    `end` is snapped down to a whole multiple of `step`. Prometheus evaluates a range query at exactly
+    start + k*step, so without the snap two queries issued a few milliseconds apart (every chart whose series
+    come from more than one query, run concurrently) come back on grids offset by that difference. Aligning
+    them would then union both grids and leave every series full of gaps, which breaks the shared time axis
+    (`ts`) that the charts use to sync their crosshair and zoom. It also makes the response cacheable per step.
+    """
+    step = max(1, int(step or max(15, int(seconds / 120))))
+    end = (int(time.time()) // step) * step
     data = _get("/api/v1/query_range", {"query": promql, "start": end - seconds, "end": end, "step": step})
     out = []
     for r in data.get("result", []):
@@ -77,3 +84,8 @@ def targets():
 
 def alerts():
     return _get("/api/v1/alerts").get("alerts", [])
+
+
+def rules():
+    """Rule groups from /api/v1/rules (alerting and recording rules with their state)."""
+    return _get("/api/v1/rules").get("groups", [])

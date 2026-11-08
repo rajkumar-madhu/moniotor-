@@ -97,6 +97,7 @@ ICONS = {
     "plug": '<path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 01-12 0V8zM12 18v4"/>',
     "calendar-range": '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4M7 14h4M13 17h4"/>',
     "logout": '<path d="M15 4h4a1 1 0 011 1v14a1 1 0 01-1 1h-4M10 17l-5-5 5-5M5 12h12"/>',
+    "image": '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 8"/>',
     "map-pin": '<path d="M12 21c-4-4-7-7.6-7-11a7 7 0 0114 0c0 3.4-3 7-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
 }
 

@@ -1,0 +1,32 @@
+{% load le network_tags %}{% comment %}
+  The device card: product photo (stored copy, else the legacy hotlink, else a labelled illustration) next to LIVE data.
+  Parameters: device, card (network.live.card_data()[device.pk]), variant = hero | tile | row | thumb,
+  live_attrs (detail page: texts and tones are also driven by live.js through data-live / data-live-tone).
+  Text is swapped by network/device-card.js (textContent only). Absent metrics read "No data", never 0.
+{% endcomment %}
+<div class="dc dc-{{ variant }}" data-card="{{ device.pk }}" data-status="{{ device.status }}" data-figs="{{ card.figures|to_json }}">
+  <div class="dc-photo{% if device.image_id or device.product_image_url %} has-photo{% else %} is-art{% endif %}">
+    {% photo_link device variant as href %}{% if href %}<a class="dc-zoom" href="{{ href }}"{% if variant == "hero" %} target="_blank" rel="noopener noreferrer" title="Open the {% if device.image_id %}full-size photo{% else %}vendor product page{% endif %}"{% endif %}{% if variant == "row" or variant == "thumb" %} tabindex="-1" aria-hidden="true"{% endif %}>{% else %}<span class="dc-zoom">{% endif %}
+    {% if device.image_id %}<img src="{{ device.image.url }}" alt="{{ device.photo_label }}" width="{{ device.image.width }}" height="{{ device.image.height }}"{% if device.image.is_small %} class="is-small"{% endif %} loading="lazy" decoding="async">
+    {% elif device.product_image_url %}<img src="{{ device.product_image_url }}" alt="{{ device.photo_label }}" loading="lazy" decoding="async" referrerpolicy="no-referrer">
+    {% else %}{% device_art device %}<span class="dc-tag" title="No photo is stored for this device. This is a generic drawing of a {{ device|art_label|lower }}, not the actual hardware.">Illustration</span>{% endif %}
+    {% if href %}</a>{% else %}</span>{% endif %}
+    {% if can_operate and not device.image_id and not device.product_image_url and device.device_type != "virtual_machine" %}{% if variant == "hero" or variant == "tile" %}<a class="dc-add" href="{% url 'network:photo_find' %}?device={{ device.pk }}" title="Get the real photo from the vendor’s datasheet">{% icon "image" 12 %}Add real photo</a>{% endif %}{% endif %}
+  </div>
+  {% if variant != "thumb" %}
+  <div class="dc-main">
+    <div class="dc-head">
+      {% if variant != "hero" %}<a class="dc-name" href="{{ device.get_absolute_url }}" title="{{ device.name }}">{{ device.name }}</a>{% endif %}
+      <span class="dc-status nw-live-badge">{% if device.device_type == "virtual_machine" %}{% badge device.status card.values.status %}{% else %}{% badge device.status %}{% endif %}</span>
+      <span class="dc-uptime" title="Uptime">Uptime <b data-card-text="uptime"{% if live_attrs %} data-live="card_uptime" data-live-tone="card_uptime"{% endif %} class="{% if card.tones.uptime %}t-{{ card.tones.uptime }}{% endif %}">{{ card.values.uptime }}</b></span>
+      {% if variant != "hero" %}<span class="dc-sub"><span class="mono">{{ device.mgmt_ip }}</span> · {{ device.photo_label|default:device.get_device_type_display }}{% if device.site %} · {{ device.site }}{% endif %}</span>{% endif %}
+    </div>
+    <dl class="dc-figs">
+      <div class="dc-fig" data-fig="cpu"><dt>CPU</dt><dd><b data-card-text="cpu"{% if live_attrs %} data-live="card_cpu" data-live-tone="card_cpu"{% endif %} class="{% if card.tones.cpu %}t-{{ card.tones.cpu }}{% endif %}">{{ card.values.cpu }}</b><span class="dc-spark" data-spark="cpu" aria-hidden="true"></span></dd></div>
+      <div class="dc-fig" data-fig="memory"><dt>Memory</dt><dd><b data-card-text="memory"{% if live_attrs %} data-live="card_memory" data-live-tone="card_memory"{% endif %} class="{% if card.tones.memory %}t-{{ card.tones.memory }}{% endif %}">{{ card.values.memory }}</b><span class="dc-spark" data-spark="memory" aria-hidden="true"></span></dd></div>
+      <div class="dc-fig dc-traffic" data-fig="traffic"><dt>Traffic</dt><dd><span class="dc-io"><i>In</i> <b data-card-text="in"{% if live_attrs %} data-live="card_in" data-live-tone="card_in"{% endif %} class="{% if card.tones.in %}t-{{ card.tones.in }}{% endif %}">{{ card.values.in }}</b></span><span class="dc-io"><i>Out</i> <b data-card-text="out"{% if live_attrs %} data-live="card_out" data-live-tone="card_out"{% endif %} class="{% if card.tones.out %}t-{{ card.tones.out }}{% endif %}">{{ card.values.out }}</b></span><span class="dc-spark" data-spark="in" aria-hidden="true"></span></dd></div>
+      <div class="dc-fig" data-fig="temp"><dt>Temp</dt><dd><b data-card-text="temp"{% if live_attrs %} data-live="card_temp" data-live-tone="card_temp"{% endif %} class="{% if card.tones.temp %}t-{{ card.tones.temp }}{% endif %}">{{ card.values.temp }}</b><span class="dc-spark" data-spark="temp" aria-hidden="true"></span></dd></div>
+    </dl>
+  </div>
+  {% endif %}
+</div>
