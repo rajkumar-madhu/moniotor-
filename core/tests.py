@@ -167,6 +167,36 @@ class OverviewTests(TestCase):
         side = html[html.index('class="nav"'):html.index("</nav>")]
         self.assertGreater(side.index("Service Desk"), side.index("Administration"))
 
+    def test_sidebar_labels_render_and_every_path_opens(self):
+        # Django does not parse {{ }} or {% %} across a line break, so a wrapped tag shows up as source text.
+        import html as html_lib
+        import re
+        from core.nav import NAV
+        self.client.force_login(self.admin)
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertNotIn("{% ficon", html)
+        side = html[html.index('<nav class="nav"'):html.index("</nav>")]
+        self.assertNotIn("{{", side)
+        self.assertNotIn("{%", side)
+        labels = [item["label"] for item in NAV]
+        for item in NAV:
+            labels.extend(child["label"] for child in item.get("children", []))
+        for label in labels:
+            self.assertIn(f">{html_lib.escape(label)}<", side, label)
+        link_labels = []
+        for item in NAV:
+            if item.get("children"):
+                link_labels.extend(child["label"] for child in item["children"])
+            else:
+                link_labels.append(item["label"])
+        hrefs = re.findall(r'href="([^"]+)"', side)
+        self.assertEqual(len(hrefs), len(link_labels))
+        for href in hrefs:
+            response = self.client.get(href)
+            self.assertLess(response.status_code, 500, href)
+            self.assertNotIn("{{ item.label }}", response.content.decode(), href)
+            self.assertNotIn("{{ c.label }}", response.content.decode(), href)
+
     def test_search_covers_devices_and_respects_sites(self):
         self.client.force_login(self.viewer)
         resp = self.client.get(reverse("search"), {"q": "SN-777"})

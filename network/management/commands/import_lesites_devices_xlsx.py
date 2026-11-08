@@ -8,7 +8,8 @@ from pathlib import Path
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
-from core.models import Site
+from administration.finspot_naming import device_environment_for_slug, infer_slug_from_workbook_path
+from administration.finspot_site import resolve_import_site
 from network.lesites_import import import_devices, parse_devices_workbook
 
 
@@ -21,7 +22,16 @@ class Command(BaseCommand):
         parser.add_argument("--site", default="", help='Site name on Device records (e.g. "DR Site").')
         parser.add_argument("--site-code", default="", help="Resolve site from core.Site.code (overrides --site when found).")
         parser.add_argument("--environment", default="dr", help="Device environment key (default: dr).")
-        parser.add_argument("--lesites-tag", default="fs-dr-le", help="Extra tag suffix after imported,lesites (default: fs-dr-le).")
+        parser.add_argument(
+            "--lesites-tag",
+            default="",
+            help="Extra tag suffix after imported,lesites (default: inferred from --site-code or workbook filename).",
+        )
+        parser.add_argument(
+            "--no-ensure-site",
+            action="store_true",
+            help="Do not create core.Site / Lesites profile when resolving from slug.",
+        )
         parser.add_argument("--dry-run", action="store_true", help="Parse and report without writing the database.")
         parser.add_argument(
             "--no-update",
@@ -36,7 +46,11 @@ class Command(BaseCommand):
             raise CommandError(f"File not found: {path}")
 
         tenant = settings.LINKEDEYE_TENANT
-        site_name = self._resolve_site(tenant, opts["site"], opts["site_code"])
+        site_name, slug = self._resolve_site(tenant, path, opts)
+        lesites_tag = (opts["lesites_tag"] or slug or "fs-dr-le").strip()
+        environment = opts["environment"]
+        if not opts["site"] and not opts["site_code"] and slug:
+            environment = device_environment_for_slug(slug)
 
         try:
             rows = parse_devices_workbook(str(path), sheet_name=opts["sheet"])
@@ -49,8 +63,8 @@ class Command(BaseCommand):
             rows,
             tenant,
             site=site_name,
-            environment=opts["environment"],
-            lesites_tag=opts["lesites_tag"],
+            environment=environment,
+            lesites_tag=lesites_tag,
             dry_run=opts["dry_run"],
             update_existing=not opts["no_update"],
             force=opts["force"],
@@ -69,12 +83,23 @@ class Command(BaseCommand):
             )
         )
 
-    def _resolve_site(self, tenant_key: str, site: str, site_code: str) -> str:
-        if site_code:
-            found = Site.objects.filter(tenant_key=tenant_key, code__iexact=site_code).first()
-            if found:
-                return found.name
-            raise CommandError(f"No Site with code={site_code!r} for tenant {tenant_key!r}.")
-        if site:
-            return site
-        return "DR Site"
+    def _resolve_site(self, tenant_key: str, path: Path, opts: dict) -> tuple[str, str]:
+        site = (opts.get("site") or "").strip()
+        site_code = (opts.get("site_code") or "").strip()
+        if opts.get("no_ensure_site"):
+            if site_code:
+                from core.models import Site
+
+                found = Site.objects.filter(tenant_key=tenant_key, code__iexact=site_code).first()
+                if found:
+                    return found.name, site_code
+                raise CommandError(f"No Site with code={site_code!r} for tenant {tenant_key!r}.")
+            if site:
+                return site, infer_slug_from_workbook_path(str(path))
+            slug = infer_slug_from_workbook_path(str(path))
+            if slug:
+                from administration.finspot_naming import site_display_name
+
+                return site_display_name(slug), slug
+            return "DR Site", ""
+        return resolve_import_site(tenant_key, str(path), site, site_code)
