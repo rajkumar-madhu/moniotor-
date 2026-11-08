@@ -1,12 +1,11 @@
 """POST /api/v1/alertmanager/ – Alertmanager webhook receiver (payload version 4).
 
-Authentication: `Authorization: Bearer <settings.ALERTMANAGER_WEBHOOK_TOKEN>` (constant-time compare).
+Authentication: `Authorization: Bearer <the Administration > Integrations token, else LINKEDEYE_ALERTMANAGER_WEBHOOK_TOKEN>` (constant-time compare).
 The endpoint is disabled (503) while the token is unset. Bodies over 1 MB are refused (413).
 """
 import hmac
 import logging
 
-from django.conf import settings
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
@@ -53,7 +52,9 @@ def alertmanager_webhook(request):
         resp = _deny(405, "method not allowed; Alertmanager must POST")
         resp["Allow"] = "POST"
         return resp
-    token = getattr(settings, "ALERTMANAGER_WEBHOOK_TOKEN", "") or ""
+    from administration import integration_config as ic
+
+    token = ic.alertmanager_webhook_token()   # console override first, then LINKEDEYE_ALERTMANAGER_WEBHOOK_TOKEN
     if not token:
         return _deny(503, "webhook disabled: set LINKEDEYE_ALERTMANAGER_WEBHOOK_TOKEN on the LinkedEye server")
     if not _authorized(request, token):
@@ -67,6 +68,6 @@ def alertmanager_webhook(request):
     except svc.PayloadError as e:
         return _deny(400, str(e))
     stats = svc.ingest(payload, alerts)
-    audit(request, "ingest", object_type="telemetry.alert", receiver=str(payload.get("receiver", ""))[:200],
-          group_key=str(payload.get("groupKey", ""))[:200], status=str(payload.get("status", ""))[:20], **stats)
+    audit(request, "ingest", object_type="telemetry.alert", receiver=svc._clip(payload.get("receiver", ""), 200),
+          group_key=svc._clip(payload.get("groupKey", ""), 200), status=svc._clip(payload.get("status", ""), 20), **stats)
     return JsonResponse({"status": "ok", **stats})

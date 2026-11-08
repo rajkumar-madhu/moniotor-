@@ -13,6 +13,7 @@ from datetime import timedelta
 from django.apps import apps
 from django.conf import settings
 from django.contrib import messages
+from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -73,6 +74,22 @@ def _mark(user, rows):
     return rows
 
 
+def _search_q(user, text):
+    """The list filter as SQL, so the page does not load every target to search it. Linked record names are only
+    searchable when the user may see that record (the same rule as hide_foreign_links)."""
+    allowed = visible_sites(user)
+    q = Q()
+    for field in ("instance", "job", "site", "details__hostname", "details__os", "details__kernel",
+                  "details__sysDescr", "details__sysName"):
+        q |= Q(**{f"{field}__icontains": text})
+    for rel in ("ci", "device", "exporter"):
+        match = Q(**{f"{rel}__name__icontains": text})
+        if allowed is not None:
+            match &= Q(**{f"{rel}__site__in": list(allowed) + ["All Sites", ""]})
+        q |= match
+    return q
+
+
 # ----------------------------------------------------------------------------- list page
 @require("view")
 def discovery(request):
@@ -91,13 +108,12 @@ def discovery(request):
         rows = rows.filter(state=state)
     if site:
         rows = rows.filter(site=site)
-    rows = hide_foreign_links(request.user, list(rows.order_by("kind", "instance")))
-    if q:
-        rows = [r for r in rows if matches(q, r.instance, r.job, r.hostname, r.site, r.summary_line,
-                                           getattr(r.linked_to, "name", ""))]
+    if q.strip():
+        rows = rows.filter(_search_q(request.user, q.strip()))
+    rows = rows.defer("labels", "discovered_labels").order_by("kind", "instance")
 
     if request.GET.get("format") == "csv":
-        return _csv(rows)
+        return _csv(hide_foreign_links(request.user, list(rows)))
 
     present = qs.filter(missing_since__isnull=True)
     day_ago = timezone.now() - timedelta(days=1)
@@ -112,15 +128,16 @@ def discovery(request):
     }
     kpis["unknown"] = max(0, kpis["targets"] - kpis["up"] - kpis["down"])
     page = paginate(request, rows, default=20)
+    page.object_list = hide_foreign_links(request.user, list(page.object_list))   # only the 20 rows shown
     _mark(request.user, page.object_list)
     counts = {k: 0 for k, _ in TargetKind.choices}
-    for k in present.values_list("kind", flat=True):
-        counts[k] = counts.get(k, 0) + 1
+    for row in present.order_by().values("kind").annotate(n=Count("id")):
+        counts[row["kind"]] = counts.get(row["kind"], 0) + row["n"]
     ctx.update({
         "page": page, "kpis": kpis, "last_run": svc.last_run(), "site_label": svc.site_label(),
         "kinds": [(v, l, counts.get(v, 0)) for v, l in TargetKind.choices if counts.get(v)],
         "kind_choices": TargetKind.choices, "healths": HEALTH_CHOICES, "states": STATE_CHOICES,
-        "sites": sorted({s for s in qs.values_list("site", flat=True) if s}),
+        "sites": sorted(s for s in qs.order_by().values_list("site", flat=True).distinct() if s),
         "site_choices": _site_choices(request.user),
         "query": query_without_page(request), "show_missing": show_missing,
         # the "show/hide gone" toggle keeps every other filter the user set

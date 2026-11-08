@@ -31,7 +31,7 @@
 
 <div class="panel">
   <div class="panel-h"><h2>{% if error %}Not available{% else %}{{ rows|length }}{% if more %}+{% endif %} row{{ rows|length|pluralize }}{% endif %}</h2>
-    {% if more %}<div class="right t-mute small">Showing the first {{ rows|length }} rows; the CSV contains all of them (up to 50,000).</div>{% endif %}</div>
+    {% if more %}<div class="right t-mute small">Showing the first {{ rows|length }} rows; the CSV contains all of them (an export over 50,000 rows is refused: narrow the period or site).</div>{% endif %}</div>
   {% if error %}<p class="empty">{{ error }}</p>
   {% else %}
   <div class="table-wrap dense rp-preview"><table>

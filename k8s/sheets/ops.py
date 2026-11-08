@@ -209,8 +209,8 @@ def import_cicd(ctx, sheet):
                   [ToolCategory.CICD, ToolCategory.PLATFORM])
 
 
-register_sheet(MONITORING_SHEET, 90, import_monitoring)
-register_sheet(TOOLS_SHEET, 100, import_cicd)
+register_sheet(MONITORING_SHEET, 90, import_monitoring, namespaces=True)
+register_sheet(TOOLS_SHEET, 100, import_cicd, namespaces=True)
 
 
 # ----------------------------------------------------------------------------- exporter cross-link
@@ -303,6 +303,9 @@ CLOSED_WORDS = {"closed", "resolved", "done", "fixed", "cleared"}
 def import_issues(ctx, sheet):
     cluster = ctx.cluster_for()
     seen = set()
+    # when an issue was closed, as already recorded: re-importing a closed issue must not move that date
+    already_closed = {issue_id: closed_at for issue_id, closed_at in InventoryIssue.objects.filter(
+        tenant_key=ctx.tenant, status=IssueStatus.CLOSED, closed_at__isnull=False).values_list("issue_id", "closed_at")}
     bad_severity = 0
     for row in sheet.rows:
         issue_id = clean(_get(row, "Issue ID", "ID"))
@@ -335,7 +338,7 @@ def import_issues(ctx, sheet):
             "recommended_action": clean(_get(row, "Recommended Action"))[:500],
             "owner": clean(_get(row, "Owner"))[:150],
             "status": IssueStatus.CLOSED if closed else IssueStatus.OPEN,
-            "closed_at": ctx.stamp if closed else None,
+            "closed_at": already_closed.get(issue_id[:40], ctx.stamp) if closed else None,
         }
         issue, _created = ctx.upsert(InventoryIssue, {"issue_id": issue_id[:40]}, values, sheet=ISSUES_SHEET)
         seen.add(issue.pk)
@@ -365,7 +368,7 @@ def import_issues(ctx, sheet):
         ctx.note("ops_crosslink_incidents", {"requested": bool(wanted), "dry_run": ctx.dry_run})
 
 
-register_sheet(ISSUES_SHEET, 110, import_issues)
+register_sheet(ISSUES_SHEET, 110, import_issues, namespaces=True)
 
 
 # ----------------------------------------------------------------------------- incident cross-link

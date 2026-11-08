@@ -19,7 +19,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from core.access import can, can_on, require, scope_by_site
+from core.access import can, can_on, require, scope_by_site, tenant_wide, visible_sites
 from core.audit import audit
 
 from . import services, sla, stats
@@ -129,11 +129,18 @@ def _assignee_options(qs):
     return [(u.pk, user_label(u)) for u in User.objects.filter(pk__in=ids).order_by("first_name", "username")]
 
 
-def _sites():
+def _sites(request):
+    """Site names offered in the form datalists: the user's own sites only (core.access.visible_sites), and "All Sites"
+    only for a user who may operate on every site."""
     from core.models import Site
-    names = list(Site.objects.filter(tenant_key=_tenant()).values_list("name", flat=True))
-    used = Ticket.objects.for_tenant().exclude(site="").values_list("site", flat=True).distinct()
-    return sorted(set(names) | set(used) | {"All Sites"})
+    names = set(Site.objects.filter(tenant_key=_tenant()).values_list("name", flat=True))
+    names |= set(Ticket.objects.for_tenant().exclude(site="").order_by().values_list("site", flat=True).distinct())
+    allowed = visible_sites(request.user)
+    if allowed is not None:
+        names &= allowed
+    if tenant_wide(request.user, "operate"):
+        names.add("All Sites")
+    return sorted(names)
 
 
 def _ci_names(request):
@@ -433,14 +440,14 @@ def catalog_request(request, pk):
             messages.success(request, f"Request {t.number} raised for “{item.name}”. Target: {item.fulfilment_hours} h.")
             return redirect(t)
     return render(request, "servicedesk/catalog_request.html", {
-        "form": form, "item": item, "sites": _sites(), "clients": _choices(_visible(request), "client")})
+        "form": form, "item": item, "sites": _sites(request), "clients": _choices(_visible(request), "client")})
 
 
 # ---------------------------------------------------------------- create / edit
 def _form_ctx(request, form, kind, ticket=None):
     visible = _visible(request)
     return {"form": form, "kind": kind, "kind_label": wf.KIND_LABELS[kind], "ticket": ticket, "kinds": wf.KINDS,
-            "sites": _sites(), "clients": _choices(visible, "client"),
+            "sites": _sites(request), "clients": _choices(visible, "client"),
             "categories": sorted(set(DEFAULT_CATEGORIES) | set(_choices(visible, "category"))),
             "cis": _ci_names(request)}
 

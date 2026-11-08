@@ -158,7 +158,7 @@ class HealthcheckTests(unittest.TestCase):
 
 # ------------------------------------------------------------------ deploy/validate.py on mutated copies
 BUNDLE = ["deploy", "docker-compose.yml", "Dockerfile", ".github", "docs/DEPLOYMENT.md", "linkedeye/settings.py",
-          "administration/services.py", "telemetry/nagios.py"]
+          "administration/services.py", "telemetry/nagios.py", ".env.example"]
 
 
 class ValidateTests(unittest.TestCase):

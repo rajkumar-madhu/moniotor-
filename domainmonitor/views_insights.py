@@ -38,7 +38,7 @@ GRADE_COLORS = {"A": "#0f7a55", "B": "#0e8a7a", "C": "#e08a00", "D": "#ff5b2e", 
 GRADE_TONES = {"A": "ok", "B": "ok", "C": "warn", "D": "warn", "E": "crit", "F": "crit"}
 REGRESSION_PCT = 20.0
 MAX_REPORT_ROWS = 2000
-MAX_MANUAL_SCANS = 100
+MAX_MANUAL_SCANS = 24   # "Scan all now" runs inside a web request: bounded with security.MANUAL_BUDGET
 
 
 def _csv_response(filename):
@@ -383,12 +383,14 @@ def security_scan(request, pk):
 def security_scan_all(request):
     domains = [d for d in _scope(request).filter(is_active=True, monitor_enabled=True)
                if can_operate_on(request.user, d.site_key)][:MAX_MANUAL_SCANS]
-    scans = security.run_scans(domains)
+    scans = security.run_scans(domains, budget=security.MANUAL_BUDGET)
     graded = sum(1 for s in scans if s.grade)
+    skipped = len(domains) - len(scans)
     audit(request, "run", None, object_type="domainmonitor.domainsecurityscan", check="security_scan_all",
-          count=len(scans), graded=graded)
+          count=len(scans), graded=graded, skipped=skipped)
     if scans:
-        messages.success(request, f"Scanned {len(scans)} domain(s); {graded} graded, {len(scans) - graded} unreachable.")
+        messages.success(request, f"Scanned {len(scans)} domain(s); {graded} graded, {len(scans) - graded} unreachable."
+                         + (f" {skipped} more were not scanned now; the daily job scans them." if skipped else ""))
     else:
         messages.info(request, "No active monitored domains to scan.")
     return redirect("domains:security")

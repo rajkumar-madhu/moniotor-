@@ -3,7 +3,7 @@ import ipaddress
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -14,9 +14,10 @@ from django.views.decorators.http import require_http_methods, require_POST
 
 from core.access import can, require, visible_sites
 from core.audit import audit
+from core.client_sites import safe_pk
 from core.events import emit
 
-from . import csvio, services, sync
+from . import csvio, dns, services, sync
 from .forms import DNSRecordForm, DNSZoneForm, IPAddressForm, ImportForm, SubnetForm, VLANForm
 from .models import (GLOBAL_SITE, AddressStatus, DNSRecord, DNSZone, IPAddress, RecordType, Role, Source, Subnet,
                      SyncRun, VLAN, ip_key)
@@ -47,6 +48,19 @@ def _safe_url(request, url):
 def _next(request, fallback):
     nxt = request.POST.get("next") or request.GET.get("next") or ""
     return nxt if _safe_url(request, nxt) else fallback
+
+
+def _save_or_error(form, field, action, message=None):
+    """Run `action()` (a save) in its own transaction. A unique constraint hit by a concurrent writer between
+    validation and save becomes a form error instead of an HTTP 500. True when saved."""
+    try:
+        with transaction.atomic():
+            action()
+    except IntegrityError:
+        form.add_error(field, message or "The same entry was saved by someone else a moment ago (or by the IPAM sync). "
+                                         "Check the list and try again.")
+        return False
+    return True
 
 
 def _deny(request, text="You do not have permission to do that.", fallback="ipam:overview"):
@@ -172,8 +186,8 @@ def _subnet_filters(request, qs):
         qs = qs.filter(version=int(g["version"]))
     if g.get("role") in Role.values or g.get("role") == "none":
         qs = qs.filter(role="" if g["role"] == "none" else g["role"])
-    if g.get("vlan", "").isdigit():
-        qs = qs.filter(vlan_id=int(g["vlan"]))
+    if safe_pk(g.get("vlan")):
+        qs = qs.filter(vlan_id=safe_pk(g["vlan"]))
     return qs.order_by("vrf", "version", "net_start", "prefixlen")
 
 
@@ -184,18 +198,19 @@ def subnets(request):
     page = Paginator(qs, _per_page(request)).get_page(request.GET.get("page"))
     items = list(page)
     used = services.used_counts(items)
+    depth = services.depths(items)
     for s in items:
         s.used = used[s.pk]
         s.pct = services.utilisation(s, s.used)
         s.tone = services.util_tone(s.pct)
-        s.depth = min(services.depth(s), 6)
+        s.depth = min(depth[s.pk], 6)
     _mark(request, items)
     leaf_stats = services.subnet_stats(services.leaf_ipv4(base))
     used_v4 = sum(u for _, u, _ in leaf_stats)
     usable_v4 = sum(s.usable for s, _, _ in leaf_stats)
     vlan = None
-    if request.GET.get("vlan", "").isdigit():
-        vlan = services.vlans_for(request.user).filter(pk=int(request.GET["vlan"])).first()
+    if safe_pk(request.GET.get("vlan")):
+        vlan = services.vlans_for(request.user).filter(pk=safe_pk(request.GET["vlan"])).first()
     return render(request, "ipam/subnets.html", _ctx(
         request, page=page, items=items, total=base.count(), containers=base.filter(role=Role.CONTAINER).count(),
         used_v4=used_v4, usable_v4=usable_v4, pct_v4=(100.0 * used_v4 / usable_v4) if usable_v4 else None,
@@ -232,22 +247,24 @@ def subnet_detail(request, pk):
         k.used = kid_used[k.pk]
         k.pct = services.utilisation(k, k.used)
         k.tone = services.util_tone(k.pct)
-    used = services.used_count(subnet)
+    # a global container holds the addresses and subnets of other sites: show only what this user may see
+    used = services.used_count(subnet, request.user)
     pct = services.utilisation(subnet, used)
     can_edit = services.can_manage(request.user, "operate", subnet.site)
-    amap, map_note = services.address_map(subnet, can_add=can_edit)
-    addr_qs = services.addresses_in(subnet).select_related("device", "ci", "subnet")
+    amap, map_note = services.address_map(subnet, can_add=can_edit, user=request.user)
+    addr_qs = services.addresses_in(subnet, request.user).select_related("device", "ci", "subnet")
     st = request.GET.get("status")
     if st in AddressStatus.values:
         addr_qs = addr_qs.filter(status=st)
     page = Paginator(addr_qs, _per_page(request, 50)).get_page(request.GET.get("page"))
-    status_counts = {r["status"]: r["n"] for r in services.addresses_in(subnet).order_by().values("status").annotate(n=Count("id"))}
+    status_counts = {r["status"]: r["n"] for r in
+                     services.addresses_in(subnet, request.user).order_by().values("status").annotate(n=Count("id"))}
     parent = services.parent(subnet)
     if parent and not services.subnets_for(request.user).filter(pk=parent.pk).exists():
         parent = None
     return render(request, "ipam/subnet_detail.html", _ctx(
         request, subnet=subnet, kids=kids, used=used, pct=pct, tone=services.util_tone(pct),
-        next_free=services.next_free(subnet, nested), coverage=services.child_coverage(subnet, nested),
+        next_free=services.next_free(subnet, nested), coverage=services.child_coverage(subnet, nested, visible),
         amap=amap, map_note=map_note, page=page, status_counts=status_counts, statuses=AddressStatus.choices,
         parent=parent, can_edit=can_edit, can_delete=services.can_manage(request.user, "admin", subnet.site),
         size_text=services.fmt_count(subnet.size), usable_text=services.fmt_count(subnet.usable),
@@ -270,27 +287,30 @@ def subnet_form(request, pk=None):
         for k in ("cidr", "vrf", "site"):
             if request.GET.get(k):
                 initial[k] = request.GET[k]
-        if request.GET.get("vlan", "").isdigit():
-            initial["vlan"] = int(request.GET["vlan"])
+        if safe_pk(request.GET.get("vlan")):
+            initial["vlan"] = safe_pk(request.GET["vlan"])
     old = None if subnet is None else {"cidr": subnet.cidr, "vrf": subnet.vrf, "version": subnet.version,
                                        "net_start": subnet.net_start, "net_end": subnet.net_end, "site": subnet.site}
     form = SubnetForm(request.POST or None, instance=subnet, initial=initial, user=request.user)
     if request.method == "POST" and form.is_valid():
         changed = list(form.changed_data)
-        with transaction.atomic():
-            obj = form.save(commit=False)
-            obj.tenant_key = services.tenant()
+        obj = form.save(commit=False)
+        obj.tenant_key = services.tenant()
+
+        def save_subnet():
             obj.save()
             services.reassign(obj.tenant_key, obj.vrf, obj.version, obj.net_start, obj.net_end)
             if old and (old["cidr"] != obj.cidr or old["vrf"] != obj.vrf):
                 services.reassign(obj.tenant_key, old["vrf"], old["version"], old["net_start"], old["net_end"])
-        if subnet is None:
-            audit(request, "create", obj, cidr=obj.cidr, vrf=obj.vrf, site=obj.site, role=obj.role)
-            messages.success(request, f"Added subnet {obj}.")
-        else:
-            audit(request, "update", obj, changed=changed, previous_cidr=old["cidr"], previous_site=old["site"])
-            messages.success(request, f"Saved subnet {obj}." if changed else f"No changes to {obj}.")
-        return redirect(obj.get_absolute_url())
+
+        if _save_or_error(form, "cidr", save_subnet):
+            if subnet is None:
+                audit(request, "create", obj, cidr=obj.cidr, vrf=obj.vrf, site=obj.site, role=obj.role)
+                messages.success(request, f"Added subnet {obj}.")
+            else:
+                audit(request, "update", obj, changed=changed, previous_cidr=old["cidr"], previous_site=old["site"])
+                messages.success(request, f"Saved subnet {obj}." if changed else f"No changes to {obj}.")
+            return redirect(obj.get_absolute_url())
     title = f"Edit subnet {subnet}" if subnet else "Add subnet"
     return render(request, "ipam/form.html", _ctx(
         request, form=form, title=title, obj=subnet, kind="subnet", icon="layers",
@@ -328,18 +348,35 @@ def subnet_reserve(request, pk):
     subnet = _subnet(request, pk)
     if not services.can_manage(request.user, "operate", subnet.site):
         return _deny(request, fallback="ipam:subnets")
-    with transaction.atomic():
-        Subnet.objects.select_for_update().filter(pk=subnet.pk).first()
-        before = services.used_count(subnet)
-        ip = services.next_free(subnet)
-        if ip is None:
-            messages.warning(request, f"{subnet} has no free address left.")
+    hostname = request.POST.get("hostname", "").strip()
+    if hostname:
+        try:
+            hostname = dns.hostname(hostname, "host name")
+        except dns.DNSError as e:
+            messages.error(request, str(e))
             return redirect(subnet.get_absolute_url())
-        hostname = request.POST.get("hostname", "").strip()[:253]
-        a = IPAddress(tenant_key=subnet.tenant_key, address=str(ip), vrf=subnet.vrf, subnet=subnet, site=subnet.site,
-                      status=AddressStatus.RESERVED, source=Source.MANUAL,
-                      description=f"Reserved by {request.user.get_username()}"[:300])
-        a.save()
+    a = None
+    for _ in range(5):   # another writer (a manual add, an import, the sync job) may take the address first: pick the next
+        with transaction.atomic():
+            Subnet.objects.select_for_update().filter(pk=subnet.pk).first()
+            before = services.used_count(subnet)
+            ip = services.next_free(subnet)
+            if ip is None:
+                messages.warning(request, f"{subnet} has no free address left.")
+                return redirect(subnet.get_absolute_url())
+            a = IPAddress(tenant_key=subnet.tenant_key, address=str(ip), vrf=subnet.vrf, subnet=subnet, site=subnet.site,
+                          status=AddressStatus.RESERVED, source=Source.MANUAL, hostname=hostname,
+                          description=f"Reserved by {request.user.get_username()}"[:300])
+            try:
+                with transaction.atomic():
+                    a.save()
+            except IntegrityError:
+                a = None
+        if a is not None:
+            break
+    if a is None:
+        messages.error(request, f"Could not reserve an address in {subnet}: it is being changed by someone else. Try again.")
+        return redirect(subnet.get_absolute_url())
     sync.relink_records(a.tenant_key, [a.address])
     audit(request, "create", a, address=a.address, subnet=subnet.cidr, status=a.status, via="next free")
     _full_alert(subnet, before)
@@ -464,22 +501,23 @@ def address_form(request, pk=None):
             changed = list(form.changed_data)
             obj = form.save(commit=False)
             obj.tenant_key = services.tenant()
-            obj.save()
-            sync.relink_records(obj.tenant_key, [obj.address])
-            if a is None:
-                audit(request, "create", obj, address=obj.address, vrf=obj.vrf, subnet=subnet.cidr, status=obj.status,
-                      hostname=obj.hostname)
-                messages.success(request, f"Added {obj} in {subnet}.")
-            else:
-                audit(request, "update", obj, changed=changed, previous=before)
-                if before["status"] != obj.status:
-                    emit(source="ipam", title=f"{obj} is now {obj.get_status_display()}", severity="info",
-                         message=f"Status changed from {before['status']} to {obj.status} by {request.user.get_username()}.",
-                         site=obj.site, obj=obj, fingerprint=f"ipam:address:{obj.pk}", status=obj.status)
-                messages.success(request, f"Saved {obj}." if changed else f"No changes to {obj}.")
-            if a is None or before["address"] != obj.address or before["vrf"] != obj.vrf:
-                _full_alert(subnet, used_before)
-            return redirect(obj.get_absolute_url())
+            if _save_or_error(form, "address", obj.save,
+                              f"{obj.address} is already recorded: someone else (or the IPAM sync) added it a moment ago."):
+                sync.relink_records(obj.tenant_key, [obj.address])
+                if a is None:
+                    audit(request, "create", obj, address=obj.address, vrf=obj.vrf, subnet=subnet.cidr, status=obj.status,
+                          hostname=obj.hostname)
+                    messages.success(request, f"Added {obj} in {subnet}.")
+                else:
+                    audit(request, "update", obj, changed=changed, previous=before)
+                    if before["status"] != obj.status:
+                        emit(source="ipam", title=f"{obj} is now {obj.get_status_display()}", severity="info",
+                             message=f"Status changed from {before['status']} to {obj.status} by {request.user.get_username()}.",
+                             site=obj.site, obj=obj, fingerprint=f"ipam:address:{obj.pk}", status=obj.status)
+                    messages.success(request, f"Saved {obj}." if changed else f"No changes to {obj}.")
+                if a is None or before["address"] != obj.address or before["vrf"] != obj.vrf:
+                    _full_alert(subnet, used_before)
+                return redirect(obj.get_absolute_url())
     title = f"Edit {a}" if a else "Add IP address"
     return render(request, "ipam/form.html", _ctx(
         request, form=form, title=title, obj=a, kind="address", icon="tag",
@@ -556,14 +594,14 @@ def vlan_form(request, pk=None):
         changed = list(form.changed_data)
         obj = form.save(commit=False)
         obj.tenant_key = services.tenant()
-        obj.save()
-        if vlan is None:
-            audit(request, "create", obj, vid=obj.vid, name=obj.name, site=obj.site)
-            messages.success(request, f"Added {obj}.")
-        else:
-            audit(request, "update", obj, changed=changed)
-            messages.success(request, f"Saved {obj}.")
-        return redirect(reverse("ipam:vlans"))
+        if _save_or_error(form, "vid", obj.save):
+            if vlan is None:
+                audit(request, "create", obj, vid=obj.vid, name=obj.name, site=obj.site)
+                messages.success(request, f"Added {obj}.")
+            else:
+                audit(request, "update", obj, changed=changed)
+                messages.success(request, f"Saved {obj}.")
+            return redirect(reverse("ipam:vlans"))
     return render(request, "ipam/form.html", _ctx(
         request, form=form, title=f"Edit {vlan}" if vlan else "Add VLAN", obj=vlan, kind="vlan", icon="network",
         intro="VLAN IDs 1–4094, unique per site. Global VLANs (All Sites) can be used by subnets on any site.",
@@ -633,7 +671,10 @@ def zone_detail(request, pk):
     qs = _record_filters(request, zone.records.select_related("ip"))
     page = Paginator(qs, _per_page(request, 50)).get_page(request.GET.get("page"))
     type_counts = {r["rtype"]: r["n"] for r in zone.records.order_by().values("rtype").annotate(n=Count("id"))}
-    recorded = set(IPAddress.objects.filter(tenant_key=zone.tenant_key).values_list("address", flat=True))
+    # only this page's own targets are looked up (not every address of the tenant)
+    targets = {r.value for r in page if r.rtype in ("A", "AAAA")}
+    recorded = set(IPAddress.objects.filter(tenant_key=zone.tenant_key, address__in=targets).order_by()
+                   .values_list("address", flat=True)) if targets else set()
     for r in page:
         r.free_target = r.rtype in ("A", "AAAA") and r.value not in recorded
     return render(request, "ipam/zone_detail.html", _ctx(
@@ -664,18 +705,18 @@ def zone_form(request, pk=None):
         obj = form.save(commit=False)
         obj.name = form.cleaned_data["name"]
         obj.tenant_key = services.tenant()
-        obj.save()
-        if zone is not None and "name" in changed:
-            for r in obj.records.filter(rtype="PTR"):
-                r.ip = sync.link_record_ip(r)
-                r.save(update_fields=["ip"])
-        if zone is None:
-            audit(request, "create", obj, name=obj.name, kind=obj.kind, site=obj.site)
-            messages.success(request, f"Added zone {obj}.")
-        else:
-            audit(request, "update", obj, changed=changed)
-            messages.success(request, f"Saved zone {obj}.")
-        return redirect(obj.get_absolute_url())
+        if _save_or_error(form, "name", obj.save):
+            if zone is not None and "name" in changed:
+                for r in obj.records.filter(rtype="PTR"):
+                    r.ip = sync.link_record_ip(r)
+                    r.save(update_fields=["ip"])
+            if zone is None:
+                audit(request, "create", obj, name=obj.name, kind=obj.kind, site=obj.site)
+                messages.success(request, f"Added zone {obj}.")
+            else:
+                audit(request, "update", obj, changed=changed)
+                messages.success(request, f"Saved zone {obj}.")
+            return redirect(obj.get_absolute_url())
     return render(request, "ipam/form.html", _ctx(
         request, form=form, title=f"Edit zone {zone}" if zone else "Add DNS zone", obj=zone, kind="zone", icon="globe",
         intro="Zones are records of what your DNS servers serve; LinkedEye does not push them to a DNS server.",
@@ -720,14 +761,14 @@ def record_form(request, zone_pk=None, pk=None):
         obj.zone, obj.tenant_key = zone, zone.tenant_key
         obj.name, obj.value = form.cleaned_data["name"], form.cleaned_data["value"]
         obj.ip = sync.link_record_ip(obj)
-        obj.save()
-        if record is None:
-            audit(request, "create", obj, zone=zone.name, name=obj.name, type=obj.rtype, value=obj.value)
-            messages.success(request, f"Added {obj.rtype} record {obj.fqdn}.")
-        else:
-            audit(request, "update", obj, changed=changed, zone=zone.name)
-            messages.success(request, f"Saved {obj.rtype} record {obj.fqdn}.")
-        return redirect(zone.get_absolute_url())
+        if _save_or_error(form, None, obj.save):
+            if record is None:
+                audit(request, "create", obj, zone=zone.name, name=obj.name, type=obj.rtype, value=obj.value)
+                messages.success(request, f"Added {obj.rtype} record {obj.fqdn}.")
+            else:
+                audit(request, "update", obj, changed=changed, zone=zone.name)
+                messages.success(request, f"Saved {obj.rtype} record {obj.fqdn}.")
+            return redirect(zone.get_absolute_url())
     return render(request, "ipam/form.html", _ctx(
         request, form=form, title=f"Edit record in {zone}" if record else f"Add record to {zone}", obj=record, kind="record",
         icon="globe", zone=zone,

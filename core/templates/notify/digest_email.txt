@@ -1,5 +1,5 @@
-LinkedEye — {{ severity_label }} digest: {{ title }}
+{% autoescape off %}LinkedEye — {{ severity_label }} digest: {{ title }}
 
 {{ body }}
 
-Sent by LinkedEye monitoring and ITSM.
+Sent by LinkedEye monitoring and ITSM.{% endautoescape %}

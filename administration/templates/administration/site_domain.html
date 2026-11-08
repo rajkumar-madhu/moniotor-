@@ -24,7 +24,7 @@
       <dt>Portal URL</dt><dd><a href="{{ naming.portal }}" target="_blank" rel="noopener">{{ naming.portal }}</a></dd>
       <dt>Lesites</dt><dd><a href="{{ naming.lesites }}" target="_blank" rel="noopener">{{ naming.lesites }}</a></dd>
     </dl>
-    {% if not profile %}<p class="hint warn">No onboarding record yet. <a href="{% url 'administration:site_onboarding' site.pk %}?defaults=1">Apply FinSpot defaults</a> to populate entity and URLs.</p>{% endif %}
+    {% if not profile %}<div class="hint warn">No onboarding record yet. <form method="post" action="{% url 'administration:site_onboarding' site.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="apply_defaults" value="1"><button class="btn" type="submit">Apply FinSpot defaults</button></form> to populate entity and URLs.</div>{% endif %}
   </div>
   <div class="panel">
     <div class="panel-h"><h2>Analytics stack</h2></div>

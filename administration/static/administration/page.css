@@ -229,3 +229,5 @@ td.adm-roles .chip { margin: 2px 4px 2px 0; }
   .pg-admin .adm-onboard-steps li { flex-wrap: wrap; }
   .pg-admin .adm-onboard-steps .btn { margin-left: 34px; }
 }
+
+.pg-admin form.inline { display: inline; margin: 0; }

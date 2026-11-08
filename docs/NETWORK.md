@@ -19,6 +19,9 @@ On the device form (Photo section) use exactly one of:
 
 Who may do this: whoever may edit the device (operator on the device's site). The upload or download happens only after
 that check. Viewers and operators of other sites cannot add photos, and the form needs the CSRF token like every form.
+Deleting a device deletes its stored photo too when no other device or catalog row uses it, so it stops counting toward the
+image library cap. The site lists in the add / edit device, discovery and approve forms name only the sites the user may see
+("All Sites" and "(No site)" appear only for an operator on every site).
 
 ### What is stored, and how it is checked
 
@@ -116,7 +119,9 @@ bytes are already a photo, the existing photo is used.
 The PDF is untrusted input. Limits: 25 MB file; the first 6 pages; at most 40 image objects; form XObjects followed two
 levels deep; each image's declared size is checked before anything is allocated (4096 px per side, 20 MB decoded) and a Flate
 stream is inflated with an output limit equal to its declared size, so a small file cannot expand into a large one; a
-12 second wall-clock budget checked between objects; any parser exception becomes "could not be read", never an error page;
+12 second wall-clock budget checked between objects and on every XObject entry examined (at most 2000 entries per pass over
+the document, shared by all pages and nested forms, with a form reached twice walked once, so forms inside forms cannot multiply
+into millions of lookups); any parser exception becomes "could not be read", never an error page;
 the file is read in memory and never written to disk (the upload handler for this one view keeps the upload in memory
 whatever its size). Encrypted PDFs that open with an empty password are read; others ask for an unprotected copy.
 

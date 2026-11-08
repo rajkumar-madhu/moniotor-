@@ -10,6 +10,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.db.models import Q
 from django.urls import reverse
 from django.utils import timezone
 
@@ -209,22 +210,58 @@ class License(models.Model):
     def __str__(self):
         return self.product
 
+    @staticmethod
+    def prime(licenses):
+        """Fill the usage caches of many licences with two queries; returns them as a list. Usage is per SOFTWARE: the live
+        installs of the title (a retired CI no longer holds a seat) are compared with the seats of all its current
+        licences together, not with each licence on its own."""
+        from django.db.models import Count, Sum
+        licenses = list(licenses)
+        ids = {l.software_id for l in licenses if l.software_id}
+        today = timezone.localdate()
+        installs = dict(Software.installs.through.objects.filter(software_id__in=ids)
+                        .exclude(configurationitem__status=CIStatus.RETIRED)
+                        .values_list("software_id").annotate(n=Count("configurationitem_id")))
+        pool = dict(License.objects.filter(software_id__in=ids).filter(Q(expiry__isnull=True) | Q(expiry__gte=today))
+                    .values_list("software_id").annotate(n=Sum("seats")))
+        for l in licenses:
+            l._used = installs.get(l.software_id, 0) if l.software_id else 0
+            current = 0 if l.expired else l.seats
+            l._others = max(0, (pool.get(l.software_id, 0) if l.software_id else 0) - current)
+        return licenses
+
     @property
     def used(self):
+        """Live (not retired) installs of the linked software, shared by all of its licences."""
         if not self.software_id:
             return 0
         cached = getattr(self, "_used", None)
         if cached is None:
-            cached = self.software.installs.count()
+            cached = self.software.installs.exclude(status=CIStatus.RETIRED).count()
         return cached
 
     @property
+    def capacity(self):
+        """Seats this licence's software is entitled to: this licence plus the other current (not expired) licences of the
+        same software. An expired licence counts only itself, which is just what is shown for it."""
+        if self.expired or not self.software_id:
+            return self.seats
+        others = getattr(self, "_others", None)
+        if others is None:
+            others = (License.objects.filter(software_id=self.software_id).exclude(pk=self.pk)
+                      .filter(Q(expiry__isnull=True) | Q(expiry__gte=timezone.localdate()))
+                      .aggregate(n=models.Sum("seats"))["n"] or 0)
+        return self.seats + others
+
+    @property
     def over_allocated(self):
-        return self.used > self.seats
+        """More live installs than the software's current licences cover (an expired licence is 'expired', not over)."""
+        return bool(self.software_id) and not self.expired and self.used > self.capacity
 
     @property
     def usage_pct(self):
-        return 100.0 * self.used / self.seats if self.seats else (100.0 if self.used else 0.0)
+        cap = self.capacity
+        return 100.0 * self.used / cap if cap else (100.0 if self.used else 0.0)
 
     @property
     def days_left(self):

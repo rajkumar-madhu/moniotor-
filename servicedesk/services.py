@@ -202,51 +202,66 @@ TRANSITION_FIELDS = (("status", "status"), ("acknowledged_at", "acknowledged_at"
                      ("resolution", "resolution"))
 
 
+def _lock_current_state(ticket):
+    """Inside transaction.atomic(): lock the ticket's row and copy what a transition reads or writes from it onto the
+    caller's object, so the workflow is judged against the database, not against a copy loaded earlier (two requests, or an
+    alert recovery racing an operator). SQLite has no row locks, but its writes are serialised and the re-read still holds."""
+    row = type(ticket).objects.select_for_update().get(pk=ticket.pk)
+    for name in ("status", "acknowledged_at", "resolved_at", "closed_at", "approved_by_id", "approved_at", "resolution",
+                 "planned_start", "planned_end", "reporter_id", "site", "kind"):
+        setattr(ticket, name, getattr(row, name))
+    ticket.__dict__.pop("approved_by", None)         # drop the cached related object: approved_by_id was just refreshed
+    return ticket
+
+
 def transition(ticket, target, user=None, note="", actor_name="", force=False):
     """Move a ticket to `target` if the workflow allows it from its current status.
 
-    force=True lets automation move an incident to resolved from any open state (resolve_by_fingerprint)."""
-    old = ticket.status
-    if target == old:
-        raise WorkflowError(f"{ticket.number} is already {wf.STATUS_LABELS.get(old, old)}.")
-    if not (wf.allowed(ticket.kind, old, target) or (force and target == "resolved" and ticket.is_open and ticket.kind == "incident")):
-        raise WorkflowError(f"{ticket.get_kind_display()} {ticket.number} cannot move from "
-                            f"{wf.STATUS_LABELS.get(old, old)} to {wf.STATUS_LABELS.get(target, target)}.")
-    if ticket.kind == "change" and target == "approved" and old == "submitted" and user is not None:
-        if ticket.reporter_id == user.pk and not can_on(user, "admin", ticket.site_scope):
-            raise WorkflowError("A change must be approved by someone other than its requester (or an admin).")
-    if ticket.kind == "change" and target == "scheduled" and not (ticket.planned_start and ticket.planned_end):
-        raise WorkflowError("Set the planned start and end of the change window before scheduling it.")
-    if ticket.kind == "change" and target == "scheduled" and ticket.planned_end <= ticket.planned_start:
-        raise WorkflowError("The planned end must be after the planned start.")
-
-    now = timezone.now()
-    before = {f: getattr(ticket, a) for f, a in TRANSITION_FIELDS}
-    reopen = wf.is_reopen(old, target)
-    if old == wf.INITIAL[ticket.kind] and ticket.acknowledged_at is None and target not in ("draft",):
-        ticket.acknowledged_at = now
-    if target in wf.RESOLVING and ticket.resolved_at is None:
-        ticket.resolved_at = now
-    if target in wf.FINAL:
-        ticket.closed_at = now
-        if target == "closed" and ticket.resolved_at is None:
-            ticket.resolved_at = now
-    if reopen:
-        ticket.resolved_at = None
-        ticket.closed_at = None
-    if ticket.kind == "change":
-        if target == "approved" and old == "submitted":
-            ticket.approved_by = user if user is not None and getattr(user, "is_authenticated", False) else None
-            ticket.approved_at = now
-        if target in ("draft", "rejected"):
-            ticket.approved_by, ticket.approved_at = None, None
-    if note and target in wf.RESOLVING:
-        ticket.resolution = note
-    ticket.status = target
-    # only what this transition changed: a full save() would write back stale SLA breach flags (set meanwhile by
-    # the servicedesk.sla job) and make sla.check() below flag and announce the same breach a second time
-    changed = [f for f, a in TRANSITION_FIELDS if getattr(ticket, a) != before[f]]
+    force=True lets automation move an incident to resolved from any open state (resolve_by_fingerprint). The check and the
+    write happen under a lock on the ticket row, against the status stored in the database."""
     with transaction.atomic():
+        if ticket.pk:
+            _lock_current_state(ticket)
+        old = ticket.status
+        if target == old:
+            raise WorkflowError(f"{ticket.number} is already {wf.STATUS_LABELS.get(old, old)}.")
+        if not (wf.allowed(ticket.kind, old, target) or (force and target == "resolved" and ticket.is_open and ticket.kind == "incident")):
+            raise WorkflowError(f"{ticket.get_kind_display()} {ticket.number} cannot move from "
+                                f"{wf.STATUS_LABELS.get(old, old)} to {wf.STATUS_LABELS.get(target, target)}.")
+        if ticket.kind == "change" and target == "approved" and old == "submitted" and user is not None:
+            if ticket.reporter_id == user.pk and not can_on(user, "admin", ticket.site_scope):
+                raise WorkflowError("A change must be approved by someone other than its requester (or an admin).")
+        if ticket.kind == "change" and target == "scheduled" and not (ticket.planned_start and ticket.planned_end):
+            raise WorkflowError("Set the planned start and end of the change window before scheduling it.")
+        if ticket.kind == "change" and target == "scheduled" and ticket.planned_end <= ticket.planned_start:
+            raise WorkflowError("The planned end must be after the planned start.")
+
+        now = timezone.now()
+        before = {f: getattr(ticket, a) for f, a in TRANSITION_FIELDS}
+        reopen = wf.is_reopen(old, target)
+        if old == wf.INITIAL[ticket.kind] and ticket.acknowledged_at is None and target not in ("draft",):
+            ticket.acknowledged_at = now
+        if target in wf.RESOLVING and ticket.resolved_at is None:
+            ticket.resolved_at = now
+        if target in wf.FINAL:
+            ticket.closed_at = now
+            if target == "closed" and ticket.resolved_at is None:
+                ticket.resolved_at = now
+        if reopen:
+            ticket.resolved_at = None
+            ticket.closed_at = None
+        if ticket.kind == "change":
+            if target == "approved" and old == "submitted":
+                ticket.approved_by = user if user is not None and getattr(user, "is_authenticated", False) else None
+                ticket.approved_at = now
+            if target in ("draft", "rejected"):
+                ticket.approved_by, ticket.approved_at = None, None
+        if note and target in wf.RESOLVING:
+            ticket.resolution = note
+        ticket.status = target
+        # only what this transition changed: a full save() would write back stale SLA breach flags (set meanwhile by
+        # the servicedesk.sla job) and make sla.check() below flag and announce the same breach a second time
+        changed = [f for f, a in TRANSITION_FIELDS if getattr(ticket, a) != before[f]]
         ticket.save(update_fields=changed + ["updated_at"])
         label = "Reopened" if reopen else f"Status changed to {wf.STATUS_LABELS[target]}"
         _note(ticket, "status", label + (f": {note}" if note else "."), user, author_name=actor_name, old=old, new=target)

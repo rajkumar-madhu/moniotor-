@@ -81,7 +81,7 @@ COPY . .
 # DEBUG is off). The key exists only for this RUN step and is not stored in the image. Byte-code is
 # compiled now so the read-only root filesystem used in Kubernetes is never written to.
 # /app/data is the only writable path in the image (for an SQLite database in single-host trials).
-RUN LINKEDEYE_SECRET_KEY="build-only-dummy-key-not-used-at-runtime" LINKEDEYE_DEBUG=false \
+RUN LINKEDEYE_SECRET_KEY="build-only-dummy-key-0123456789-ABCDEFGHIJKLMNOPQRSTUVWXYZ-not-used-at-runtime" LINKEDEYE_DEBUG=false \
       python manage.py collectstatic --noinput --verbosity 0 \
     && python -m compileall -q -j 0 /app /opt/venv > /dev/null \
     && mkdir -p /app/data \

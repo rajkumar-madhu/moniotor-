@@ -9,44 +9,69 @@ from core.access import require, scope_by_site, visible_sites
 from .. import discovery as disc, fleet, hosts as svc, hosts_full as full, palette as pal
 from ..fmt import finite, human_duration, human_rate
 from ..models import Alert
-from .common import csv_response, matches, paginate, perms, prom_context, query_without_page
+from .common import csv_response, matches, paginate, perms, prom_context, query_without_page, wants_refresh
 
 HEALTH_CHOICES = [("healthy", "Healthy"), ("warning", "Warning"), ("critical", "Critical"), ("down", "Down"),
                   ("unknown", "No data")]
 
 
 def _site_ok(user, site, selected=""):
-    if selected and site != selected:
-        return False
+    """May the user see a record on `site`? ``site`` None means "could not be determined": hidden from every
+    site-limited user (fail closed), still visible to a user who sees every site."""
     sites = visible_sites(user)
-    return sites is None or site in ("", "All Sites") or site in sites
+    if sites is None:
+        return not selected or site == selected
+    if site is None or (selected and site != selected):
+        return False
+    return site in ("", "All Sites") or site in sites
+
+
+def _sites_for(user, instances):
+    """{instance: site} for the instances, or None when a site-limited user's scope cannot be determined."""
+    strict = visible_sites(user) is not None
+    try:
+        return svc.instance_sites(instances, strict=strict)
+    except svc.SiteLookupError:
+        return None
+
+
+def _instance_site(user, instance):
+    """The site of one instance (see telemetry.hosts.instance_sites); None when it cannot be determined for a
+    site-limited user."""
+    sites = _sites_for(user, [instance])
+    return None if sites is None else sites.get(instance, "")
 
 
 def visible_rows(user, rows, key="instance"):
-    """Rows (hosts, scrape targets) the user may see: the site of the CMDB item whose prometheus_instance is the
-    row's instance must be one of the user's sites (rows without a CMDB item, or on "All Sites", stay visible)."""
+    """Rows (hosts, scrape targets) the user may see: the site of the host (its CMDB item, else its discovery
+    record, else its network device; telemetry.hosts.instance_sites) must be one of the user's sites. Hosts nothing
+    in the inventory knows, or on "All Sites", stay visible. A failing inventory lookup hides everything from a
+    site-limited user."""
     if visible_sites(user) is None:
         return list(rows)
     rows = list(rows)
-    cis = svc.cmdb_map([r[key] for r in rows])
-    return [r for r in rows if _site_ok(user, (getattr(cis.get(r[key]), "site", "") or ""))]
+    sites = _sites_for(user, [r[key] for r in rows])
+    if sites is None:
+        return []
+    return [r for r in rows if _site_ok(user, sites.get(r[key], ""))]
 
 
-def _attach_cmdb(hosts):
+def _attach_cmdb(hosts, user):
     cis = svc.cmdb_map([h["instance"] for h in hosts])
+    sites = _sites_for(user, [h["instance"] for h in hosts])
     for h in hosts:
         ci = cis.get(h["instance"])
         h["ci"] = ci
         h["ci_name"] = ci.name if ci is not None else ""
         h["ci_url"] = svc.ci_url(ci)
-        h["site"] = (getattr(ci, "site", "") or "") if ci is not None else ""
+        h["site"] = None if sites is None else sites.get(h["instance"], "")
     return hosts
 
 
 @require("view")
 def infrastructure(request):
     ctx = {**prom_context(), **perms(request), "error": "", "spark_error": ""}
-    refresh = request.GET.get("refresh") == "1"
+    refresh = wants_refresh(request)
     hosts, sparks = [], {}
     if ctx["prom_configured"]:
         try:
@@ -62,7 +87,7 @@ def infrastructure(request):
     tmap, tmap_error = fleet.node_target_map(use_cache=not refresh) if ctx["prom_configured"] else ({}, "")
     fleet.annotate_states(hosts, tmap, discovered=fleet.discovered_hosts() if ctx["prom_configured"] else ())
     ctx["state_error"] = tmap_error
-    _attach_cmdb(hosts)
+    _attach_cmdb(hosts, request.user)
     site = request.GET.get("site", "")
     hosts = [h for h in hosts if _site_ok(request.user, h["site"], site)]
     summary = svc.summarize(hosts)
@@ -118,13 +143,13 @@ def host_detail(request, instance):
     if range_key not in svc.RANGES:
         range_key = "1h"
     ci = svc.cmdb_map([instance]).get(instance)
-    site = (getattr(ci, "site", "") or "") if ci is not None else ""
+    site = _instance_site(request.user, instance)
     if not _site_ok(request.user, site):
         raise Http404("No such host")
     status = 200
     if ctx["prom_configured"]:
         try:
-            ctx["host"] = svc.fetch_host(instance, range_key, use_cache=request.GET.get("refresh") != "1")
+            ctx["host"] = svc.fetch_host(instance, range_key, use_cache=not wants_refresh(request))
             if ctx["host"] is None:
                 status = 404
         except prometheus.PrometheusError as e:
@@ -141,20 +166,20 @@ def host_detail(request, instance):
 def _load_host_metrics(request, instance):
     """The one access + fetch path shared by host_metrics (HTML) and host_metrics_json (Live poll).
 
-    Raises Http404 when the host's CMDB site is outside the user's sites (exactly like host_detail). Returns
+    Raises Http404 when the host's site (CMDB item, else discovery record) is outside the user's sites (exactly like host_detail). Returns
     {range_key, ci, site, host, full, error, prom_configured}: host is None when Prometheus has no such instance,
-    error is the Prometheus failure text, and both fetches honour the cache unless ?refresh=1."""
+    error is the Prometheus failure text, and both fetches honour the cache unless an operator passes ?refresh=1."""
     range_key = request.GET.get("range", "1h")
     if range_key not in svc.RANGES:
         range_key = "1h"
     ci = svc.cmdb_map([instance]).get(instance)
-    site = (getattr(ci, "site", "") or "") if ci is not None else ""
+    site = _instance_site(request.user, instance)
     if not _site_ok(request.user, site):
         raise Http404("No such host")
     d = {"range_key": range_key, "ci": ci, "site": site, "host": None, "full": None, "error": "",
          "prom_configured": prometheus.configured()}
     if d["prom_configured"]:
-        use_cache = request.GET.get("refresh") != "1"
+        use_cache = not wants_refresh(request)
         try:
             d["host"] = svc.fetch_host(instance, range_key, use_cache=use_cache)
             if d["host"] is not None:

@@ -10,7 +10,7 @@
   <div class="actions">
     <nav class="seg" aria-label="Alert time range">{% for k, l in ranges %}<a href="?{% if q_range.urlencode %}{{ q_range.urlencode }}&amp;{% endif %}range={{ k }}" class="{% if k == range_key %}on{% endif %}" title="{{ l }} (alert panels)">{{ k }}</a>{% endfor %}</nav>
     <a class="btn" href="?{{ query.urlencode }}{% if query.urlencode %}&amp;{% endif %}format=csv">{% icon "download" 17 %}Export</a>
-    <a class="btn" href="?{{ query.urlencode }}{% if query.urlencode %}&amp;{% endif %}refresh=1">{% icon "refresh" 17 %}Refresh</a>
+    {% if can_operate %}<a class="btn" href="?{{ query.urlencode }}{% if query.urlencode %}&amp;{% endif %}refresh=1">{% icon "refresh" 17 %}Refresh</a>{% endif %}
     <a class="btn primary" href="{% url 'telemetry:infrastructure' %}">{% icon "server" 17 %}Infrastructure</a>
   </div>
 </div>

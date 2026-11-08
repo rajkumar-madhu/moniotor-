@@ -201,3 +201,36 @@ class JobState(models.Model):
 
     def __str__(self):
         return f"{self.name} @ {self.last_run_at}"
+
+
+class LoginOtp(models.Model):
+    """The pending e-mail sign-in code of one user (core.login_otp). Kept in the database, not in the per-process
+    cache, so every web worker sees it. Only a keyed hash of the code is stored.
+
+    `failures` counts wrong guesses against the current code; `send_count` / `send_window_started_at` bound how many
+    codes may be mailed per hour; `last_sent_at` drives the resend cooldown."""
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="login_otp")
+    code_hash = models.CharField(max_length=64, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    failures = models.PositiveSmallIntegerField(default=0)
+    last_sent_at = models.DateTimeField(null=True, blank=True)
+    send_count = models.PositiveSmallIntegerField(default=0)
+    send_window_started_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    def __str__(self):
+        return f"login code for user {self.user_id}"
+
+
+class LoginOtpCounter(models.Model):
+    """Per client-address counters for the sign-in code step: wrong codes ("verify") and mails sent ("send")."""
+    kind = models.CharField(max_length=10)
+    value = models.CharField(max_length=191)
+    count = models.PositiveIntegerField(default=0)
+    window_started_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["kind", "value"], name="core_loginotpcounter_key_unique")]
+
+    def __str__(self):
+        return f"{self.kind}:{self.value} ({self.count})"

@@ -49,18 +49,24 @@ def _max_length(model, field):
 
 # ----------------------------------------------------------------------------- registry
 _SHEETS = {}
+_NAMESPACE_SHEETS = set()   # sheets whose rows can mention a namespace the mapping sheet does not list
 
 
-def register_sheet(name, order, fn):
+def register_sheet(name, order, fn, namespaces=False):
     """Register the importer for one sheet. Called at import time from ``k8s/sheets/*.py``.
 
     `order` decides when the sheet runs: clusters and clients first (low numbers), rows that reference
     them afterwards. Registering the same sheet twice replaces the earlier callable, so a module reload
-    never creates duplicates.
+    never creates duplicates. `namespaces=True` declares that the sheet attaches its rows to namespaces through
+    ``ctx.resolve_namespace()``, so a namespace is retired only when every such sheet was part of the run.
     """
     if not callable(fn):
         raise TypeError(f"sheet importer for {name!r} is not callable")
     _SHEETS[name] = (int(order), fn)
+    if namespaces:
+        _NAMESPACE_SHEETS.add(name)
+    else:
+        _NAMESPACE_SHEETS.discard(name)
     return fn
 
 
@@ -161,6 +167,8 @@ class ImportContext:
         self._namespaces = {}
         self._clusters = {}
         self._compute_clusters = {}
+        self._indexes = {}      # (model label, key fields) -> {key tuple: row}; see _index()
+        self._to_stamp = {}     # model label -> pks whose last_seen stamp is written in one batch; see flush()
 
     # ---------------------------------------------------------------- messages & counts
     def _entry(self, sheet):
@@ -202,42 +210,84 @@ class ImportContext:
                 out[key] = value
         return out
 
+    def _index(self, model, key_fields):
+        """{key tuple: row} of every tenant row of `model`, loaded once per run and key shape.
+
+        This replaces a SELECT per row. Rows this run creates are added by :meth:`upsert`; a rolled-back sheet
+        drops the index (:meth:`forget_caches`) because rows it created may no longer exist.
+        """
+        slot = (model._meta.label_lower, key_fields)
+        index = self._indexes.get(slot)
+        if index is None:
+            index = {}
+            for obj in model.objects.filter(tenant_key=self.tenant).iterator(chunk_size=2000):
+                index.setdefault(tuple(getattr(obj, f) for f in key_fields), obj)
+            self._indexes[slot] = index
+        return slot, index
+
+    def _stamp_seen(self, model):
+        """Write ``import_run`` / ``last_seen`` / ``missing_since`` for every unchanged row seen, in a few UPDATEs."""
+        label = model._meta.label_lower
+        pending = self._to_stamp.pop(label, None)
+        if not pending:
+            return
+        pks = sorted(pending)
+        for start in range(0, len(pks), 500):
+            model.objects.filter(pk__in=pks[start:start + 500]).update(
+                import_run_id=self.run.pk, last_seen=self.stamp, missing_since=None)
+
+    def flush(self):
+        """Write the batched ``last_seen`` stamps. Called at the end of every sheet and before the sweep."""
+        for label in list(self._to_stamp):
+            self._stamp_seen(apps.get_model(label))
+
     def upsert(self, model, keys, defaults=None, sheet=None):
         """Create or update one row, keyed by `keys` within the tenant. Returns ``(obj, created)``.
 
         This is what makes a re-import idempotent: an existing row is updated in place (only changed
         fields are written) and stamped with ``last_seen``; ``missing_since`` is cleared if the row had
-        gone away and came back.
+        gone away and came back. Existing rows come from a per-run index (no SELECT per row), and an
+        unchanged row's stamp is batched into one UPDATE per few hundred rows at the end of the sheet.
         """
         label = model._meta.label_lower
         lookup = self._normalise(model, dict(keys))
         lookup.setdefault("tenant_key", self.tenant)
         values = self._normalise(model, dict(defaults or {}))
         versioned = issubclass(model, ImportedModel)
-        obj = model.objects.filter(**lookup).first()
+        key_fields = tuple(sorted(f for f in lookup if f != "tenant_key"))
+        _slot, index = self._index(model, key_fields)
+        key = tuple(lookup[f] for f in key_fields)
+        obj = index.get(key)
         if obj is None:
             fields = {**lookup, **values}
             if versioned:
                 fields.update(import_run_id=self.run.pk, first_seen=self.stamp, last_seen=self.stamp,
                               missing_since=None)
             obj = model.objects.create(**fields)
+            index[key] = obj
             if sheet:
                 self.count(sheet, "created")
             created = True
         else:
             changed = [k for k, v in values.items() if getattr(obj, k) != v]
-            for key in changed:
-                setattr(obj, key, values[key])
+            for k in changed:
+                setattr(obj, k, values[k])
             update_fields = list(changed)
+            stamp_only = False
             if versioned:
-                obj.import_run_id = self.run.pk
-                obj.last_seen = self.stamp
-                obj.missing_since = None
                 if obj.first_seen is None:
                     obj.first_seen = self.stamp
                     update_fields.append("first_seen")
+                # the in-memory row carries the new stamp; the database learns it with the row's other changes
+                # or, for an unchanged row, with the batched UPDATE in flush()
+                stamp_only = not update_fields
+                obj.import_run_id = self.run.pk
+                obj.last_seen = self.stamp
+                obj.missing_since = None
                 update_fields += ["import_run", "last_seen", "missing_since"]
-            if update_fields:
+            if stamp_only:
+                self._to_stamp.setdefault(label, set()).add(obj.pk)
+            elif update_fields:
                 if any(f.name == "updated_at" for f in model._meta.get_fields()):
                     update_fields.append("updated_at")
                 obj.save(update_fields=sorted(set(update_fields)))
@@ -268,6 +318,11 @@ class ImportContext:
     # retired only when every sheet of the run was readable
     SHARED_MODELS = {"k8s.namespace"}
 
+    def absent_namespace_sheets(self):
+        """Registered sheets that mention namespaces but are not part of this source (sorted)."""
+        present = set(self.source.sheets) | set(getattr(self.source, "unread", ()))
+        return sorted(n for n in _NAMESPACE_SHEETS if n in _SHEETS and n not in present)
+
     def sweep(self):
         """Stamp ``missing_since`` on tracked rows this run did not see; returns the total."""
         now = timezone.now()
@@ -280,6 +335,12 @@ class ImportContext:
             if label in self.SHARED_MODELS and self.unreadable_sheets() - {sheet}:
                 self.warn(sheet, "another sheet could not be read, so namespaces nothing mentions any more "
                                  "were not retired")
+                continue
+            if label in self.SHARED_MODELS and self.absent_namespace_sheets():
+                # the rows of an absent sheet were not touched, so what they mention is not "gone"
+                self.warn(sheet, "this source does not hold every sheet that mentions namespaces "
+                                 f"({', '.join(self.absent_namespace_sheets())}), so namespaces nothing "
+                                 "mentions any more were not retired")
                 continue
             if not self.touched.get(sheet) and (self.counts.get(sheet) or {}).get("rows"):
                 # the sheet had rows but none could be read (a key column renamed or removed): that is a damaged
@@ -347,6 +408,8 @@ class ImportContext:
         """Drop cached rows after a sheet's transaction was rolled back: they may no longer exist."""
         self._clusters.clear()
         self._namespaces.clear()
+        self._indexes.clear()
+        self._to_stamp.clear()
 
     def remember_namespace(self, namespace):
         """Cache a Namespace a sheet importer just wrote, so later sheets reuse it without a query."""
@@ -416,7 +479,7 @@ def _execute(source_arg, user, dry_run, site, create_compute, source_name):
     load_sheets()
     now = timezone.now()
     try:
-        source = open_source(source_arg, name=source_name)
+        source = open_source(source_arg, name=source_name, only=set(sheet_names()))
     except SourceError as exc:
         run = ImportRun.objects.create(
             tenant_key=tenant(), source_name=source_name or str(source_arg)[:255], started_at=now,
@@ -436,8 +499,9 @@ def _execute(source_arg, user, dry_run, site, create_compute, source_name):
                           ignored_sheets=list(source.ignored))
 
     handled = sheet_names()
-    result.unknown_sheets = sorted(n for n in source.sheets if n not in handled)
-    result.missing_sheets = [n for n in handled if n not in source.sheets]
+    present = set(source.sheets) | set(source.unread)
+    result.unknown_sheets = sorted(n for n in present if n not in handled)
+    result.missing_sheets = [n for n in handled if n not in present]
     for name in result.missing_sheets:
         ctx.warn("", f"sheet {name} is not in this source — its records were left untouched")
 
@@ -447,9 +511,18 @@ def _execute(source_arg, user, dry_run, site, create_compute, source_name):
         if sheet is None:
             continue
         ctx.count(name, "rows", len(sheet.rows))
+        if getattr(sheet, "truncated", False):
+            # only the first rows were read: importing them would present part of the sheet as all of it, and
+            # the sweep would then retire every row past the cut-off. Nothing is written or retired for it.
+            ctx.error(name, f"the sheet is longer than the import limit ({len(sheet.rows):,} rows read), so it "
+                            f"was not imported and its records were left untouched - split it or raise the limit")
+            ctx.failed_sheets.add(name)
+            failed = True
+            continue
         try:
             with transaction.atomic():
                 fn(ctx, sheet)
+                ctx.flush()
         except Exception as exc:  # one broken sheet must not lose the others
             log.exception("k8s import: sheet %s failed", name)
             ctx.error(name, f"{type(exc).__name__}: {exc}"[:400])
@@ -458,6 +531,7 @@ def _execute(source_arg, user, dry_run, site, create_compute, source_name):
             failed = True
     try:
         with transaction.atomic():
+            ctx.flush()
             ctx.sweep()
     except Exception as exc:  # pragma: no cover - defensive
         log.exception("k8s import: sweep failed")

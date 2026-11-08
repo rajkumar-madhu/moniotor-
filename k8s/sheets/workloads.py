@@ -226,7 +226,7 @@ def import_applications(ctx, sheet):
     ctx.track(Workload, APP_SHEET, cluster_id=scope.cluster.pk)
 
 
-register_sheet(APP_SHEET, 60, import_applications)
+register_sheet(APP_SHEET, 60, import_applications, namespaces=True)
 
 
 # ----------------------------------------------------------------------------- 05_Service_Inventory
@@ -268,7 +268,7 @@ def import_services(ctx, sheet):
     ctx.track(KubeService, SERVICE_SHEET, cluster_id=scope.cluster.pk)
 
 
-register_sheet(SERVICE_SHEET, 70, import_services)
+register_sheet(SERVICE_SHEET, 70, import_services, namespaces=True)
 
 
 # ----------------------------------------------------------------------------- 07_PV_PVC_Storage
@@ -320,4 +320,4 @@ def import_volumes(ctx, sheet):
     ctx.track(Volume, VOLUME_SHEET, cluster_id=scope.cluster.pk)
 
 
-register_sheet(VOLUME_SHEET, 80, import_volumes)
+register_sheet(VOLUME_SHEET, 80, import_volumes, namespaces=True)

@@ -808,7 +808,8 @@ class PrometheusVerifyHookTests(NetCase):
 
     def test_the_hook_uses_the_vault_login_and_reports_the_overview(self):
         cred = secrets.store(CredentialKind.BASIC_AUTH, "ops", PROM_PASS, "Mumbai", self.admin_a, name="p")
-        t = self.make_target(self.run_, "prom.example.test", target_type=TargetType.PROMETHEUS, port=9090, credential=cred)
+        t = self.make_target(self.run_, "prom.example.test", target_type=TargetType.PROMETHEUS, port=9090,
+                             scheme="https", credential=cred)
         result = prometheus_step.verify_prometheus(t)
         self.assertEqual((result["state"], result["error"]), (TargetState.EXPORTER_FOUND, ""))
         self.assertEqual(result["prometheus"]["targets"], 5)

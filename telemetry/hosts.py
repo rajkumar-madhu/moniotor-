@@ -192,6 +192,122 @@ def cmdb_map(instances):
         return {}
 
 
+class SiteLookupError(Exception):
+    """The inventory could not be read to find the site of an instance. Callers that scope data by site must
+    treat it as "unknown", i.e. hide the data from site-limited users, never as "global"."""
+
+
+_GLOBAL_SITES = ("", "all sites")
+_LOOKUP_CHUNK = 400
+
+
+def _chunks(items, size=_LOOKUP_CHUNK):
+    items = list(items)
+    for i in range(0, len(items), size):
+        yield items[i:i + size]
+
+
+def _norm_site(site):
+    """"" for a record that belongs to every site (blank or "All Sites"), else the site name."""
+    site = (site or "").strip()
+    return "" if site.lower() in _GLOBAL_SITES else site
+
+
+def _first_site(sites):
+    """The first site-specific name among a record's candidates, else "" (global)."""
+    for s in sites:
+        s = _norm_site(s)
+        if s:
+            return s
+    return ""
+
+
+def _model(app_label, name):
+    from django.apps import apps
+    try:
+        return apps.get_model(app_label, name)
+    except LookupError:
+        return None
+
+
+def _ci_sites(instances):
+    """{instance: site} for CMDB items whose prometheus_instance matches. A CI on "All Sites" gives ""."""
+    CI = _model("cmdb", "ConfigurationItem")
+    if CI is None:
+        return {}
+    found = {}
+    for chunk in _chunks(instances):
+        qs = CI.objects.filter(prometheus_instance__in=chunk)
+        if hasattr(CI, "tenant_key"):
+            qs = qs.filter(tenant_key=settings.LINKEDEYE_TENANT)
+        per = {}
+        for inst, site in qs.values_list("prometheus_instance", "site"):
+            per.setdefault(inst, []).append(site)
+        found.update({inst: _first_site(sites) for inst, sites in per.items()})
+    return found
+
+
+def _discovered_sites(instances):
+    """{instance: site} from Prometheus discovery (telemetry.DiscoveredTarget), ignored and missing rows included:
+    the site of a host does not depend on whether it is still scraped."""
+    DT = _model("telemetry", "DiscoveredTarget")
+    if DT is None:
+        return {}
+    found = {}
+    for chunk in _chunks(instances):
+        per = {}
+        for inst, site in DT.objects.for_tenant().filter(instance__in=chunk).order_by("pk").values_list("instance", "site"):
+            per.setdefault(inst, []).append(site)
+        found.update({inst: _first_site(sites) for inst, sites in per.items()})
+    return found
+
+
+def _device_sites(instances):
+    """{instance: site} from network devices that name the instance as their prometheus_instance."""
+    Device = _model("network", "Device")
+    if Device is None:
+        return {}
+    found = {}
+    for chunk in _chunks(instances):
+        qs = Device.objects.filter(prometheus_instance__in=chunk)
+        if hasattr(Device, "tenant_key"):
+            qs = qs.filter(tenant_key=settings.LINKEDEYE_TENANT)
+        per = {}
+        for inst, site in qs.order_by("pk").values_list("prometheus_instance", "site"):
+            per.setdefault(inst, []).append(site)
+        found.update({inst: _first_site(sites) for inst, sites in per.items()})
+    return found
+
+
+def instance_sites(instances, strict=False):
+    """{instance: site} – the one rule every page uses to decide who may see a host or scrape target.
+
+    The site of the CMDB item whose prometheus_instance is the instance; else the site of the Prometheus
+    discovery record for it; else the site of the network device that names it. "" means the record belongs to every
+    site, which is also the answer for an instance nothing in the inventory knows yet.
+
+    ``strict=True`` raises SiteLookupError when an inventory table cannot be read, so a caller that scopes data for
+    a site-limited user can fail closed. Without it the failure is logged and that source is skipped."""
+    names = list(dict.fromkeys(i for i in instances if i))
+    out = {i: "" for i in names}
+    resolved = set()
+    for lookup in (_ci_sites, _discovered_sites, _device_sites):
+        todo = [n for n in names if n not in resolved]
+        if not todo:
+            break
+        try:
+            found = lookup(todo)
+        except Exception as e:  # tables missing (not migrated), connection dropped…
+            log.warning("Site lookup failed (%s): %s", getattr(lookup, "__name__", "lookup"), e)
+            if strict:
+                raise SiteLookupError(str(e)) from e
+            continue
+        for inst, site in found.items():
+            out[inst] = site
+            resolved.add(inst)
+    return out
+
+
 def ci_url(ci):
     if ci is None:
         return ""

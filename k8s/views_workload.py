@@ -11,7 +11,7 @@ their own sites' rows on every page, export and detail view.
 """
 from collections import defaultdict
 
-from django.db.models import CharField, Count, F, Q, Sum, Value
+from django.db.models import Case, CharField, Count, F, IntegerField, Q, Sum, Value, When
 from django.db.models.functions import Cast, Concat
 from django.shortcuts import get_object_or_404, render
 
@@ -115,8 +115,20 @@ def _donut(counts, colors, labels, center_label):
 
 
 # ----------------------------------------------------------------------------- workloads
+def _rank(field, *worst_first):
+    """Order a word column by severity (the first word listed sorts first, anything else last), not alphabetically."""
+    return Case(*[When(**{field: word}, then=Value(i)) for i, word in enumerate(worst_first)],
+                default=Value(len(worst_first)), output_field=IntegerField())
+
+
+def _desc(field):
+    """Largest first, with rows that have no value last on every database (PostgreSQL puts NULLs first on DESC)."""
+    return F(field).desc(nulls_last=True)
+
+
 WORKLOAD_SORTS = {"name": ("workload_name", "namespace__name"), "namespace": ("namespace__name", "workload_name"),
-                  "health": ("-health", "namespace__name", "workload_name"),
+                  "health": (_rank("health", Health.CRIT, Health.WARN, Health.UNKNOWN, Health.OK),
+                             "namespace__name", "workload_name"),
                   "replicas": ("ready_replicas", "namespace__name", "workload_name"),
                   "image": ("image_registry", "image", "workload_name"),
                   "node": ("node_name", "namespace__name", "workload_name")}
@@ -310,7 +322,7 @@ def workload_detail(request, pk):
 # ----------------------------------------------------------------------------- services
 SERVICE_SORTS = {"name": ("name", "namespace__name", "port"), "namespace": ("namespace__name", "name", "port"),
                  "type": ("service_type", "namespace__name", "name", "port"),
-                 "nodeport": ("-node_port", "namespace__name", "name")}
+                 "nodeport": (_desc("node_port"), "namespace__name", "name")}
 
 
 def _services_queryset(request, base=None):
@@ -401,8 +413,9 @@ def services_export(request):
 VOLUME_STATUSES = [("bound", "Bound"), ("pending", "Pending PVC"), ("lost", "Lost"),
                    ("unclaimed", "Unclaimed PV")]
 VOLUME_SORTS = {"name": ("pvc", "pv"), "namespace": ("namespace__name", "pvc", "pv"),
-                "capacity": ("-capacity_bytes", "namespace__name", "pvc"),
-                "risk": ("-risk", "namespace__name", "pvc"), "age": ("-age_days", "namespace__name", "pvc")}
+                "capacity": (_desc("capacity_bytes"), "namespace__name", "pvc"),
+                "risk": (_rank("risk", Risk.HIGH, Risk.MEDIUM, Risk.UNKNOWN, Risk.LOW), "namespace__name", "pvc"),
+                "age": (_desc("age_days"), "namespace__name", "pvc")}
 
 
 def _unclaimed_q():

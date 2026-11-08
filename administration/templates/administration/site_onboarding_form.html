@@ -10,7 +10,7 @@
   <div class="actions">
     <a class="btn" href="{% url 'administration:site_onboarding_list' %}">{% icon "chevron-left" 17 %}All onboarding</a>
     <a class="btn" href="{% url 'administration:site_domain' site.pk %}">{% icon "link" 17 %}Domain &amp; ports</a>
-    <a class="btn" href="{% url 'administration:site_onboarding' site.pk %}?defaults=1">{% icon "refresh" 17 %}Apply FinSpot defaults</a>
+    <form method="post" action="{% url 'administration:site_onboarding' site.pk %}" class="inline">{% csrf_token %}<input type="hidden" name="apply_defaults" value="1"><button class="btn" type="submit">{% icon "refresh" 17 %}Apply FinSpot defaults</button></form>
   </div>
 </div>
 {% include "administration/_tabs.html" with tab="onboarding" %}

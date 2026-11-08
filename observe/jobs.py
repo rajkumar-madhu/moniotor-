@@ -12,7 +12,7 @@ def exporter_health():
     """Scrape every enabled exporter that has a metrics URL; keep the others in their configuration state."""
     try:
         services.sync_config_states()
-        exporters = list(Exporter.objects.filter(enabled=True).exclude(metrics_url="").order_by("pk"))
+        exporters = list(Exporter.objects.filter(tenant_key=services.tenant(), enabled=True).exclude(metrics_url="").order_by("pk"))
         results = services.check_exporters(exporters)
         ok = sum(1 for _e, r in results if r.ok)
         return f"scraped {len(results)} exporter(s): {ok} active, {len(results) - ok} error"

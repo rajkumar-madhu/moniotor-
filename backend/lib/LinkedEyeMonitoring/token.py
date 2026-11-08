@@ -78,7 +78,7 @@ def _fetch_client_credentials_token(token_url, client_id, client_secret, cache_k
             return cached
 
     scope = getattr(settings, 'KEYCLOAK_MONITORING_SCOPE', '') or ''
-    verify = getattr(settings, 'MONITORING_VERIFY_SSL', False)
+    verify = verify_ssl()
     data = {
         'grant_type': 'client_credentials',
         'client_id': client_id,
@@ -225,7 +225,10 @@ def bearer_mode():
 
 
 def verify_ssl():
-    return getattr(settings, 'MONITORING_VERIFY_SSL', False)
+    """Value for requests' ``verify=``: True, a CA bundle path, or False (explicit opt-out)."""
+    if not getattr(settings, 'MONITORING_VERIFY_SSL', True):
+        return False
+    return getattr(settings, 'MONITORING_CA_BUNDLE', '') or True
 
 
 def _basic_auth(service):

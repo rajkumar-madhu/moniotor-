@@ -12,7 +12,7 @@ from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
-from core.access import can, require, scope_by_site
+from core.access import can_on, require, scope_by_site
 from core.audit import audit
 
 from .. import alerts as svc
@@ -81,9 +81,9 @@ def _filtered(request, base):
 
 
 def can_ack(user, alert):
-    """'operate' on the alert's site; alerts without a site need 'operate' somewhere."""
-    site = alert.site if alert.site not in ("", "All Sites") else None
-    return can(user, "operate", site)
+    """'operate' on the alert's site; an alert without a site (or on "All Sites") concerns every site and needs
+    'operate' tenant-wide, exactly like the other global records (core.access.can_on)."""
+    return can_on(user, "operate", alert.site)
 
 
 @require("view")
@@ -122,7 +122,9 @@ def alert_list(request):
     tab_counts = {"firing": kpis["firing"],
                   "resolved": base.resolved().filter(last_received_at__gte=now - timedelta(days=RESOLVED_WINDOW_DAYS)).count(),
                   "all": base.count()}
-    token_set = bool(getattr(settings, "ALERTMANAGER_WEBHOOK_TOKEN", ""))
+    from administration import integration_config as ic
+
+    token_set = bool(ic.alertmanager_webhook_token())
     receiver_url = request.build_absolute_uri(reverse("telemetry:alertmanager_webhook"))
     page = paginate(request, qs)
     for a in page:

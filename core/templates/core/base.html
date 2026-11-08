@@ -27,6 +27,7 @@
 </head>
 
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
   <div class="shell rail-open" id="shell">
     <aside class="side" id="side">
       <a class="brand" href="{% url 'dashboard' %}" style="text-decoration:none">
@@ -52,7 +53,7 @@
         <div class="side-foot">LinkedEye v{{ le_version }} · full-stack observability<div class="ok">System operational
           </div>
         </div>
-        {% if le_clients|length > 1 %}
+        {% if le_clients|length > 1 or le_client == "unassigned" %}
         <form class="site-pick" method="get" action="{{ request.path }}">
           {% icon "users" 20 %}
           <select name="client" data-autosubmit aria-label="Client">
@@ -62,7 +63,7 @@
             </option>
             {% endfor %}
           </select>
-          {% if le_site %}<input type="hidden" name="site" value="{{ le_site|urlencode }}">{% endif %}
+          {% if le_site %}<input type="hidden" name="site" value="{{ le_site }}">{% endif %}
         </form>
         {% endif %}
         <form class="site-pick" method="get" action="{{ request.path }}">
@@ -73,7 +74,7 @@
             <option value="{{ s }}"{% if s == le_site %} selected{% endif %}>{{ s }}</option>
             {% endfor %}
           </select>
-          {% if le_client %}<input type="hidden" name="client" value="{{ le_client|urlencode }}">{% endif %}
+          {% if le_client %}<input type="hidden" name="client" value="{{ le_client }}">{% endif %}
         </form>
         <details class="user-menu">
           <summary class="user">
@@ -90,6 +91,7 @@
         </details>
       </div>
     </aside>
+  <div class="scrim" id="scrim" data-scrim hidden></div>
     <div class="main">
       <header class="top">
         <button class="icon-btn menu-btn" type="button" aria-label="Toggle menu" aria-controls="side"
@@ -108,7 +110,7 @@
           %}</a>
         <a class="icon-btn hide-sm" href="{{ le_admin_url }}" aria-label="Administration">{% icon "settings" 22 %}</a>
       </header>
-      <main class="page">
+      <main class="page" id="main" tabindex="-1">
         {% block crumbs %}{% endblock %}
         {% if messages %}<ul class="messages">{% for m in messages %}<li class="{{ m.tags }}">{{ m }}</li>{% endfor %}
         </ul>{% endif %}

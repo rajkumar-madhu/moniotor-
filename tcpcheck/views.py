@@ -8,6 +8,7 @@ from django.apps import apps
 from django.conf import settings
 from django.contrib import messages
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -212,6 +213,8 @@ def edit(request, pk):
         obj = _save(request, form, editing)
         if obj is not None:
             changed = {f: [str(before[f]), str(getattr(obj, f))] for f in FORM_FIELDS if before[f] != getattr(obj, f)}
+            if before["enabled"] and not obj.enabled:
+                services.close_failure(obj, "Disabled")     # no further probe would ever resolve its open incident
             audit(request, "update", obj, changed=changed)
             target_changed = any(f in changed for f in ("host", "port", "expect_banner", "timeout_seconds", "degraded_ms"))
             if obj.enabled and (target_changed or "enabled" in changed):
@@ -232,7 +235,9 @@ def delete(request, pk):
     name = obj.name
     audit(request, "delete", obj, name=name, host=obj.host, port=obj.port, site=obj.site,
           results=obj.results.count())
-    obj.delete()
+    with transaction.atomic():
+        services.close_failure(obj, "Deleted")      # before the row (and its pk) is gone
+        obj.delete()
     SlaTarget.objects.filter(tenant_key=settings.LINKEDEYE_TENANT, kind="tcp", object_id=pk).delete()
     messages.success(request, f"Deleted “{name}” and its check history.")
     nxt = _next(request, reverse("tcpcheck:index"))

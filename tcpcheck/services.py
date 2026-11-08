@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from core.access import PERMS, RANK, can, role_for, scope_by_site
 from core.events import emit
+from core.models import Event
 
 from .models import Status, TcpCheck, TcpResult
 from .probe import tcp_probe
@@ -49,6 +50,24 @@ def can_manage(user, perm, site):
 
 def role_label(user):
     return (role_for(user) or "viewer").title()
+
+
+def failure_open(fingerprint):
+    """True when the latest event of this fingerprint is a problem (critical / warning) nobody resolved."""
+    last = (Event.objects.filter(source="tcpcheck", fingerprint=fingerprint)
+            .order_by("-occurred_at", "-id").values_list("severity", flat=True).first())
+    return last in ("critical", "warning")
+
+
+def close_failure(check, reason):
+    """The check stopped being probed (deleted or disabled) while its failure was still open: emit the resolving
+    event so the notification and the auto-incident keyed on `tcp:<pk>` are closed (no probe result would ever
+    do it). Call it BEFORE the row is deleted. Returns None when nothing was open."""
+    if check.pk is None or not failure_open(f"tcp:{check.pk}"):
+        return None
+    return emit("tcpcheck", f"{check.name} ({check.target}) is no longer checked", severity="ok",
+                message=f"{reason}; its earlier failure is closed.", site=check.site, obj=check,
+                fingerprint=f"tcp:{check.pk}", reason=reason, host=check.host, port=check.port)
 
 
 # ------------------------------------------------------------------ evaluation

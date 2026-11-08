@@ -21,7 +21,7 @@ from pathlib import Path
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
-from django.db.models import Q
+from django.db.models import F, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -151,7 +151,7 @@ def overview(request):
     node_stats = services.node_totals(nodes)
     ns_stats = services.namespace_totals(namespaces)
     profile_stats = services.profile_totals(profiles)
-    extra = services.optional_counts(user, run)
+    extra = services.optional_counts(user, run, site)
     from .views_workload import workload_signals  # lazy: that module imports this one
     extra.update(workload_signals(user, site))
     from .views_ops import ops_signals  # lazy, like workload_signals
@@ -195,8 +195,10 @@ def overview(request):
 
 
 # ----------------------------------------------------------------------------- nodes
-NODE_SORTS = {"hostname": "hostname", "role": "role", "age": "-age_days", "cpu": "-cpu_capacity_millicores",
-              "memory": "-memory_capacity_bytes"}
+# largest first, rows without a value last on every database (PostgreSQL sorts NULLs first on DESC)
+NODE_SORTS = {"hostname": "hostname", "role": "role", "age": F("age_days").desc(nulls_last=True),
+              "cpu": F("cpu_capacity_millicores").desc(nulls_last=True),
+              "memory": F("memory_capacity_bytes").desc(nulls_last=True)}
 
 
 def _nodes_queryset(request):
@@ -537,6 +539,7 @@ def import_inventory(request):
     """Upload a workbook: the first POST previews the diff, the second one applies it."""
     _need_import(request)
     _sweep_staging()
+    services.fail_stale_runs()
     pending = request.session.get(SESSION_KEY) or {}
     form = UploadForm(initial={"site": pending.get("site") or services.default_site()})
     result = None
@@ -602,6 +605,7 @@ def import_inventory(request):
 
 @require("view")
 def imports(request):
+    services.fail_stale_runs()
     qs = services.runs_for(request.user)
     page = paginate(request, qs)
     ctx = _base(request, "imports", page=page, items=page.object_list, total=qs.count(),
@@ -611,6 +615,7 @@ def imports(request):
 
 @require("view")
 def import_detail(request, pk):
+    services.fail_stale_runs()
     run = get_object_or_404(services.runs_for(request.user), pk=pk)
     # An import covers the whole estate, so its warnings (they name namespaces and hosts from every site) and
     # its discovery log are shown only to users who may see every site; the rest get the sheet counts.

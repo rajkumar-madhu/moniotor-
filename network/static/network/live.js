@@ -102,12 +102,19 @@
     applyCharts(data.charts || {});
     applyPorts(data.ports);
     document.dispatchEvent(new CustomEvent('nw:snapshot', { detail: data }));   // device-card.js: sparklines
+    // Each change is announced once: the baseline moves to what was announced, and a status change and a new alert are
+    // checked independently so one never hides the other.
+    const said = [];
     if (data.status !== root.dataset.status) {
       applyBadge((data.tones || {}).status, (data.values || {}).status);
-      notify('Status changed to ' + (data.values || {}).status + '.');
+      said.push('Status changed to ' + (data.values || {}).status + '.');
+      root.dataset.status = String(data.status);
     }
-    else if (data.latest_event && String(data.latest_event.id) !== root.dataset.event)
-      notify('New alert: ' + data.latest_event.title + ' (' + data.latest_event.ago + ').');
+    if (data.latest_event && String(data.latest_event.id) !== root.dataset.event) {
+      said.push('New alert: ' + data.latest_event.title + ' (' + data.latest_event.ago + ').');
+      root.dataset.event = String(data.latest_event.id);
+    }
+    if (said.length) notify(said.join(' '));
     note = (data.notes || [])[0] || '';
     root.title = note;
   }

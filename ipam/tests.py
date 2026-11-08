@@ -913,3 +913,217 @@ class SeedTests(TestCase):
         self.assertTrue(any(c["kind"] == "dns_free" for c in sync.conflicts()))
         call_command("seed_ipam", "--remove", stdout=io.StringIO())
         self.assertEqual(Subnet.objects.count() + IPAddress.objects.count() + DNSZone.objects.count(), 0)
+
+
+# ------------------------------------------------------------------ review fixes
+class ReviewFixTests(Users, TestCase):
+    def setUp(self):
+        self.make_users()
+        self.c = Client()
+
+    def test_container_detail_hides_foreign_site_children(self):
+        """ipam-dcim-compute-1: a global container must not leak addresses / CIDRs of sites the user cannot see."""
+        sup = subnet("10.0.0.0/16", role=Role.CONTAINER)                       # All Sites
+        child = subnet("10.0.1.0/25", site=MUM)
+        addr("10.0.1.5", hostname="secret-db.mum")
+        mine = subnet("10.0.2.0/24", site=DR)
+        addr("10.0.2.7", hostname="dr-host.dr")
+        self.c.force_login(self.dr_op)
+        self.assertEqual(self.c.get(reverse("ipam:subnet_detail", args=[child.pk])).status_code, 404)
+        r = self.c.get(reverse("ipam:subnet_detail", args=[sup.pk]))
+        self.assertEqual(r.status_code, 200)
+        for leaked in ("10.0.1.5", "secret-db.mum", "10.0.1.0/25"):
+            self.assertNotContains(r, leaked)
+        self.assertContains(r, "10.0.2.7")
+        self.assertContains(r, "10.0.2.0/24")
+        self.assertEqual(r.context["used"], 1)                                  # only the visible address is counted
+        self.assertEqual(r.context["status_counts"], {"active": 1})
+        # the /16 container draws a /24 block map: hidden child cells must not carry the CIDR or hostname
+        self.assertTrue(all("10.0.1.0/25" not in c["title"] and "secret" not in c["title"] for c in r.context["amap"]["cells"]))
+        # a tenant-wide user still sees everything
+        self.c.force_login(self.operator)
+        r = self.c.get(reverse("ipam:subnet_detail", args=[sup.pk]))
+        for seen in ("10.0.1.5", "secret-db.mum", "10.0.1.0/25", "10.0.2.7"):
+            self.assertContains(r, seen)
+        self.assertEqual(r.context["used"], 2)
+
+    def test_container_address_map_cells_for_hidden_child(self):
+        sup = subnet("10.0.0.0/22", role=Role.CONTAINER)
+        subnet("10.0.1.0/24", site=MUM)
+        amap0, _ = services.address_map(sup)
+        self.assertIn("10.0.1.0/24", next(c for c in amap0["cells"] if c["ip"] == "10.0.1.5")["title"])
+        addr("10.0.1.5", hostname="secret-db.mum")
+        amap, _ = services.address_map(sup, user=self.dr_op)
+        cell = next(c for c in amap["cells"] if c["ip"] == "10.0.1.5")
+        self.assertEqual(cell["kind"], "child")
+        self.assertIsNone(cell["pk"])
+        self.assertIsNone(cell["child"])
+        self.assertNotIn("secret", cell["title"])
+        self.assertNotIn("10.0.1.0/24", cell["title"])
+        self.assertIn("cannot see", cell["title"])
+
+    def test_reserve_keeps_hostname(self):
+        """ipam-dcim-compute-4: the hostname typed next to 'Reserve next free' is stored (validated)."""
+        net = subnet("10.50.0.0/24", site=MUM)
+        self.c.force_login(self.operator)
+        r = self.c.post(reverse("ipam:subnet_reserve", args=[net.pk]), {"hostname": "App01.Corp.Example.com"})
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(IPAddress.objects.get(address="10.50.0.1").hostname, "app01.corp.example.com")
+        # an invalid hostname reserves nothing and says why
+        r = self.c.post(reverse("ipam:subnet_reserve", args=[net.pk]), {"hostname": "not a host!"}, follow=True)
+        self.assertEqual(IPAddress.objects.filter(subnet=net).count(), 1)
+        self.assertContains(r, "valid DNS name")
+        # blank stays allowed
+        self.c.post(reverse("ipam:subnet_reserve", args=[net.pk]), {"hostname": ""})
+        self.assertEqual(IPAddress.objects.get(address="10.50.0.2").hostname, "")
+
+    def test_import_oversized_field_is_an_error_not_a_500(self):
+        """ipam-dcim-compute-5."""
+        subnet("10.70.0.0/24", site=MUM)
+        self.c.force_login(self.operator)
+        text = "address,description\n10.70.0.5," + "x" * 200_000 + "\n"
+        r = self.c.post(reverse("ipam:addresses_import"),
+                        {"file": SimpleUploadedFile("a.csv", text.encode(), content_type="text/csv")})
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(IPAddress.objects.exists())
+        self.assertTrue(r.context["result"].errors)
+        self.assertContains(r, "too long")
+
+    def test_ipv6_zone_id_networks_are_rejected(self):
+        """ipam-dcim-compute-6."""
+        with self.assertRaises(ValueError):
+            services.parse_network("fe80::%eth0/64")
+        subnet("fe80::/64")
+        for text in ("fe80::%a/64", "fe80::%b/64"):
+            f = SubnetForm({"cidr": text, "vrf": "", "site": "All Sites"}, user=self.admin)
+            self.assertFalse(f.is_valid(), text)
+        # same range, same prefix, different spelling is a duplicate whatever the strings say
+        net = ipaddress.ip_network("fe80::/64")
+        self.assertIn("already exists", services.placement_error(T, "", net, ""))
+        Subnet.objects.filter(cidr="fe80::/64").update(cidr="FE80::/64")        # stored spelling differs
+        self.assertIn("already exists", services.placement_error(T, "", net, ""))
+
+    def _race_once(self, module, name, net, at_after=True):
+        """Wrap services.<name> so a competing row for the address in play is committed right after the first call."""
+        from unittest import mock
+        real = getattr(module, name)
+        state = {"done": False}
+
+        def wrapper(*a, **kw):
+            out = real(*a, **kw)
+            if not state["done"]:
+                state["done"] = True
+                target = out if name == "next_free" else self.race_address
+                IPAddress(tenant_key=T, address=str(target), vrf=net.vrf, subnet=net, site=net.site).save()
+            return out
+        return mock.patch.object(module, name, wrapper)
+
+    def test_address_save_race_is_a_form_error(self):
+        """ipam-dcim-compute-8: a duplicate inserted between validation and save must not 500."""
+        net = subnet("10.60.0.0/24", site=MUM)
+        self.c.force_login(self.operator)
+        self.race_address = "10.60.0.9"
+        with self._race_once(services, "used_count", net):
+            r = self.c.post(reverse("ipam:address_create"), {"address": "10.60.0.9", "vrf": "", "status": "active"})
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "already recorded")
+        self.assertEqual(IPAddress.objects.filter(address="10.60.0.9").count(), 1)
+
+    def test_reserve_race_retries_next_free(self):
+        net = subnet("10.61.0.0/24", site=MUM)
+        self.c.force_login(self.operator)
+        with self._race_once(services, "next_free", net):
+            r = self.c.post(reverse("ipam:subnet_reserve", args=[net.pk]))
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(sorted(IPAddress.objects.filter(subnet=net).values_list("address", flat=True)), ["10.61.0.1", "10.61.0.2"])
+
+    def test_vlan_zone_record_subnet_races_become_form_errors(self):
+        from unittest import mock
+        from . import views
+        self.c.force_login(self.operator)
+        zone = DNSZone.objects.create(tenant_key=T, name="r.test", site=MUM)
+        posts = [(reverse("ipam:vlan_create"), {"vid": 77, "name": "A", "site": MUM}, VLAN),
+                 (reverse("ipam:zone_create"), {"name": "z.test", "kind": "forward", "site": MUM, "default_ttl": 300}, DNSZone),
+                 (reverse("ipam:record_create", args=[zone.pk]), {"name": "w", "rtype": "A", "value": "10.1.1.1"}, DNSRecord),
+                 (reverse("ipam:subnet_create"), {"cidr": "10.99.0.0/24", "vrf": "", "site": MUM}, Subnet)]
+        for url, data, model in posts:
+            before = model.objects.count()
+            with mock.patch.object(model, "save", side_effect=IntegrityError("UNIQUE constraint failed")):
+                r = self.c.post(url, data)
+            self.assertEqual(r.status_code, 200, url)
+            self.assertContains(r, "saved by someone else")
+            self.assertEqual(model.objects.count(), before)
+
+    def test_import_race_reports_an_error(self):
+        from unittest import mock
+        subnet("10.62.0.0/24", site=MUM)
+        self.c.force_login(self.operator)
+        with mock.patch.object(IPAddress, "save", side_effect=IntegrityError("UNIQUE constraint failed")):
+            r = self.c.post(reverse("ipam:addresses_import"), {"file": SimpleUploadedFile(
+                "a.csv", b"address\n10.62.0.5\n", content_type="text/csv")})
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "added by someone else")
+        self.assertFalse(IPAddress.objects.exists())
+
+    def _primary_ip_selects(self, ctx):
+        return [q["sql"] for q in ctx.captured_queries if q["sql"].startswith('SELECT "ipam_ipaddress".')]
+
+    def test_pages_do_not_load_every_address_of_the_tenant(self):
+        """ipam-dcim-compute-10."""
+        from django.test.utils import CaptureQueriesContext
+        from django.db import connection
+        sup = subnet("10.0.0.0/16", role=Role.CONTAINER, site=MUM)
+        subnet("10.0.1.0/24", site=MUM)
+        addr("10.0.1.5")
+        zone = DNSZone.objects.create(tenant_key=T, name="perf.test", site=MUM)
+        DNSRecord.objects.create(tenant_key=T, zone=zone, name="a", rtype="A", value="10.0.1.5")
+        DNSRecord.objects.create(tenant_key=T, zone=zone, name="b", rtype="A", value="10.0.1.77")
+        self.c.force_login(self.admin)
+        with CaptureQueriesContext(connection) as ctx:
+            r = self.c.get(reverse("ipam:zone_detail", args=[zone.pk]))
+        self.assertEqual(r.status_code, 200)
+        for sql in self._primary_ip_selects(ctx):
+            self.assertIn(" IN (", sql)                       # only the page's own values are looked up
+        free = {x.name: x.free_target for x in r.context["page"]}
+        self.assertEqual(free, {"a": False, "b": True})
+        with CaptureQueriesContext(connection) as ctx:
+            found = sync.conflicts()
+        self.assertEqual([c["address"] for c in found if c["kind"] == "dns_free"], ["10.0.1.77"])
+        for sql in self._primary_ip_selects(ctx):
+            self.assertIn("IS NULL", sql)                     # the orphan query; no tenant-wide address set
+
+    def test_subnet_list_depth_needs_a_constant_number_of_queries(self):
+        from django.test.utils import CaptureQueriesContext
+        from django.db import connection
+        self.c.force_login(self.admin)
+        subnet("10.0.0.0/8", role=Role.CONTAINER)
+        subnet("10.1.0.0/16", role=Role.CONTAINER)
+
+        def count():
+            with CaptureQueriesContext(connection) as ctx:
+                r = self.c.get(reverse("ipam:subnets") + "?per=100")
+            self.assertEqual(r.status_code, 200)
+            return len(ctx), {s.cidr: s.depth for s in r.context["items"]}
+
+        for n in range(5):
+            subnet(f"10.1.{n}.0/24")
+        few, depths = count()
+        self.assertEqual((depths["10.0.0.0/8"], depths["10.1.0.0/16"], depths["10.1.3.0/24"]), (0, 1, 2))
+        for n in range(5, 25):
+            subnet(f"10.1.{n}.0/24")
+        many, _ = count()
+        self.assertEqual(few, many)
+
+    def test_seed_remove_only_deletes_seed_rows(self):
+        """ipam-dcim-compute-11."""
+        call_command("seed_ipam", stdout=io.StringIO())
+        real_net = subnet("10.123.0.0/24", description="Example Corp customer LAN")
+        real_addr = addr("10.123.0.7", description="Example: lab box")
+        real_vlan = VLAN.objects.create(tenant_key=T, site="All Sites", vid=999, name="REAL", description="Example Corp DMZ")
+        call_command("seed_ipam", "--remove", stdout=io.StringIO())
+        self.assertTrue(Subnet.objects.filter(pk=real_net.pk).exists())
+        self.assertTrue(IPAddress.objects.filter(pk=real_addr.pk).exists())
+        self.assertTrue(VLAN.objects.filter(pk=real_vlan.pk).exists())
+        self.assertEqual(Subnet.objects.exclude(pk=real_net.pk).count(), 0)
+        self.assertEqual(IPAddress.objects.exclude(pk=real_addr.pk).count(), 0)
+        self.assertEqual(VLAN.objects.exclude(pk=real_vlan.pk).count(), 0)

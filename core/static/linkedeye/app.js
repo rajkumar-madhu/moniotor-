@@ -54,16 +54,33 @@
     } catch (_) { /* ignore */ }
     pinRail(pinned);
   }
-  // hamburger: pin the icon rail open on desktop, slide it in on phones
+  // hamburger: pin the icon rail open on desktop, slide it in on phones (with a scrim behind it)
+  const scrim = document.getElementById('scrim');
+  const setDrawer = open => {
+    if (!side) return;
+    side.classList.toggle('open', open);
+    if (scrim) scrim.hidden = !open;
+    if (menuBtn) menuBtn.setAttribute('aria-expanded', String(open));
+  };
+  const closeDrawer = () => {
+    if (!side || !side.classList.contains('open')) return;
+    setDrawer(false);
+    if (menuBtn) menuBtn.focus();
+  };
   document.addEventListener('click', e => {
     const btn = e.target.closest('[data-toggle-menu]');
     if (!btn) return;
-    const open = window.innerWidth > 860
-      ? !shell.classList.contains('rail-open')
-      : (side && side.classList.toggle('open'));
-    if (window.innerWidth > 860) pinRail(open);
-    else btn.setAttribute('aria-expanded', String(open));
+    if (window.innerWidth > 860) {
+      pinRail(!shell.classList.contains('rail-open'));
+    } else if (side) {
+      setDrawer(!side.classList.contains('open'));
+      if (side.classList.contains('open')) { const first = side.querySelector('a[href]'); if (first) first.focus(); }
+    }
   });
+  scrim?.addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+  side?.addEventListener('click', e => { if (e.target.closest('a[href]') && window.innerWidth <= 860) setDrawer(false); });
+  window.addEventListener('resize', () => { if (window.innerWidth > 860 && side && side.classList.contains('open')) setDrawer(false); });
 
   // the user menu closes on a click anywhere else
   document.addEventListener('click', e => {
@@ -76,8 +93,17 @@
   }));
 
   // optional auto refresh: <body data-refresh="60">
+  // A timer that fires while the tab is hidden must not end the loop: it keeps ticking, and coming back to a tab
+  // whose data is older than the interval refreshes it at once.
   const page = document.querySelector('[data-refresh]');
-  if (page) setTimeout(() => { if (!document.hidden) location.reload(); }, +page.dataset.refresh * 1000);
+  if (page) {
+    const every = Math.max(5, +page.dataset.refresh || 60) * 1000;
+    const loadedAt = Date.now();
+    setInterval(() => { if (!document.hidden) location.reload(); }, every);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && Date.now() - loadedAt >= every) location.reload();
+    });
+  }
 
   const THEME_KEY = 'linkedeye-theme';
   const themeBtn = document.querySelector('[data-toggle-theme]');

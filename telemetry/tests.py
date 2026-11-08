@@ -781,7 +781,7 @@ class JobAndSeedTests(TestCase):
     def test_job_registered(self):
         self.assertIn("telemetry.prune_alerts", core_jobs.JOBS)
 
-    @override_settings(TELEMETRY_ALERT_RETENTION_DAYS=30)
+    @override_settings(TELEMETRY_ALERT_RETENTION_DAYS=30, TELEMETRY_ALERT_STALE_HOURS=0)
     def test_prune_keeps_firing_and_recent(self):
         old = timezone.now() - timedelta(days=40)
         Alert.objects.create(fingerprint="a", alertname="A", status="resolved", last_received_at=old)
@@ -1446,7 +1446,10 @@ class HostMetricsLiveTests(TestCase):
         self.assertEqual(self.client.get(self.json_url + "?range=6h").status_code, 200)
         self.assertEqual(self.qr.call_count, n)                                        # cached
         self.assertEqual(self.client.get(self.json_url + "?range=6h&refresh=1").status_code, 200)
-        self.assertGreater(self.qr.call_count, n)                                      # refresh=1 bypasses
+        self.assertEqual(self.qr.call_count, n)                                        # a viewer's refresh=1 is ignored
+        self.client.force_login(self.operator)
+        self.assertEqual(self.client.get(self.json_url + "?range=6h&refresh=1").status_code, 200)
+        self.assertGreater(self.qr.call_count, n)                                      # an operator's refresh=1 bypasses
         self.assertEqual(self.client.get(self.json_url + "?range=99y").json()["range"], "1h")
 
     @override_settings(PROMETHEUS_URL=PROM)

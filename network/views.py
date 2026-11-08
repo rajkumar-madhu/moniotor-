@@ -18,6 +18,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from core import prometheus
@@ -29,7 +30,7 @@ from core.client_scope import active_client
 from . import discovery, fabric, images, jobs, legacy_panels, metrics, services, vm_metrics
 from .forms import ApproveForm, DeviceForm, DiscoveryForm, FieldImageError
 from .live import FRONT_PANEL_MAX, LIVE_INTERVAL, apply_guest_uptime, card_data, device_snapshot, panel_ports, port_data
-from .models import TYPE_PAGES, Device, DeviceStatus, DeviceType, DiscoveredHost, DiscoveryRun, Environment
+from .models import TYPE_PAGES, Device, DeviceImage, DeviceStatus, DeviceType, DiscoveredHost, DiscoveryRun, Environment
 
 TYPE_INTRO = {
     "switch": "Access, distribution and core switches",
@@ -87,6 +88,13 @@ def _iface_matches(i, state, q):
 
 
 # ------------------------------------------------------------------ helpers
+def _int_param(value, max_len=9):
+    """A non-negative integer from request data, or None. ASCII digits only and a bounded length: str.isdigit() accepts
+    characters such as superscript two that int() then rejects, and int() refuses more than 4300 digits."""
+    value = value or ""
+    return int(value) if value.isascii() and value.isdecimal() and len(value) <= max_len else None
+
+
 def _per_page(request, default=20):
     try:
         return max(5, min(100, int(request.GET.get("per", default))))
@@ -428,8 +436,9 @@ def detail(request, pk):
     tones = Counter(i.port_tone for i in interfaces)
     # ?port=<ifIndex> narrows the charts to one interface of this device
     port = None
-    if not is_vm and request.GET.get("port", "").isdigit():
-        port = next((i for i in interfaces if i.if_index == int(request.GET["port"])), None)
+    port_no = None if is_vm else _int_param(request.GET.get("port"))
+    if port_no is not None:
+        port = next((i for i in interfaces if i.if_index == port_no), None)
     range_key = metrics.range_key(request.GET.get("range"))
     traffic, traffic_msg, errors_chart, errors_msg = None, "", None, ""
     if not is_vm:   # the chart strip sits above the tabs, so every tab needs it
@@ -523,8 +532,7 @@ def live(request, pk):
     device = services.devices_for(request.user, request).filter(pk=pk).first()
     if device is None:
         return JsonResponse({"error": "Device not found, or outside the selected client or your sites."}, status=404)
-    port = request.GET.get("port", "")
-    data = device_snapshot(device, metrics.range_key(request.GET.get("range")), int(port) if port.isdigit() else None)
+    data = device_snapshot(device, metrics.range_key(request.GET.get("range")), _int_param(request.GET.get("port")))
     resp = JsonResponse(data)
     resp["Cache-Control"] = "no-store"
     return resp
@@ -550,6 +558,7 @@ def cards_live(request):
 
 @require("view")
 @require_GET
+@xframe_options_sameorigin     # the Hardware tab frames this page; every other page keeps the global X-Frame-Options: DENY
 def legacy_panel(request, pk):
     """Serve the matched iframeGraphs front-panel markup (SVG) for a device."""
     device, early = _as_device(_device(request, pk))
@@ -589,7 +598,7 @@ def device_form(request, pk=None):
             initial["device_type"] = request.GET["type"]
         if request.GET.get("site"):
             initial["site"] = request.GET["site"]
-    form = DeviceForm(request.POST or None, request.FILES or None, instance=device, initial=initial)
+    form = DeviceForm(request.POST or None, request.FILES or None, instance=device, initial=initial, user=request.user)
     if request.method == "POST" and form.is_valid():
         site = form.cleaned_data.get("site", "")
         photo = ("keep", None)
@@ -612,21 +621,32 @@ def device_form(request, pk=None):
                 obj.image = None
                 changed.append("image")
             obj.tenant_key = settings.LINKEDEYE_TENANT
+            reset = set()                    # poll-owned columns this edit deliberately resets
             if device and {"mgmt_ip", "check_port"} & set(changed):
                 obj.consecutive_failures = 0
+                reset.add("consecutive_failures")
             if device and "enabled" in changed and not obj.enabled:
                 # a device that is no longer checked must not keep counting as up or down
                 obj.status, obj.last_error, obj.status_changed_at = DeviceStatus.UNKNOWN, "Monitoring disabled", timezone.now()
                 # ...nor keep showing the last collected rates as current traffic (the inventory is kept)
                 obj.uptime_seconds, obj.metrics_updated_at = None, None
+                reset |= {"status", "last_error", "status_changed_at", "uptime_seconds", "metrics_updated_at"}
                 device.interfaces.all().update(**metrics.STALE_RATES)
             if device and "prometheus_instance" in changed:
                 # interfaces and uptime belonged to the previous snmp_exporter target
                 obj.uptime_seconds, obj.metrics_updated_at, obj.metrics_error = None, None, ""
+                reset |= {"uptime_seconds", "metrics_updated_at", "metrics_error"}
                 device.interfaces.all().delete()
             if device and "enabled" in changed and obj.enabled and obj.last_error == "Monitoring disabled":
                 obj.last_error = ""
-            obj.save()
+                reset.add("last_error")
+            if device:
+                # Only what this form owns (plus the state fields it deliberately resets above): the poll job may have
+                # changed status, failures or last_alert_status while a photo was being fetched, and a whole-row save
+                # would put the stale copy back and lose the recovery event.
+                obj.save(update_fields=sorted(set(DeviceForm._meta.fields) | {"image", "tenant_key", "updated_at"} | reset))
+            else:
+                obj.save()
             if photo[0] != "keep" and old_image is not None and old_image.pk != obj.image_id:
                 images.release(old_image)
             if device:
@@ -664,7 +684,10 @@ def device_delete(request, pk):
         return _deny(request)
     name, back = device.name, device.type_list_url
     audit(request, "delete", device, name=name, mgmt_ip=device.mgmt_ip, device_type=device.device_type, site=device.site)
-    device.delete()
+    image = DeviceImage.objects.filter(pk=device.image_id).defer("data").first() if device.image_id else None
+    with transaction.atomic():
+        device.delete()
+        images.release(image)           # the photo goes with its last user, so it stops counting toward the library cap
     messages.success(request, f"Deleted “{name}” and its check history.")
     return redirect(back)
 
@@ -736,7 +759,7 @@ def discovery_view(request):
     if request.method == "POST":
         if not can_op:
             return _deny(request, fallback="network:discovery")
-        form = DiscoveryForm(request.POST)
+        form = DiscoveryForm(request.POST, user=request.user)
         if form.is_valid():
             site = form.cleaned_data["site"]
             # a run without a site (or "All Sites") scans for every site: it needs operate on every site
@@ -754,7 +777,7 @@ def discovery_view(request):
                 messages.success(request, f"Discovery of {run.cidr} started.")
                 return redirect(run.get_absolute_url())
     else:
-        form = DiscoveryForm(initial={k: request.GET[k] for k in ("cidr", "ports", "site") if request.GET.get(k)})
+        form = DiscoveryForm(initial={k: request.GET[k] for k in ("cidr", "ports", "site") if request.GET.get(k)}, user=request.user)
     page = Paginator(runs_qs, _per_page(request, 10)).get_page(request.GET.get("page"))
     return render(request, "network/discovery.html", {
         "form": form, "page": page, "query": _query(request), "can_operate": can_op,
@@ -807,13 +830,13 @@ def discovery_run(request, pk):
         h.show_device = h.device_id in visible
     return render(request, "network/discovery_run.html", {
         "run": run, "hosts": hosts, "counts": counts, "show": show,
-        "approve_form": ApproveForm(initial={"site": run.site, "device_type": "switch"}),
+        "approve_form": ApproveForm(initial={"site": run.site, "device_type": "switch"}, user=request.user),
         "can_operate": can(request.user, "operate"), "can_manage_run": _can_manage_run(request.user, run),
     })
 
 
 def _selected_hosts(request, run, statuses=("new",)):
-    ids = [i for i in request.POST.getlist("host") if i.isdigit()]
+    ids = [n for n in (_int_param(i, 12) for i in request.POST.getlist("host")) if n is not None]
     return list(run.hosts.filter(pk__in=ids, status__in=statuses))
 
 
@@ -847,7 +870,7 @@ def _create_device(base, **fields):
 @require_POST
 def discovery_approve(request, pk):
     run = _run(request, pk)
-    form = ApproveForm(request.POST, initial={"site": run.site})
+    form = ApproveForm(request.POST, initial={"site": run.site}, user=request.user)
     back = run.get_absolute_url()
     if not form.is_valid():
         messages.error(request, "Choose a device type (and a valid site) to approve hosts.")

@@ -123,6 +123,51 @@ def decrypt(blob):
         raise VaultError("This stored secret is damaged and cannot be decrypted. Re-enter the credential.") from None
 
 
+@sensitive_variables()
+def rewrap(dry_run=False):
+    """Re-encrypt every stored credential with the primary key (the first in LINKEDEYE_CREDENTIAL_KEY), so the
+    older keys can be dropped. Run after prepending a new key:
+
+        {"rewrapped": rows moved to the primary key, "current": rows already on it, "failed": [credential ids]}
+
+    A row that no listed key can read is reported in `failed` and left untouched (it must be re-entered); while that
+    list is not empty, keep the old key. All rows are changed in one transaction. `dry_run` only counts. The audit
+    trail records the counts, never a value."""
+    from django.db import transaction
+
+    from onboarding.models import Credential
+
+    box, _invalid = _vault()
+    Fernet, _multi, InvalidToken = _fernet_module()
+    primary = Fernet(keys()[0].encode())
+    result = {"rewrapped": 0, "current": 0, "failed": []}
+    with transaction.atomic():
+        for row in Credential.objects.select_for_update().order_by("pk"):
+            blob = (row.secret or "").encode()
+            try:
+                primary.decrypt(blob)
+                result["current"] += 1
+                continue
+            except InvalidToken:
+                pass
+            except Exception:
+                result["failed"].append(row.pk)
+                continue
+            try:
+                fresh = box.encrypt(box.decrypt(blob)).decode()
+            except Exception:
+                result["failed"].append(row.pk)
+                continue
+            if not dry_run:
+                Credential.objects.filter(pk=row.pk).update(secret=fresh)
+            result["rewrapped"] += 1
+    if not dry_run:
+        from .audit import audit
+        audit(None, "credential.rewrap", object_type="onboarding.credential", rewrapped=result["rewrapped"],
+              current=result["current"], failed=len(result["failed"]))
+    return result
+
+
 def generate_token(nbytes=32):
     """A high-entropy bearer token (url-safe)."""
     return _secrets.token_urlsafe(nbytes)

@@ -352,20 +352,29 @@ def site_visible(user, site):
     return sites is None or site in ("", "All Sites") or site in sites
 
 
-def scope_hosts(user, rows):
-    """Hosts the user may see: the site of the host's CMDB item must be one of their sites. Hosts with no
-    CMDB item, or on "All Sites", stay visible – the same rule the Infrastructure page applies."""
+def _scoped(user, rows):
+    """Rows whose instance the user may see, by telemetry.hosts.instance_sites (CMDB item, else discovery record,
+    else network device). Fails closed for a site-limited user when the inventory cannot be read."""
     if visible_sites(user) is None:
         return list(rows)
-    return [h for h in rows if site_visible(user, h.get("site") or "")]
+    rows = list(rows)
+    try:
+        sites = hosts_svc.instance_sites([r.get("instance") for r in rows], strict=True)
+    except hosts_svc.SiteLookupError:
+        return []
+    return [r for r in rows if site_visible(user, sites.get(r.get("instance"), ""))]
+
+
+def scope_hosts(user, rows):
+    """Hosts the user may see: the site of the host (its CMDB item, else its discovery record) must be one of
+    their sites. Hosts nothing in the inventory knows, or on "All Sites", stay visible – the same rule the
+    Infrastructure page applies."""
+    return _scoped(user, rows)
 
 
 def scope_targets(user, rows):
-    """Scrape targets the user may see, by the site of the CMDB item for their instance."""
-    if visible_sites(user) is None:
-        return list(rows)
-    cis = cmdb_instances()
-    return [t for t in rows if site_visible(user, (getattr(cis.get(t.get("instance")), "site", "") or ""))]
+    """Scrape targets the user may see, by the same rule as scope_hosts."""
+    return _scoped(user, rows)
 
 
 def state_counts(rows):
@@ -529,9 +538,11 @@ def severity_split(alerts):
 
 
 def _occurrences(a):
-    """How many times the alert fired. The webhook counts firing transitions; a row that only ever arrived
-    as "resolved" still happened once."""
-    return max(int(a.fire_count or 0), 1)
+    """What one alert row counts for inside the window: once. The row was chosen because it was notified in the
+    window; ``fire_count`` is a lifetime counter (a rule that flapped 40 times over three months would show 40 in
+    a one-hour view and the number would not change with the range), and the history of individual firings is not
+    stored, so one occurrence per alert row is the only figure that is true for the selected window."""
+    return 1
 
 
 def _window_seconds(a, start, now):

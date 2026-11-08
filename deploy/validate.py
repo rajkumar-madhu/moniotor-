@@ -163,6 +163,39 @@ def check_optional():
                     err(str(path.relative_to(ROOT)), "backup CronJob must not overlap (concurrencyPolicy: Forbid)")
 
 
+DATASHEET_PATH = "/network/photos/find/"
+DATASHEET_MIN_MB = 26     # network/datasheet_pdf.MAX_PDF_BYTES is 25 MB, plus form overhead
+
+
+def size_in_mb(value):
+    """ingress-nginx proxy-body-size ("3m", "26m", "512k", "1g", plain bytes) in megabytes; None if unreadable."""
+    m = re.fullmatch(r"(\d+)\s*([kKmMgG]?)", str(value).strip())
+    if not m:
+        return None
+    return int(m.group(1)) * {"": 1 / 1048576, "k": 1 / 1024, "m": 1, "g": 1024}[m.group(2).lower()]
+
+
+PROXY_PAIR_MESSAGE = ("GUNICORN_FORWARDED_ALLOW_IPS is set without LINKEDEYE_TRUSTED_PROXIES: behind the proxy every client "
+                      "would share the proxy's address (audit source IPs, one shared sign-in throttle for everyone)")
+
+
+def check_datasheet_ingress(ingresses):
+    """Datasheet PDFs (25 MB) are uploaded to /network/photos/find/. A global body limit of a few MB makes the controller
+    answer 413 before the application can, so an nginx Ingress must raise the limit for that path."""
+    nginx = [i for i in ingresses if (i.get("spec") or {}).get("ingressClassName", "nginx") == "nginx"]
+    if not nginx:
+        return          # another controller: its own annotations are not checked here
+    for ing in nginx:
+        for rule in ing["spec"].get("rules", []):
+            for p in rule["http"]["paths"]:
+                if p["path"].rstrip("/") + "/" == DATASHEET_PATH:
+                    size = size_in_mb((ing["metadata"].get("annotations") or {}).get("nginx.ingress.kubernetes.io/proxy-body-size"))
+                    if size is not None and size >= DATASHEET_MIN_MB:
+                        return
+    err("ingress.yaml", f"an nginx Ingress must route {DATASHEET_PATH} with proxy-body-size of at least "
+                        f"{DATASHEET_MIN_MB}m (datasheet PDFs are up to 25 MB; a small global limit answers 413)")
+
+
 def check_kubernetes():
     kust = yaml.safe_load((K8S / "kustomization.yaml").read_text())
     listed = kust.get("resources", [])
@@ -249,6 +282,8 @@ def check_kubernetes():
                         b["port"].get("number") not in {x.get("port") for x in s["spec"]["ports"]}:
                     err(f"Ingress/{ing['metadata']['name']}", "backend port not exposed by the Service")
 
+    check_datasheet_ingress(by_kind.get("Ingress", []))
+
     pols = {p["metadata"]["name"]: p for p in by_kind.get("NetworkPolicy", [])}
     if not any(p["spec"]["podSelector"] == {} and "Ingress" in p["spec"].get("policyTypes", []) for p in pols.values()):
         err("networkpolicy.yaml", "a default-deny ingress policy is required")
@@ -276,6 +311,8 @@ def check_kubernetes():
                 err("configmap.yaml", f"{k} must be a quoted string")
         if data.get("LINKEDEYE_DEBUG", "").lower() not in ("false", "0", "no"):
             err("configmap.yaml", "LINKEDEYE_DEBUG must be false in production")
+        if "GUNICORN_FORWARDED_ALLOW_IPS" in data and "LINKEDEYE_TRUSTED_PROXIES" not in data:
+            err("configmap.yaml", PROXY_PAIR_MESSAGE)
         if "LINKEDEYE_SECRET_KEY" in data or "LINKEDEYE_DB_PASSWORD" in data:
             err("configmap.yaml", "secrets belong in the Secret, not the ConfigMap")
         hosts = [h.strip() for h in data.get("LINKEDEYE_ALLOWED_HOSTS", "").split(",")]
@@ -354,6 +391,11 @@ def check_compose():
     names = re.findall(r"^#?\s*(LINKEDEYE_[A-Z0-9_]+)=", env_example.read_text(), re.M)
     check_env_names("deploy/compose.env.example", names)
     check_env_names("docker-compose.yml", re.findall(r"\b(LINKEDEYE_[A-Z0-9_]+)", path.read_text()))
+    example_text = env_example.read_text()
+    for where, text in (("deploy/compose.env.example", example_text), ("docker-compose.yml", path.read_text())):
+        if re.search(r"^\s*#?\s*GUNICORN_FORWARDED_ALLOW_IPS[=:]", text, re.M) and \
+                not re.search(r"^\s*#?\s*LINKEDEYE_TRUSTED_PROXIES[=:]", text, re.M):
+            err(where, PROXY_PAIR_MESSAGE)
     hosts = re.search(r"^LINKEDEYE_ALLOWED_HOSTS=(.*)$", env_example.read_text(), re.M)
     if not hosts or "web" not in [h.strip() for h in hosts.group(1).split(",")]:
         err("deploy/compose.env.example", "LINKEDEYE_ALLOWED_HOSTS must include 'web' (Alertmanager webhook)")
@@ -402,6 +444,10 @@ def check_docs():
     for name in sorted(SETTINGS):
         if f"`{name}`" not in doc:
             err("docs/DEPLOYMENT.md", f"environment variable {name} is not documented")
+    env_example = (ROOT / ".env.example").read_text()
+    for name in sorted(SETTINGS):   # commented-out lines count: the file is the reference for every knob
+        if not re.search(rf"^#?\s*{name}=", env_example, re.M):
+            err(".env.example", f"{name} is not listed (commented out is fine)")
     # and the other way round: nothing documented that the application does not read
     check_env_names("docs/DEPLOYMENT.md", set(re.findall(r"\b(LINKEDEYE_[A-Z0-9_]+)", doc)))
 

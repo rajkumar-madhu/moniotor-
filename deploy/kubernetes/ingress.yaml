@@ -2,6 +2,15 @@
 # CSRF_TRUSTED_ORIGINS) and provide the TLS certificate as Secret "linkedeye-tls" in fs-linkedeye
 # (kubectl -n fs-linkedeye create secret tls linkedeye-tls --cert=fullchain.pem --key=privkey.pem),
 # or let cert-manager issue it by uncommenting the annotation.
+#
+# Two Ingresses, because request-body limits are per route:
+#   linkedeye                    everything: bodies up to 3 MB (device photos are up to 2 MB plus form overhead). This
+#                                global limit is what protects device_form and catalog_import, which have no limit of
+#                                their own.
+#   linkedeye-datasheet-upload   only /network/photos/find/: datasheet PDFs are up to 25 MB, so bodies up to 26 MB.
+#                                Without this route ingress-nginx answers 413 before the application can.
+# The annotations below are ingress-nginx's; another controller needs the same limits expressed its own way
+# (deploy/validate.py checks the nginx annotations only). Both routes need an upstream read timeout of at least 90 s.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -11,16 +20,15 @@ metadata:
     app.kubernetes.io/name: linkedeye
     app.kubernetes.io/component: web
     app.kubernetes.io/part-of: linkedeye
-  # Controller-specific tuning goes here. What the console needs from any controller:
+  # What the console needs from any controller:
   #   * redirect HTTP to HTTPS and send X-Forwarded-Proto (gunicorn trusts it, see configmap.yaml)
   #   * an upstream read timeout of at least 90 s ("Run check now" probes the target inside the request)
-  #   * request bodies up to ~2 MB (Alertmanager webhook payloads are capped at 1 MB by the app)
+  #   * request bodies up to 3 MB here, 26 MB on /network/photos/find/ (second Ingress below)
   #   * optionally HSTS (the application does not set it)
   annotations:
     # cert-manager.io/cluster-issuer: "<REPLACE: issuer name>"
-    # ingress-nginx style examples:
-    # nginx.ingress.kubernetes.io/proxy-read-timeout: "90"
-    # nginx.ingress.kubernetes.io/proxy-body-size: "3m"   # device photo uploads are up to 2 MB
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "90"
+    nginx.ingress.kubernetes.io/proxy-body-size: "3m"
 spec:
   ingressClassName: nginx   # REPLACE with your IngressClass (kubectl get ingressclass)
   tls:
@@ -33,6 +41,39 @@ spec:
         paths:
           - path: /
             pathType: Prefix
+            backend:
+              service:
+                name: linkedeye-web
+                port:
+                  name: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: linkedeye-datasheet-upload
+  namespace: fs-linkedeye
+  labels:
+    app.kubernetes.io/name: linkedeye
+    app.kubernetes.io/component: web
+    app.kubernetes.io/part-of: linkedeye
+  annotations:
+    # cert-manager.io/cluster-issuer: "<REPLACE: issuer name>"   # same issuer as above
+    # datasheet PDFs are up to 25 MB (network/datasheet_pdf.py MAX_PDF_BYTES) plus form overhead; the page address
+    # is also fetched inside this request, hence the longer read timeout
+    nginx.ingress.kubernetes.io/proxy-body-size: "26m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "90"
+spec:
+  ingressClassName: nginx   # REPLACE with your IngressClass, the same as above
+  tls:
+    - hosts:
+        - linkedeye.example.com
+      secretName: linkedeye-tls
+  rules:
+    - host: linkedeye.example.com
+      http:
+        paths:
+          - path: /network/photos/find/
+            pathType: Exact
             backend:
               service:
                 name: linkedeye-web

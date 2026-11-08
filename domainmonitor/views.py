@@ -22,7 +22,7 @@ from core.audit import audit
 from probes import checks, runner
 from urlchecker.models import UrlCheck
 
-from . import analytics
+from . import analytics, services
 from .forms import DomainForm
 from .models import Domain, DomainCheck
 
@@ -167,11 +167,15 @@ def _hostname_of(url):
         return ""
 
 
-def associated_services(domain):
-    """URL checks whose URL host is the domain or one of its sub-domains."""
+def associated_services(domain, user=None):
+    """URL checks whose URL host is the domain or one of its sub-domains. With `user`, only checks on sites that user
+    may see (a shared domain's host can be used by checks of any site)."""
     host = domain.hostname.lower()
     out = []
-    for c in UrlCheck.objects.filter(tenant_key=settings.LINKEDEYE_TENANT, url__icontains=host):
+    qs = UrlCheck.objects.filter(tenant_key=settings.LINKEDEYE_TENANT, url__icontains=host)
+    if user is not None:
+        qs = scope_by_site(qs, user)
+    for c in qs:
         h = _hostname_of(c.url)
         if h == host or h.endswith("." + host):
             parts = urlsplit(c.url)
@@ -338,6 +342,12 @@ def domain_list(request):
             obj = form.save(commit=False)
             obj.tenant_key = settings.LINKEDEYE_TENANT
             renamed = editing is not None and obj.hostname != old_hostname
+            if editing is not None:
+                # a failure that nothing would ever resolve again: closed before the status is reset / monitoring stops
+                if renamed:
+                    services.close_failure(editing, "Renamed to another host", hostname=old_hostname)
+                elif not (obj.monitor_enabled and obj.is_active):
+                    services.close_failure(editing, "Monitoring switched off")
             if renamed:
                 # another host now: its checks, security scans, certificate and status start from nothing, so the
                 # previous host's results (grade, expiry, uptime) are never shown for the new one
@@ -389,7 +399,7 @@ def domain_list(request):
             "ssl_history": [c for c in history if c.ssl_expires_at or c.ssl_status != "Unknown"][:5],
             "uptime7": up7,
             "siblings": scope.filter(site_key=selected.site_key).exclude(pk=selected.pk).order_by("hostname")[:8],
-            "services": associated_services(selected),
+            "services": associated_services(selected, request.user),
         }
     dtab = request.GET.get("dtab", "overview")
     return _render(request, "domainmonitor/list.html", {
@@ -469,6 +479,8 @@ def deactivate(request, pk):
                        + (" (all sites)." if d.site_key in GLOBAL_SITES else "."))
         return redirect(f"/domains/list/?selected={d.pk}")
     d.is_active = not d.is_active
+    if not d.is_active:
+        services.close_failure(d, "Deactivated")
     d.save(update_fields=["is_active", "updated_at"])
     audit(request, "update", d, is_active=d.is_active)
     messages.success(request, f"{d.hostname} {'reactivated' if d.is_active else 'deactivated'}.")
@@ -599,6 +611,7 @@ def api_detail(request, pk):
         return _api_denied(obj.site_key)
     if request.method == "DELETE":
         obj.is_active = False  # non-destructive deactivation
+        services.close_failure(obj, "Deactivated")
         obj.save(update_fields=["is_active", "updated_at"])
         audit(request, "update", obj, via="api", is_active=False)
         return JsonResponse({"status": "deactivated"})
@@ -614,10 +627,13 @@ def api_detail(request, pk):
             if not can_change_domain(request.user, new_site):   # moving a domain changes both sites
                 return _api_denied(new_site)
             data["site"] = new_site
+        was_active = obj.is_active
         for key, field in allowed.items():
             if key in data:
                 setattr(obj, field, data[key])
         obj.full_clean()
+        if was_active and not obj.is_active:
+            services.close_failure(obj, "Deactivated")
         obj.save()
         audit(request, "update", obj, via="api", fields=sorted(k for k in allowed if k in data))
         return JsonResponse({"status": "updated"})

@@ -28,10 +28,12 @@ class ExporterForm(forms.ModelForm):
             "description": forms.Textarea(attrs={"rows": 3}),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
         current = self.instance.site if self.instance and self.instance.pk else ""
-        names = set(services.site_names(Exporter.objects.filter(tenant_key=settings.LINKEDEYE_TENANT)))
+        # with a user, only the sites that user may see are offered (site names are customer names)
+        scope = services.exporters_for(user) if user is not None else Exporter.objects.filter(tenant_key=settings.LINKEDEYE_TENANT)
+        names = set(services.site_names(scope, user=user))
         if current:
             names.add(current)
         names.discard("All Sites")

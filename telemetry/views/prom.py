@@ -4,7 +4,7 @@ from core import prometheus
 from core.access import require, visible_sites
 
 from .. import discovery as disc, palette as pal, targets as svc
-from .common import csv_response, matches, paginate, perms, prom_context, query_without_page
+from .common import csv_response, matches, paginate, perms, prom_context, query_without_page, wants_refresh
 from .infra import visible_rows
 
 HEALTHS = [("up", "Up"), ("down", "Down"), ("unknown", "Unknown")]
@@ -13,7 +13,7 @@ HEALTHS = [("up", "Up"), ("down", "Down"), ("unknown", "Unknown")]
 @require("view")
 def prometheus_targets(request):
     ctx = {**prom_context(), **perms(request), "error": "", "rules_error": "", "rule_groups": [], "rules_restricted": False}
-    refresh = request.GET.get("refresh") == "1"
+    refresh = wants_refresh(request)
     rows, stats = [], None
     if ctx["prom_configured"]:
         try:

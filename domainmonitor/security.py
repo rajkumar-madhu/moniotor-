@@ -14,6 +14,7 @@ import logging
 import re
 import socket
 import ssl
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone as dt_timezone
@@ -34,6 +35,9 @@ JOB_INTERVAL = 3600                     # the job wakes hourly and scans only th
 MAX_PER_RUN = 50                        # bound one job run; the rest are picked up by the next run
 RETENTION_DAYS = 180                    # older scans are pruned (the latest scan of a domain is always kept)
 MAX_REDIRECTS = 3
+SCAN_BUDGET_FACTOR = 3                  # one scan (all its redirects) may take at most PROBE_TIMEOUT x this
+JOB_BUDGET = 300                        # seconds after which the scheduled job starts no further scan
+MANUAL_BUDGET = 20                      # the same for "Scan all now": started scans end within the request time limit
 HSTS_MIN_AGE = 15552000                 # 180 days
 CERT_WARN_DAYS = 30
 
@@ -103,39 +107,66 @@ def _name(rdns, *keys):
 
 
 def _https_headers(hostname, ip, port, path, timeout, verify):
-    """One pinned HTTPS request; returns (status, headers, location, tls facts). Reads headers only."""
+    """One pinned HTTPS request; returns (status, headers, location, tls facts). Reads headers only.
+
+    `timeout` is the budget of the whole exchange (handshake, request, status line and every header line), not of a
+    single socket operation: a watchdog shuts the socket down when it is spent, so a peer that trickles one header
+    every few seconds cannot hold the scan open (socket.timeout is raised)."""
     ctx = ssl.create_default_context()
     if not verify:
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
     conn = checks._PinnedHTTPSConnection(hostname, ip, port, timeout, ctx)
+    watchdog = checks._Deadline(timeout, lambda: getattr(conn, "_probe_sock", None))
     try:
-        conn.request("GET", path, headers={"User-Agent": checks.USER_AGENT, "Accept": "text/html,*/*",
-                                           "Connection": "close"})
-        sock = conn.sock   # read TLS facts now: getresponse() may hand the socket over to the response
-        tls = {"version": sock.version() or "", "cipher": (sock.cipher() or ("",))[0],
-               "cert": sock.getpeercert() if verify else {}}
-        resp = conn.getresponse()   # status line + headers; the body is never read
-        headers = {}
-        for k, v in resp.getheaders():
-            k = k.lower()
-            headers[k] = f"{headers[k]}, {v}" if k in headers else v
-        return resp.status, headers, resp.getheader("Location"), tls
+        try:
+            conn.request("GET", path, headers={"User-Agent": checks.USER_AGENT, "Accept": "text/html,*/*",
+                                               "Connection": "close"})
+            if watchdog.expired:
+                raise socket.timeout()
+            sock = conn.sock   # read TLS facts now: getresponse() may hand the socket over to the response
+            tls = {"version": sock.version() or "", "cipher": (sock.cipher() or ("",))[0],
+                   "cert": sock.getpeercert() if verify else {}}
+            resp = conn.getresponse()   # status line + headers; the body is never read
+            headers = {}
+            for k, v in resp.getheaders():
+                k = k.lower()
+                headers[k] = f"{headers[k]}, {v}" if k in headers else v
+            if watchdog.expired:
+                raise socket.timeout()
+            return resp.status, headers, resp.getheader("Location"), tls
+        except Exception:
+            if watchdog.expired:    # whatever the shutdown surfaced as, report it as the timeout it is
+                raise socket.timeout() from None
+            raise
     finally:
+        watchdog.cancel()
         conn.close()
 
 
 def _http_redirects(hostname, timeout):
-    """True when plain HTTP redirects to https://, False when it serves content, None when port 80 is closed."""
+    """True when plain HTTP redirects to https://, False when it serves content, None when port 80 is closed.
+    `timeout` bounds the whole exchange (see _https_headers)."""
     try:
         ip = checks.resolve_allowed(hostname, 80)
         conn = checks._PinnedHTTPConnection(hostname, ip, 80, timeout)
+        watchdog = checks._Deadline(timeout, lambda: getattr(conn, "_probe_sock", None))
         try:
-            conn.request("GET", "/", headers={"User-Agent": checks.USER_AGENT, "Connection": "close"})
-            resp = conn.getresponse()
-            location = resp.getheader("Location") or ""
-            status = resp.status
+            try:
+                conn.request("GET", "/", headers={"User-Agent": checks.USER_AGENT, "Connection": "close"})
+                if watchdog.expired:
+                    raise socket.timeout()
+                resp = conn.getresponse()
+                location = resp.getheader("Location") or ""
+                status = resp.status
+                if watchdog.expired:
+                    raise socket.timeout()
+            except Exception:
+                if watchdog.expired:
+                    raise socket.timeout() from None
+                raise
         finally:
+            watchdog.cancel()
             conn.close()
     except (OSError, http.client.HTTPException, checks.ProbeBlocked) as e:
         return None, f"Port 80 not reachable ({type(e).__name__})"
@@ -151,6 +182,14 @@ def scan_host(hostname, port=443, timeout=None):
     """Collect TLS and header facts for https://hostname/. Never raises; failures land in `error`."""
     timeout = timeout or settings.PROBE_TIMEOUT
     data = ScanData(hostname=hostname)
+    deadline = time.monotonic() + timeout * SCAN_BUDGET_FACTOR   # the whole scan, redirects and retries included
+
+    def budget():
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise socket.timeout()
+        return min(timeout, left)
+
     url = f"https://{hostname}/" if port == 443 else f"https://{hostname}:{port}/"
     try:
         current, verify = url, True
@@ -160,14 +199,14 @@ def scan_host(hostname, port=443, timeout=None):
             ip = checks.resolve_allowed(host, hport)
             path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
             try:
-                status, headers, location, tls = _https_headers(host, ip, hport, path, timeout, verify)
+                status, headers, location, tls = _https_headers(host, ip, hport, path, budget(), verify)
             except ssl.SSLCertVerificationError as e:
                 if hop:
                     raise
                 # the certificate is not trusted: record why, then read the headers without verification
                 data.cert_valid, data.cert_error = False, (e.verify_message or str(e))[:300]
                 verify = False
-                status, headers, location, tls = _https_headers(host, ip, hport, path, timeout, verify)
+                status, headers, location, tls = _https_headers(host, ip, hport, path, budget(), verify)
             if hop == 0:
                 data.ip, data.tls_version, data.cipher = ip, tls["version"], tls["cipher"]
                 cert = tls["cert"]
@@ -334,15 +373,26 @@ def _safe_scan(domain):
         return ScanData(hostname=domain.hostname, error=f"Scan failed: {type(e).__name__}: {e}"[:500])
 
 
-def run_scans(domains, now=None):
-    """Scan domains in a thread pool (network only); database writes stay on the calling thread."""
+def run_scans(domains, now=None, budget=None):
+    """Scan domains in a thread pool (network only); database writes stay on the calling thread.
+
+    Every scan is bounded (see scan_host). `budget` (seconds) bounds the batch as well: a scan that has not started
+    when it is spent is skipped (it is not stored), so a long list cannot hold a scheduler pass or a web worker.
+    Returns the stored scans, in the order of the domains that were scanned."""
     domains = list(domains)
     if not domains:
         return []
+    deadline = time.monotonic() + budget if budget is not None else None
+
+    def work(domain):
+        if deadline is not None and time.monotonic() >= deadline:
+            return None
+        return _safe_scan(domain)
+
     with ThreadPoolExecutor(max_workers=max(1, min(settings.PROBE_WORKERS, len(domains)))) as pool:
-        raw = list(pool.map(_safe_scan, domains))
+        raw = list(pool.map(work, domains))
     now = now or timezone.now()
-    return [save_scan(d, r, now) for d, r in zip(domains, raw)]
+    return [save_scan(d, r, now) for d, r in zip(domains, raw) if r is not None]
 
 
 # ----------------------------------------------------------------------------------- queries
@@ -376,7 +426,7 @@ def scheduled_scan():
     """Job body for `manage.py run_probes`: idempotent, bounded, never raises."""
     try:
         domains = due_domains()
-        scans = run_scans(domains)
+        scans = run_scans(domains, budget=JOB_BUDGET)
         pruned = prune()
         graded = sum(1 for s in scans if s.grade)
         return f"scanned {len(scans)} domain(s), {graded} graded, pruned {pruned}"

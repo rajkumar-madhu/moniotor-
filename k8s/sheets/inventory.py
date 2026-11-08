@@ -214,7 +214,9 @@ def import_nodes(ctx, sheet):
 
     ctx.track(KubeCluster, NODE_SHEET)
     if clusters:
-        ctx.track(Node, NODE_SHEET, cluster_id__in=sorted(clusters))
+        # the node sheet is the full node inventory: a cluster that dropped out of it takes its nodes along,
+        # so nodes are tracked tenant-wide like the clusters (not only for the clusters still in the sheet)
+        ctx.track(Node, NODE_SHEET)
 
 
 register_sheet(NODE_SHEET, 20, import_nodes)
@@ -308,7 +310,9 @@ def import_client_summary(ctx, sheet):
             values.update(summary_only=True, site=ctx.site, client=ctx.resolve_client(name))
             ctx.warn(SUMMARY_SHEET, f"“{name}” is a roll-up group the client master sheet does not list — "
                                     f"it was added as a summary-only row")
-        profile, _created = ctx.upsert(ClientProfile, {"workbook_name": name[:150]}, values,
+        # a summary spelled in a different case belongs to the profile the master sheet created
+        profile_name = match.workbook_name if match is not None else name[:150]
+        profile, _created = ctx.upsert(ClientProfile, {"workbook_name": profile_name}, values,
                                        sheet=SUMMARY_SHEET)
         existing.setdefault(name.strip().lower(), profile)
         seen.add(profile.pk)

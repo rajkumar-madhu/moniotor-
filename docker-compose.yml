@@ -83,6 +83,8 @@ services:
     environment:
       <<: *app-env
       GUNICORN_FORWARDED_ALLOW_IPS: ${GUNICORN_FORWARDED_ALLOW_IPS:-127.0.0.1,::1}
+      # the same proxies, for X-Forwarded-For (audit source IPs, sign-in throttle); set both in .env
+      LINKEDEYE_TRUSTED_PROXIES: ${LINKEDEYE_TRUSTED_PROXIES:-127.0.0.1,::1}
     ports:
       - "${WEB_PUBLISH:-127.0.0.1:8000}:8000"
     healthcheck:

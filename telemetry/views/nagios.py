@@ -2,13 +2,34 @@ from urllib.parse import urlparse
 
 from django.shortcuts import render
 
-from core.access import require
+from core.access import require, visible_sites
 
 from .. import nagios as svc, palette as pal
-from .common import csv_response, matches, paginate, perms, query_without_page
+from .common import csv_response, matches, paginate, perms, query_without_page, wants_refresh
 
 HOST_STATES = [("up", "Up"), ("down", "Down"), ("unreachable", "Unreachable"), ("pending", "Pending")]
 SERVICE_STATES = [("ok", "OK"), ("warning", "Warning"), ("critical", "Critical"), ("unknown", "Unknown"), ("pending", "Pending")]
+
+
+def _scope(user, st):
+    """Nagios objects the user may see. Nagios has no sites, so a host is mapped to the inventory records that
+    name it (telemetry.nagios.host_sites): it is visible when every such record is on one of the user's sites or on
+    "All Sites". A host no record claims has no known site and, like everything unattributed, is shown only to
+    users who see every site. If the inventory cannot be read a site-limited user sees nothing."""
+    allowed = visible_sites(user)
+    if allowed is None:
+        return st
+    names = {h["name"] for h in st["hosts"]} | {s["host"] for s in st["services"]}
+    try:
+        sites = svc.host_sites(names)
+    except Exception:
+        return {**st, "hosts": [], "services": []}
+
+    def ok(name):
+        found = sites.get(str(name).strip().lower())
+        return bool(found) and all(s == "" or s in allowed for s in found)
+    return {**st, "hosts": [h for h in st["hosts"] if ok(h["name"])],
+            "services": [s for s in st["services"] if ok(s["host"])]}
 
 
 @require("view")
@@ -21,10 +42,10 @@ def nagios_status(request):
     if ctx["configured"]:
         ctx["nagios_host"] = urlparse(svc.base_url()).netloc or svc.base_url()
         try:
-            ctx["status"] = svc.fetch_status(use_cache=request.GET.get("refresh") != "1")
+            ctx["status"] = svc.fetch_status(use_cache=not wants_refresh(request))
         except svc.NagiosError as e:
             ctx["error"] = str(e)
-    st = ctx["status"] or {"hosts": [], "services": [], "query_time": None, "program": ""}
+    st = _scope(request.user, ctx["status"] or {"hosts": [], "services": [], "query_time": None, "program": ""})
     summary = svc.summarize(st)
     q, state, only_problems = request.GET.get("q", ""), request.GET.get("state", ""), request.GET.get("problems") == "1"
     if tab == "hosts":

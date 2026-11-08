@@ -20,6 +20,11 @@ DEBUG = env("DEBUG", "false").lower() in ("1", "true", "yes")
 SECRET_KEY = env("SECRET_KEY") or ("dev-only-insecure-key" if DEBUG else None)
 if not SECRET_KEY:
     raise RuntimeError("Set LINKEDEYE_SECRET_KEY (or LINKEDEYE_DEBUG=true for local development).")
+if not DEBUG and (len(SECRET_KEY) < 50 or len(set(SECRET_KEY)) < 20
+                  or SECRET_KEY.lower().startswith(("change-me", "dev-only", "<replace"))):
+    # a published placeholder (.env.example, the dev key) or a short / repetitive key signs sessions and CSRF tokens
+    raise RuntimeError("LINKEDEYE_SECRET_KEY is too weak for production: use at least 50 random characters, e.g. "
+                       "python3 -c 'import secrets; print(secrets.token_urlsafe(50))'")
 
 ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", "localhost,127.0.0.1" if DEBUG else "")
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
@@ -133,6 +138,10 @@ LOGIN_REDIRECT_URL = "dashboard"
 LOGOUT_REDIRECT_URL = "login"
 
 SESSION_COOKIE_HTTPONLY = True
+# Sessions end after this many seconds without a request (default 8 hours, as the legacy console); Django's own default
+# would keep a stolen or forgotten session alive for 14 days. LINKEDEYE_SESSION_SAVE_EVERY_REQUEST=false makes it absolute.
+SESSION_COOKIE_AGE = int(env("SESSION_COOKIE_AGE", "28800"))
+SESSION_SAVE_EVERY_REQUEST = env("SESSION_SAVE_EVERY_REQUEST", "true").lower() in ("1", "true", "yes")
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 SECURE_CONTENT_TYPE_NOSNIFF = True
@@ -147,6 +156,9 @@ LINKEDEYE_VERSION = "9.0"
 # Credential vault (onboarding): Fernet key(s) for secrets at rest. Comma-separate to rotate (first
 # key encrypts, every listed key may decrypt). Unset: storing a secret fails; there is no plaintext fallback.
 LINKEDEYE_CREDENTIAL_KEY = env("CREDENTIAL_KEY", "")
+# Onboarding sends an exporter's HTTP basic / bearer login only over https. true: also over plain http (a network you trust).
+LINKEDEYE_ONBOARDING_ALLOW_CLEARTEXT_CREDENTIALS = env("ONBOARDING_ALLOW_CLEARTEXT_CREDENTIALS", "").strip().lower() in (
+    "1", "true", "yes", "on")
 # honour sensitive_post_parameters / sensitive_variables even with DEBUG=true (Django's own filter switches off)
 DEFAULT_EXCEPTION_REPORTER_FILTER = "core.debug.AlwaysCleansingFilter"
 PROBE_ALLOWED_PRIVATE_CIDRS = env_list("PROBE_ALLOWED_PRIVATE_CIDRS")
@@ -223,6 +235,9 @@ NAGIOS_TIMEOUT = float(env("NAGIOS_TIMEOUT", "10"))
 # Retention (days) for high-volume module data
 LOG_RETENTION_DAYS = int(env("LOG_RETENTION_DAYS", "14"))
 TELEMETRY_ALERT_RETENTION_DAYS = int(env("TELEMETRY_ALERT_RETENTION_DAYS", "90"))
+# Hours without a repeat notification after which a still "firing" alert is resolved as stale (0 = never). Keep it
+# well above Alertmanager's repeat_interval.
+TELEMETRY_ALERT_STALE_HOURS = int(env("TELEMETRY_ALERT_STALE_HOURS", "48"))
 AUTOMATION_RETENTION_DAYS = int(env("AUTOMATION_RETENTION_DAYS", "90"))
 # Ops Agent: OpenAI-compatible chat. Empty key = retrieval-only. The key never leaves the server.
 AGENT_API_KEY = env("AGENT_API_KEY", "")
@@ -231,6 +246,7 @@ AGENT_MODEL = env("AGENT_MODEL", "gpt-4o-mini")
 AGENT_EMBEDDING_MODEL = env("AGENT_EMBEDDING_MODEL", "text-embedding-3-small")
 AGENT_TIMEOUT = float(env("AGENT_TIMEOUT", "30"))
 AGENT_RETENTION_DAYS = int(env("AGENT_RETENTION_DAYS", "90"))
+AGENT_TURNS_PER_MINUTE = int(env("AGENT_TURNS_PER_MINUTE", "20"))   # questions per user per minute (0 = no limit)
 # APM (apm app): days of adapter runs and status-change history kept, and days of execution logs kept (the retention
 # job also caps the rows kept per source).
 APM_RETENTION_DAYS = int(env("APM_RETENTION_DAYS", "30"))

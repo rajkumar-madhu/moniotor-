@@ -86,9 +86,17 @@ def new_thread(request):
             reply = runner.run_turn(request.user, t, content)
             audit(request, "run", t, preview=content[:80])
         except ValueError as e:
+            limited = isinstance(e, runner.RateLimited)
+            if limited:
+                t.delete()   # nothing was asked: do not leave an empty conversation behind
             messages.error(request, str(e))
             if _wants_json(request):
-                return JsonResponse({"ok": False, "error": str(e), "id": t.pk, "url": t.get_absolute_url()}, status=400)
+                body = {"ok": False, "error": str(e)}
+                if not limited:
+                    body.update(id=t.pk, url=t.get_absolute_url())
+                return JsonResponse(body, status=429 if limited else 400)
+            if limited:
+                return redirect("agent:chat")
     if _wants_json(request):
         payload = {"ok": True, "id": t.pk, "url": t.get_absolute_url(), "title": t.display_title()}
         if reply:
@@ -107,7 +115,7 @@ def send_message(request, pk):
         reply = runner.run_turn(request.user, t, content)
     except ValueError as e:
         if _wants_json(request):
-            return JsonResponse({"ok": False, "error": str(e)}, status=400)
+            return JsonResponse({"ok": False, "error": str(e)}, status=429 if isinstance(e, runner.RateLimited) else 400)
         messages.error(request, str(e))
         return redirect(t.get_absolute_url())
     audit(request, "run", t, preview=content[:80])

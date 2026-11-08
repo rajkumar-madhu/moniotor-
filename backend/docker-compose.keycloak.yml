@@ -1,9 +1,10 @@
 # LinkedEye Keycloak — local Docker (dev)
 #
-# Start:
+# Start (the admin password is required and is never stored in this file):
+#   export KEYCLOAK_ADMIN_PASSWORD='<choose-a-strong-password>'
 #   docker compose -f docker-compose.keycloak.yml up -d
 #
-# Admin console: http://127.0.0.1:8083  (admin / admin123456)
+# Admin console: http://127.0.0.1:8083  (user: admin, password: $KEYCLOAK_ADMIN_PASSWORD)
 # After start, run:  .\scripts\keycloak-setup.ps1
 
 services:
@@ -12,10 +13,10 @@ services:
     container_name: linkedeye-keycloak
     restart: unless-stopped
     ports:
-      - "8083:8080"
+      - "127.0.0.1:8083:8080"
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: admin123456
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD}
       KC_HEALTH_ENABLED: "true"
       KC_HTTP_ENABLED: "true"
       KC_HOSTNAME_STRICT: "false"

@@ -11,6 +11,7 @@ import logging
 from django.apps import apps
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Exists, OuterRef
 from django.utils import timezone
 
 from core.access import scope_by_site
@@ -211,14 +212,15 @@ def conflicts(tenant_key=None, user=None):
     records = DNSRecord.objects.filter(tenant_key=t, rtype__in=["A", "AAAA"]).select_related("zone")
     if user is not None:
         records = scope_by_site(records, user, field="zone__site")
-    recorded = set(IPAddress.objects.filter(tenant_key=t).values_list("address", flat=True))
-    for r in records.order_by("zone__name", "name")[:MAX_HOSTS]:
-        if r.value not in recorded:
-            inside = finder.find(ipaddress.ip_address(r.value))
-            out.append({"kind": "dns_free", "key": f"dns:{r.pk}", "address": r.value,
-                        "title": f"{r.fqdn} ({r.rtype}) points to {r.value}, which is not allocated",
-                        "detail": (f"Free address in {inside.cidr}." if inside else "Outside every subnet."),
-                        "site": r.zone.site, "links": [(r.zone.name, r.zone.get_absolute_url())]})
+    # an anti-join in the database: no tenant-wide set of every recorded address is built in memory
+    unallocated = records.annotate(allocated=Exists(IPAddress.objects.filter(tenant_key=t, address=OuterRef("value")))
+                                   ).filter(allocated=False)
+    for r in unallocated.order_by("zone__name", "name")[:MAX_HOSTS]:
+        inside = finder.find(ipaddress.ip_address(r.value))
+        out.append({"kind": "dns_free", "key": f"dns:{r.pk}", "address": r.value,
+                    "title": f"{r.fqdn} ({r.rtype}) points to {r.value}, which is not allocated",
+                    "detail": (f"Free address in {inside.cidr}." if inside else "Outside every subnet."),
+                    "site": r.zone.site, "links": [(r.zone.name, r.zone.get_absolute_url())]})
 
     orphans = IPAddress.objects.filter(tenant_key=t, subnet__isnull=True)
     if user is not None:

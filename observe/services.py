@@ -27,7 +27,10 @@ MAX_ENTRIES = 1000
 MAX_BYTES = 1024 * 1024
 MAX_MESSAGE = 8000
 MAX_EVENTS_PER_BATCH = 25
+MAX_EVENTS_PER_SOURCE = 25      # new log events one source may raise per EVENT_WINDOW, over all requests
+MAX_EVENTS_PER_WINDOW = 100     # the same over all sources: a shipper or a token holder cannot flood incidents
 EVENT_WINDOW = timedelta(minutes=10)
+SUPPRESSED_PREFIX = "observe:log:suppressed:"
 CHECK_ALL_LIMIT = 200
 
 INFO_LEVELS = ("DEBUG", "INFO")
@@ -68,12 +71,21 @@ def events_for(user):
     return scope_by_site(Event.objects.filter(tenant_key=tenant()), user)
 
 
-def site_names(*extra_querysets):
-    """Site names from core.Site plus values already used by records."""
+def site_names(*extra_querysets, user=None):
+    """Site names from core.Site plus values already used by records.
+
+    With `user`, the core.Site names are limited to the sites that user may see (a site-limited user must not
+    learn the names of other customers' sites); the extra querysets are expected to be scoped by the caller."""
+    from core.access import visible_sites
     from core.models import Site
-    names = set(Site.objects.filter(tenant_key=tenant()).values_list("name", flat=True))
-    for qs in extra_querysets:
-        names |= set(qs.order_by().values_list("site", flat=True).distinct())
+    qs = Site.objects.filter(tenant_key=tenant())
+    if user is not None:
+        visible = visible_sites(user)
+        if visible is not None:
+            qs = qs.filter(name__in=visible)
+    names = set(qs.values_list("name", flat=True))
+    for extra in extra_querysets:
+        names |= set(extra.order_by().values_list("site", flat=True).distinct())
     names.discard("")
     return sorted(names, key=str.lower)
 
@@ -176,7 +188,7 @@ def check_exporters(exporters):
 
 def sync_config_states():
     """Exporters that cannot be scraped show their configuration state (inactive / not configured)."""
-    qs = Exporter.objects.all()
+    qs = Exporter.objects.filter(tenant_key=tenant())   # other tenants in a shared DB belong to their own deployment
     # failing exporters that were disabled or lost their URL outside the UI (admin, shell): resolve the failure
     for exp in qs.filter(status=ExporterStatus.ERROR).filter(Q(enabled=False) | Q(metrics_url=""))[:500]:
         close_failure(exp, "Disabled" if not exp.enabled else "Metrics URL removed")
@@ -227,7 +239,9 @@ def parse_payload(body, content_type=""):
                 raise IngestError(f"Too many entries: {len(data)} (max {MAX_ENTRIES} per request)", 413)
             return data
     entries = []
-    for no, line in enumerate(stripped.splitlines(), 1):
+    # split on "\n" only: str.splitlines() also cuts at U+2028, U+2029, U+0085 and \x1c-\x1e, which JSON allows raw
+    # inside a string, so one such log message would otherwise reject the whole batch
+    for no, line in enumerate(stripped.split("\n"), 1):
         line = line.strip()
         if not line:
             continue
@@ -387,10 +401,33 @@ def log_fingerprint(source, message):
     return f"observe:log:{digest}"
 
 
+def _window_events(now):
+    """Log events raised in the last EVENT_WINDOW (the 'events were held back' summaries are not counted)."""
+    return (Event.objects.filter(source="observe", kind="log", occurred_at__gte=now - EVENT_WINDOW)
+            .exclude(fingerprint__startswith=SUPPRESSED_PREFIX))
+
+
+def _note_suppressed(source, count, now):
+    """One 'N further events suppressed' warning per source and window, so operators know lines were held back."""
+    fp = SUPPRESSED_PREFIX + hashlib.sha1(source.lower().encode()).hexdigest()[:20]
+    if Event.objects.filter(fingerprint=fp, occurred_at__gte=now - EVENT_WINDOW).exists():
+        return
+    emit(source="observe", kind="log", title=f"Log events from {source[:120]} are being suppressed",
+         severity="warning",
+         message=(f"{source} raised more than {MAX_EVENTS_PER_SOURCE} new error patterns (or all sources more than "
+                  f"{MAX_EVENTS_PER_WINDOW}) in {int(EVENT_WINDOW.total_seconds() // 60)} minutes; further events "
+                  f"are held back until the window passes. The log lines themselves are still stored."),
+         fingerprint=fp, log_source=source, suppressed=count)
+
+
 def _emit_log_events(entries, now):
-    """One event per new source+message pattern in the last 10 minutes; capped per batch."""
+    """One event per new source+message pattern in the last 10 minutes; capped per batch, and per source and in
+    total per window (a misconfigured shipper must not open an incident per distinct line, request after request)."""
     emitted = suppressed = 0
     seen = set()
+    window_total = None
+    per_source = {}
+    held_back = {}
     for e in entries:
         if e.level not in ERROR_LEVELS:
             continue
@@ -405,12 +442,27 @@ def _emit_log_events(entries, now):
         if Event.objects.filter(fingerprint=fp, occurred_at__gte=now - EVENT_WINDOW).exists():
             suppressed += 1
             continue
+        if window_total is None:
+            window_total = _window_events(now).count()
+        if e.source not in per_source:
+            per_source[e.source] = _window_events(now).filter(data__log_source=e.source).count()
+        if window_total >= MAX_EVENTS_PER_WINDOW or per_source[e.source] >= MAX_EVENTS_PER_SOURCE:
+            suppressed += 1
+            held_back[e.source] = held_back.get(e.source, 0) + 1
+            continue
         first_line = e.message.splitlines()[0] if e.message else ""
         emit(source="observe", kind="log", title=f"{e.level} in {e.source}: {first_line[:140]}",
              severity="critical" if e.level == "CRITICAL" else "warning", message=e.message[:2000], site=e.site,
              obj=e, fingerprint=fp, log_source=e.source, level=e.level, host=e.host,
              pattern=message_pattern(e.message)[:200])
         emitted += 1
+        window_total += 1
+        per_source[e.source] += 1
+    for source, count in held_back.items():
+        try:
+            _note_suppressed(source, count, now)
+        except Exception:    # the summary is a courtesy: never lose the batch over it
+            log.exception("could not record the suppressed-events summary for %s", source)
     return emitted, suppressed
 
 
@@ -440,7 +492,7 @@ def prune_logs(days=None, batch=5000):
     cutoff = timezone.now() - timedelta(days=days)
     total = 0
     while True:
-        ids = list(LogEntry.objects.filter(ts__lt=cutoff).values_list("id", flat=True)[:batch])
+        ids = list(LogEntry.objects.filter(tenant_key=tenant(), ts__lt=cutoff).values_list("id", flat=True)[:batch])
         if not ids:
             break
         total += LogEntry.objects.filter(id__in=ids).delete()[0]

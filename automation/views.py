@@ -269,7 +269,7 @@ def stackstorm(request, form=None):
     return render(request, "automation/stackstorm.html", {
         **_perms(request), "page": page, "query": _query(request),
         "configured": services.stackstorm_configured(), "st2_url": services.stackstorm_display_url(),
-        "api_key_set": bool(getattr(services.settings, "STACKSTORM_API_KEY", "")),
+        "api_key_set": bool(services._st2_api_key()),
         "can_trigger": services.can_manage(request.user, "operate", "All Sites"),
         "form": form or TriggerForm(initial=initial or {"payload": '{\n  "host": "",\n  "reason": "manual run from LinkedEye"\n}'}),
         "stats": _exec_stats(scope), "statuses": Execution.STATUSES,
@@ -323,8 +323,9 @@ def execution_detail(request, pk):
     return render(request, "automation/execution_detail.html", {
         **_perms(request), "ex": ex, "event": event, "trigger_display": services.execution_trigger(ex, request.user),
         "can_rerun": services.can_manage(request.user, "operate", ex.site)
-                     and (ex.kind == "webhook" or ex.kind == "stackstorm" and services.stackstorm_configured()),
-        "can_retrigger": services.can_manage(request.user, "operate", ex.site),
+                     and (ex.kind == "webhook"
+                          or ex.kind == "stackstorm" and services.stackstorm_configured() and services.can_use_stackstorm(request.user)),
+        "can_retrigger": services.can_use_stackstorm(request.user),
         "st2_configured": services.stackstorm_configured(),
     })
 
@@ -336,6 +337,8 @@ def execution_rerun(request, pk):
     if not services.can_manage(request.user, "operate", ex.site):
         return _deny(request, f"You cannot run automation for “{ex.site or 'all sites'}”.", ex.get_absolute_url())
     if ex.kind == "stackstorm":
+        if not services.can_use_stackstorm(request.user):
+            return _deny(request, "Re-running a StackStorm trigger needs the operator role on every site.", ex.get_absolute_url())
         new = services.trigger_stackstorm(ex.trigger, ex.payload, triggered_by=_who(request), rule=ex.rule, site=ex.site)
     elif ex.kind == "webhook":
         new = services.post_webhook(ex.trigger, ex.payload, triggered_by=_who(request), rule=ex.rule, site=ex.site)
@@ -390,11 +393,15 @@ def _rule_form(request, rule=None):
     sites = services.site_names(request.user)
     runbooks = services.runbooks_for(request.user)
     if request.method == "POST":
+        was_stackstorm = bool(rule and rule.action == "stackstorm")   # captured first: validation updates the instance
         form = RuleForm(request.POST, instance=rule, sites=sites, runbooks=runbooks)
         if form.is_valid():
             site = form.cleaned_data.get("site") or ""
             if not services.can_manage(request.user, "operate", site) or (rule and not services.can_manage(request.user, "operate", rule.site)):
                 form.add_error("site", f"You cannot add or change rules for “{site or 'any site'}”.")
+            elif ((form.cleaned_data.get("action") == "stackstorm" or was_stackstorm)
+                  and not services.can_use_stackstorm(request.user)):
+                form.add_error("action", "StackStorm rules need the operator role on every site.")
             else:
                 obj = form.save(commit=False)
                 created = obj.pk is None
@@ -488,6 +495,9 @@ def rule_test(request, pk):
     if d.get("run"):
         if not services.can_manage(request.user, "operate", rule.site):
             messages.error(request, "You do not have permission to run this rule.")
+            return redirect(rule.get_absolute_url())
+        if rule.action == "stackstorm" and not services.can_use_stackstorm(request.user):
+            messages.error(request, "Running a StackStorm rule needs the operator role on every site.")
             return redirect(rule.get_absolute_url())
         if not matched:
             messages.error(request, "The sample event does not match this rule; nothing was run.")

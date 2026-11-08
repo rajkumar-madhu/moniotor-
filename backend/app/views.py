@@ -872,57 +872,18 @@ def verify(request):
         email=parsed_json['username']
         password=parsed_json['password']
         if not User.objects.filter(username=email).exists():
-            if email != "admin" and email != "djangoadmin" :
-                response['msg'] = "The username does not exist. Try again"
-                response["status"] = 500
-            else:
-                if Group.objects.filter(name='Admin').exists():
-                    pass
-                else:
-                    ob_role = Group(name='Admin', weightage = 21) # 21=010101 ['VSA','VA','ESA','EA','DSA','DA']
-                    ob_role.save()
-                    ob_role = Group(name='ViewOnly', weightage = 20) # 21=010101 ['VSA','VA','ESA','EA','DSA','DA']
-                    ob_role.save()
-                    ob_role = Group(name='Google', weightage = 20) # 21=010101 ['VSA','VA','ESA','EA','DSA','DA']
-                    ob_role.save()
-                    ob_role = Group(name='O365', weightage = 20) # 21=010101 ['VSA','VA','ESA','EA','DSA','DA']
-                    ob_role.save()
-                if Group.objects.filter(name='DjangoAdmin').exists():
-                    pass
-                else:
-                    ob_role = Group(name='DjangoAdmin', weightage = 20) # 21=010101 ['VSA','VA','ESA','EA','DSA','DA']
-                    ob_role.save()
-                if email == "admin":
-                    group = Group.objects.get(name = 'Admin').id
-                    user = User.objects.create_user(username=email,password=ADMIN_DEFAULT_PASSWORD,email=email,first_name=email,last_name=email,is_active=True)
-                    user.save()
-                    user.groups.add(group)
-                    auth.login(request, user, backend='django.contrib.auth.backends.ModelBackend')
-                    apply_session_timeout(request)
-                    response["redirectUrl"] = '/dashboard'
-                if email == "djangoadmin":
-                    DjangoAdmingroup = Group.objects.get(name = 'DjangoAdmin').id
-                    if not ADMIN_DEFAULT_PASSWORD:
-                        raise RuntimeError("ADMIN_DEFAULT_PASSWORD is not configured")
-                    superuser = User.objects.create_superuser(
-                        username='djangoadmin',
-                        password=ADMIN_DEFAULT_PASSWORD,
-                        email=email,
-                        first_name='django',
-                        last_name='admin',
-                        is_active=True
-                    )
-                    superuser.save()
-                    superuser.groups.add(DjangoAdmingroup)
-                    auth.login(request, superuser, backend='django.contrib.auth.backends.ModelBackend')
-                    apply_session_timeout(request)
-                    response["redirectUrl"] = '/admin'
-                response["status"] = 200     
+            # SECURITY: this view never creates accounts or logs anyone in without a
+            # password check. The first "admin"/"djangoadmin" accounts are created by an
+            # operator with ``manage.py bootstrap_admin`` (see backend/CHANGES-SECURITY.md).
+            response['msg'] = "The username does not exist. Try again"
+            response["status"] = 500
         else:
             obj = User.objects.get(username=email)
             if obj.is_active == True:
-                user = auth.authenticate(request, username=email, password=password)
-                if user is None and getattr(settings, 'KEYCLOAK_ENABLED', False):
+                # An empty password never authenticates: earlier releases could create
+                # 'admin' with an empty password when ADMIN_DEFAULT_PASSWORD was unset.
+                user = auth.authenticate(request, username=email, password=password) if password else None
+                if user is None and password and getattr(settings, 'KEYCLOAK_ENABLED', False):
                     # Local password check failed (wrong password, or the account
                     # has no usable password — e.g. it was auto-created by an SSO
                     # login and never onboarded through the app). Fall back to

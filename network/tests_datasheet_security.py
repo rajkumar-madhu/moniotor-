@@ -96,6 +96,21 @@ class HostilePdfTests(SimpleTestCase):
                                {4: stream(b"/Type /XObject /Subtype /Image /Width 300 /Height 200 /ColorSpace 5 0 R /Filter /FlateDecode",
                                           zlib.compress(b"\x01" * 10)), 5: b"[5 0 R]"}))
 
+    def test_nested_form_xobject_fan_out_is_bounded(self):
+        """200 entries -> one Form -> 200 entries -> a second Form ... is ~8M lookups per walk: the walk must stop early."""
+        n = 200
+
+        def xobj_dict(target):
+            return b"<< /XObject << " + b" ".join(b"/F%d %d 0 R" % (i, target) for i in range(n)) + b" >> >>"
+        form = lambda res: stream(b"/Type /XObject /Subtype /Form /BBox [0 0 10 10] /Resources " + res, b"")  # noqa: E731
+        objs = {1: PAGES[1], 2: b"<< /Type /Pages /Kids [" + b" ".join([b"3 0 R"] * 6) + b"] /Count 6 >>",
+                3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 800] /Resources " + xobj_dict(4) + b" >>",
+                4: form(xobj_dict(5)), 5: form(xobj_dict(6)), 6: form(xobj_dict(7)), 7: form(b"<< >>")}
+        t = time.monotonic()
+        res = datasheet_pdf.extract(build_pdf(objs))
+        self.assertLess(time.monotonic() - t, 5)
+        self.assertEqual(res.candidates, [])
+
     def test_a_page_tree_that_contains_itself(self):
         self.run_pdf(build_pdf({1: PAGES[1], 2: b"<< /Type /Pages /Kids [2 0 R 3 0 R] /Count 2 >>", 3: b"<< /Type /Pages /Parent 2 0 R /Kids [2 0 R] /Count 1 >>"}))
         self.run_pdf(build_pdf({1: PAGES[1], 2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>", 3: b"<< /Type /Pages /Parent 2 0 R /Kids [2 0 R] /Count 1 >>"}))

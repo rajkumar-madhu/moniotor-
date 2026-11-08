@@ -13,6 +13,7 @@ from ipam.models import DNSRecord, DNSZone, IPAddress, Role, Source, Subnet, VLA
 from ipam.sync import link_record_ip
 
 GLOBAL = "All Sites"
+SEED_ADDRESS_DESC = "Example – seed_ipam"
 VLANS = [(10, "EX-SERVERS", "Example – server VLAN"), (20, "EX-USERS", "Example – user access VLAN"),
          (30, "EX-MGMT", "Example – out-of-band management"), (40, "EX-VOICE", "Example – IP phones")]
 SUBNETS = [
@@ -66,11 +67,17 @@ class Command(BaseCommand):
     def handle(self, *args, remove=False, **opts):
         t = settings.LINKEDEYE_TENANT
         if remove:
+            # only the rows this command writes: the exact natural keys AND the exact seed description. A real row whose
+            # description merely starts with "Example" is never touched.
+            n = 0
             with transaction.atomic():
-                n = DNSZone.objects.filter(tenant_key=t, name__in=[z[0] for z in ZONES], description__startswith="Example").delete()[0]
-                n += IPAddress.objects.filter(tenant_key=t, description__startswith="Example").delete()[0]
-                n += Subnet.objects.filter(tenant_key=t, description__startswith="Example").delete()[0]
-                n += VLAN.objects.filter(tenant_key=t, description__startswith="Example").delete()[0]
+                n += DNSZone.objects.filter(tenant_key=t, name__in=[z[0] for z in ZONES], description__startswith="Example").delete()[0]
+                for addr, vrf, *_ in ADDRESSES:
+                    n += IPAddress.objects.filter(tenant_key=t, vrf=vrf, address=addr, description=SEED_ADDRESS_DESC).delete()[0]
+                for cidr, vrf, _role, _vid, _gw, desc in reversed(SUBNETS):
+                    n += Subnet.objects.filter(tenant_key=t, vrf=vrf, cidr=cidr, site=GLOBAL, description=desc).delete()[0]
+                for vid, _name, desc in VLANS:
+                    n += VLAN.objects.filter(tenant_key=t, site=GLOBAL, vid=vid, description=desc).delete()[0]
             self.stdout.write(self.style.SUCCESS(f"Removed example IPAM data ({n} row(s))."))
             return
         made = {"vlans": 0, "subnets": 0, "addresses": 0, "zones": 0, "records": 0}
@@ -91,7 +98,7 @@ class Command(BaseCommand):
                 if subnet is None:
                     continue
                 IPAddress(tenant_key=t, address=addr, vrf=vrf, subnet=subnet, site=subnet.site, status=status,
-                          hostname=host, source=Source.MANUAL, description="Example – seed_ipam").save()
+                          hostname=host, source=Source.MANUAL, description=SEED_ADDRESS_DESC).save()
                 made["addresses"] += 1
             zones = {}
             for name, kind, desc in ZONES:

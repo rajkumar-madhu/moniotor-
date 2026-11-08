@@ -583,18 +583,20 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 def test_stackstorm():
     """GET the configured StackStorm URL (no redirects, short timeout). Returns (ok, message). Never raises."""
-    try:  # the same URL builder the automation module uses for triggers
+    from administration import integration_config as ic
+
+    # console override first, then the environment: the same effective URL the automation module triggers
+    url = (ic.stackstorm_url() or "").strip()
+    try:
         from automation.services import stackstorm_endpoint
-        url = stackstorm_endpoint()
+        url = stackstorm_endpoint() or url
     except ImportError:  # pragma: no cover - automation not installed
-        url = (getattr(settings, "STACKSTORM_URL", "") or "").strip()
+        pass
     if not url:
         return False, "StackStorm is not configured (set LINKEDEYE_STACKSTORM_URL)."
     p = urlsplit(url)
     if p.scheme not in ("http", "https") or not p.hostname:
         return False, "LINKEDEYE_STACKSTORM_URL must be an http(s) URL."
-    from administration import integration_config as ic
-
     headers = {"Accept": "application/json", "User-Agent": "LinkedEye-Admin/1.0"}
     if ic.stackstorm_api_key():
         headers["St2-Api-Key"] = ic.stackstorm_api_key()
@@ -1042,7 +1044,9 @@ def bootstrap_clients():
 
 
 def client_wise_rows(status=None):
-    """Roll-up counts per client from live module data (sites, tickets, checks, devices, domains)."""
+    """Roll-up counts per client from live module data (sites, tickets, checks, devices, domains).
+
+    One grouped query per model (not per client); the per-client numbers are summed from the groups in Python."""
     from django.db.models import Q
 
     from core.models import Client, Site
@@ -1053,59 +1057,54 @@ def client_wise_rows(status=None):
     from urlchecker.models import UrlCheck
 
     t = tenant()
-    clients = list(_client_qs().prefetch_related("sites").order_by("name"))
+    clients = list(_client_qs().order_by("name"))
     if status in dict(Client.STATUSES):
         clients = [c for c in clients if c.status == status]
 
     site_by_client = {}
-    for site in Site.objects.filter(tenant_key=t).select_related("client"):
+    for site in Site.objects.filter(tenant_key=t):
         if site.client_id:
             site_by_client.setdefault(site.client_id, []).append(site.name)
+    unassigned_sites = list(Site.objects.filter(tenant_key=t, client__isnull=True).values_list("name", flat=True))
 
-    open_incidents = Ticket.objects.filter(tenant_key=t, kind="incident").exclude(status__in=wf.DONE)
-    url_qs = UrlCheck.objects.filter(tenant_key=t, enabled=True)
-    dev_qs = Device.objects.filter(tenant_key=t)
-    dom_qs = Domain.objects.filter(tenant_key=t, is_active=True)
+    # --- one grouped query per model, keyed by site name
+    tickets = list(Ticket.objects.filter(tenant_key=t, kind="incident").exclude(status__in=wf.DONE)
+                   .values("client", "site", "priority").annotate(n=Count("id")).order_by())
+    urls = {r["site"]: r for r in UrlCheck.objects.filter(tenant_key=t, enabled=True).values("site").annotate(
+        n=Count("id"), down=Count("id", filter=Q(last_status__in=("down", "degraded")))).order_by()}
+    devices = {}
+    for r in Device.objects.filter(tenant_key=t).values("site", "device_type").annotate(
+            n=Count("id"), down=Count("id", filter=Q(status="down"))).order_by():
+        devices.setdefault(r["site"], []).append(r)
+    domains = {r["site_key"]: r for r in Domain.objects.filter(tenant_key=t, is_active=True).values("site_key").annotate(
+        n=Count("id"),
+        issue=Count("id", filter=Q(status="down") | Q(ssl_status__in=("Expiring", "Expired", "Invalid"))
+                    | Q(dns_status="Failed"))).order_by()}
+
+    def roll_up(sites, client_name=None):
+        names = set(sites)
+        # a ticket belongs to the client when it names it or sits on one of its sites; counted once
+        mine = [r for r in tickets if (client_name is not None and r["client"] == client_name) or r["site"] in names]
+        by_type = {}
+        for site in names:
+            for r in devices.get(site, ()):
+                by_type[r["device_type"]] = by_type.get(r["device_type"], 0) + r["n"]
+        return {
+            "sites": len(names),
+            "open_incidents": sum(r["n"] for r in mine),
+            "open_major": sum(r["n"] for r in mine if r["priority"] in ("P1", "P2")),
+            "urls": sum(urls[s]["n"] for s in names if s in urls),
+            "urls_down": sum(urls[s]["down"] for s in names if s in urls),
+            "devices": sum(r["n"] for s in names for r in devices.get(s, ())),
+            "devices_down": sum(r["down"] for s in names for r in devices.get(s, ())),
+            "devices_by_type": by_type,
+            "domains": sum(domains[s]["n"] for s in names if s in domains),
+            "domains_issue": sum(domains[s]["issue"] for s in names if s in domains),
+        }
 
     rows = []
     for client in clients:
-        sites = site_by_client.get(client.pk, [])
-        site_q = Q(site__in=sites) if sites else Q(pk__in=[])
-        inc = open_incidents.filter(Q(client=client.name) | site_q)
-        rows.append({
-            "client": client,
-            "sites": len(sites),
-            "open_incidents": inc.count(),
-            "open_major": inc.filter(priority__in=("P1", "P2")).count(),
-            "urls": url_qs.filter(site_q).count() if sites else 0,
-            "urls_down": url_qs.filter(site_q, last_status__in=("down", "degraded")).count() if sites else 0,
-            "devices": dev_qs.filter(site_q).count() if sites else 0,
-            "devices_down": dev_qs.filter(site_q, status="down").count() if sites else 0,
-            "devices_by_type": dict(dev_qs.filter(site_q).values_list("device_type").annotate(n=Count("id")).order_by())
-                               if sites else {},
-            "domains": dom_qs.filter(site_key__in=sites).count() if sites else 0,
-            "domains_issue": dom_qs.filter(site_key__in=sites).filter(
-                Q(status="down") | Q(ssl_status__in=("Expiring", "Expired", "Invalid")) | Q(dns_status="Failed")
-            ).count() if sites else 0,
-        })
-
-    unassigned_sites = list(Site.objects.filter(tenant_key=t, client__isnull=True).values_list("name", flat=True))
+        rows.append({"client": client, **roll_up(site_by_client.get(client.pk, []), client.name)})
     if unassigned_sites and status is None:
-        site_q = Q(site__in=unassigned_sites)
-        inc = open_incidents.filter(site_q)
-        rows.append({
-            "client": None,
-            "sites": len(unassigned_sites),
-            "open_incidents": inc.count(),
-            "open_major": inc.filter(priority__in=("P1", "P2")).count(),
-            "urls": url_qs.filter(site_q).count(),
-            "urls_down": url_qs.filter(site_q, last_status__in=("down", "degraded")).count(),
-            "devices": dev_qs.filter(site_q).count(),
-            "devices_down": dev_qs.filter(site_q, status="down").count(),
-            "devices_by_type": dict(dev_qs.filter(site_q).values_list("device_type").annotate(n=Count("id")).order_by()),
-            "domains": dom_qs.filter(site_key__in=unassigned_sites).count(),
-            "domains_issue": dom_qs.filter(site_key__in=unassigned_sites).filter(
-                Q(status="down") | Q(ssl_status__in=("Expiring", "Expired", "Invalid")) | Q(dns_status="Failed")
-            ).count(),
-        })
+        rows.append({"client": None, **roll_up(unassigned_sites)})
     return rows

@@ -6,6 +6,7 @@ Public helpers other modules may use (import lazily):
 """
 import logging
 import math
+import time
 
 from django.conf import settings
 from django.db.models import Prefetch
@@ -22,6 +23,7 @@ log = logging.getLogger("linkedeye.dcim")
 HOT_PCT = 80.0             # racks above this share of space or power are flagged on the overview
 POWER_ALERT_PCT = 90.0     # the readings job warns above this share of a rack's power budget
 MAX_READS = 400            # Prometheus queries per job pass (bounded; the rest wait for the next pass)
+MAX_SECONDS = 240          # wall-clock budget of one pass (the job runs every 300 s)
 MAX_KW = 100000.0
 TEMP_RANGE = (-50.0, 150.0)
 
@@ -217,48 +219,90 @@ def totals(rooms):
 
 
 # ------------------------------------------------------------------ Prometheus readings
-def _read(promql, lo=0.0, hi=MAX_KW):
-    """Sum of an instant query's values. Raises PrometheusError with a user-safe message."""
-    res = prometheus.query(promql)
-    vals = [r["value"] for r in res if r.get("value") is not None and math.isfinite(r["value"])]
+_SHAPE_ERRORS = (ValueError, TypeError, AttributeError, KeyError, IndexError)
+BAD_SHAPE = ("Prometheus returned a result this query type cannot be read (for example a scalar). "
+             "Wrap scalar() in vector(), e.g. vector(scalar(sum(pdu_w))/1000).")
+_OUTAGE_PREFIXES = ("Prometheus unreachable", "Prometheus returned HTTP 5", "Prometheus is not connected")
+
+
+def is_outage(error):
+    """True for a failure that will hit every other query too (unreachable / timeout / 5xx / not an API
+    answer), as opposed to one bad query. After one the pass stops asking Prometheus."""
+    text = str(error)
+    return text.startswith(_OUTAGE_PREFIXES) or "not a valid API response" in text
+
+
+def _query(promql):
+    """core.prometheus.query with every malformed shape (scalar / string results, short samples) turned
+    into PrometheusError, so one odd query can never raise out of a pass or a form save."""
+    try:
+        rows = prometheus.query(promql)
+    except prometheus.PrometheusError:
+        raise
+    except _SHAPE_ERRORS:
+        raise prometheus.PrometheusError(BAD_SHAPE) from None
+    if not isinstance(rows, list):
+        raise prometheus.PrometheusError(BAD_SHAPE)
+    return [r for r in rows if isinstance(r, dict)]
+
+
+def _read(promql, lo=0.0, hi=MAX_KW, mean=False):
+    """Sum (or, for temperatures, the mean) of an instant query's values. Raises PrometheusError with a
+    user-safe message."""
+    res = _query(promql)
+    vals = [r["value"] for r in res if isinstance(r.get("value"), (int, float)) and math.isfinite(r["value"])]
     if not vals:
         raise prometheus.PrometheusError("Query returned no data")
-    total = sum(vals)
+    total = sum(vals) / len(vals) if mean else sum(vals)
     if not lo <= total <= hi:
         raise prometheus.PrometheusError(f"Query returned {total:g}, outside the expected range {lo:g}…{hi:g}")
     return total
 
 
-def read_feed(feed, now=None):
-    """Read one feed's prometheus_query and store the result. Returns True on success."""
+def _store_feed(feed, value, error, now):
+    feed.last_value, feed.last_error, feed.last_read_at = value, str(error)[:300], now   # no value = never show a stale one
+    PowerFeed.objects.filter(pk=feed.pk).update(last_value=value, last_error=feed.last_error, last_read_at=now)
+    return value is not None
+
+
+def read_feed(feed, now=None, failure=None):
+    """Read one feed's prometheus_query and store the result. Returns True on success. `failure` is an outage
+    already seen in this pass: the feed is marked failed with that error without asking Prometheus again."""
     now = now or timezone.now()
+    if failure:
+        return _store_feed(feed, None, failure, now)
+    feed.outage = ""
     try:
-        feed.last_value = _read(feed.prometheus_query)
-        feed.last_error = ""
-        ok = True
+        return _store_feed(feed, _read(feed.prometheus_query), "", now)
     except prometheus.PrometheusError as e:
-        feed.last_value = None          # a stale value must never be shown as live
-        feed.last_error = str(e)[:300]
-        ok = False
-    feed.last_read_at = now
-    PowerFeed.objects.filter(pk=feed.pk).update(last_value=feed.last_value, last_error=feed.last_error,
-                                                last_read_at=now)
-    return ok
+        feed.outage = str(e) if is_outage(e) else ""
+        return _store_feed(feed, None, e, now)
 
 
-def read_unit(unit, now=None):
+def _unit_error(label_error):
+    return "; ".join(f"{label}: {err}" for label, err in label_error)[:300]
+
+
+def read_unit(unit, now=None, failure=None):
+    """Read a cooling unit's supply / return temperatures (the mean when a query matches several sensors)."""
     now = now or timezone.now()
     errors = []
-    for attr, query in (("last_supply_c", unit.supply_query), ("last_return_c", unit.return_query)):
+    unit.outage = ""
+    for attr, label, query in (("last_supply_c", "Supply", unit.supply_query), ("last_return_c", "Return", unit.return_query)):
         if not query:
             setattr(unit, attr, None)
             continue
+        setattr(unit, attr, None)
+        if failure:
+            errors.append((label, failure))
+            continue
         try:
-            setattr(unit, attr, _read(query, *TEMP_RANGE))
+            setattr(unit, attr, _read(query, *TEMP_RANGE, mean=True))
         except prometheus.PrometheusError as e:
-            setattr(unit, attr, None)
-            errors.append(f"{'Supply' if attr == 'last_supply_c' else 'Return'}: {e}")
-    unit.last_error = "; ".join(errors)[:300]
+            errors.append((label, e))
+            if is_outage(e):
+                failure = unit.outage = str(e)      # do not wait for the Return query to time out as well
+    unit.last_error = _unit_error(errors)
     unit.last_read_at = now
     CoolingUnit.objects.filter(pk=unit.pk).update(last_supply_c=unit.last_supply_c, last_return_c=unit.last_return_c,
                                                   last_error=unit.last_error, last_read_at=now)
@@ -267,27 +311,47 @@ def read_unit(unit, now=None):
 
 def read_all(feeds=None, units=None, limit=MAX_READS):
     """Read Prometheus values for feeds/cooling units that have queries. Returns (ok, failed) counts.
-    Raises nothing; when Prometheus is not configured nothing is read."""
+    Raises nothing; when Prometheus is not configured nothing is read. One item can fail without stopping the
+    pass; after an outage (unreachable / timeout) the remaining items are marked failed with that same error
+    instead of waiting for one timeout each, and the pass stops after MAX_SECONDS (the rest waits for the next)."""
     if not prometheus.configured():
         return 0, 0
     feeds = PowerFeed.objects.filter(tenant_key=tenant()) if feeds is None else feeds
     units = CoolingUnit.objects.filter(tenant_key=tenant()) if units is None else units
     now = timezone.now()
+    started = time.monotonic()
     ok = failed = 0
+    outage = ""
     budget = limit
-    for f in feeds.exclude(prometheus_query="").order_by("last_read_at", "pk")[:budget]:
-        if read_feed(f, now):
+    work = [(f, read_feed) for f in feeds.exclude(prometheus_query="").order_by("last_read_at", "pk")[:budget]]
+    budget -= len(work)
+    if budget > 0:
+        work += [(u, read_unit) for u in units.exclude(supply_query="", return_query="").order_by("last_read_at", "pk")[:budget]]
+    for n, (obj, reader) in enumerate(work):
+        if n and time.monotonic() - started > MAX_SECONDS:
+            break
+        try:
+            good = reader(obj, now, failure=outage) if outage else reader(obj, now)
+        except Exception as e:  # noqa: BLE001 - one broken item must not stall the others
+            log.exception("dcim reading failed for %r", obj)
+            good = False
+            _mark_failed(obj, f"Unexpected error: {e}", now)
+        if good:
             ok += 1
         else:
             failed += 1
-    budget -= ok + failed
-    if budget > 0:
-        for u in units.exclude(supply_query="", return_query="").order_by("last_read_at", "pk")[:budget]:
-            if read_unit(u, now):
-                ok += 1
-            else:
-                failed += 1
+            outage = outage or getattr(obj, "outage", "")
     return ok, failed
+
+
+def _mark_failed(obj, error, now):
+    if isinstance(obj, PowerFeed):
+        _store_feed(obj, None, error, now)
+    else:
+        obj.last_supply_c = obj.last_return_c = None
+        obj.last_error, obj.last_read_at = str(error)[:300], now
+        CoolingUnit.objects.filter(pk=obj.pk).update(last_supply_c=None, last_return_c=None,
+                                                     last_error=obj.last_error, last_read_at=now)
 
 
 # ------------------------------------------------------------------ alerts (state change only)
