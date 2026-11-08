@@ -412,6 +412,13 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 | `LINKEDEYE_AUTOMATION_RETENTION_DAYS` | `90` | | Days of automation / StackStorm execution history kept. |
 | `LINKEDEYE_APM_RETENTION_DAYS` | `30` | | Days of APM adapter runs and status-change history kept (also capped per source). |
 | `LINKEDEYE_APM_LOG_RETENTION_DAYS` | `7` | | Days of APM execution logs kept (also capped per source). |
+| `LINKEDEYE_HARDWARE_READING_RETENTION_DAYS` | `7` | | Days of BMC sensor readings kept (readings older than a day are thinned to one per 10 minutes). |
+| `LINKEDEYE_HARDWARE_EVENT_RETENTION_DAYS` | `90` | | Days of BMC (SEL / Lifecycle) events kept. |
+| `LINKEDEYE_HARDWARE_POLL_WORKERS` | `4` | | Maximum BMCs read in parallel by the `hardware.poll` job. |
+| `LINKEDEYE_HYPERVISOR_EVENT_RETENTION_DAYS` | `30` | | Days of vCenter VM events kept. |
+| `LINKEDEYE_HYPERVISOR_MISSING_DAYS` | `30` | | Days a VM, host or datastore that vCenter no longer lists is kept before removal. |
+| `LINKEDEYE_HYPERVISOR_REQUEST_TTL_DAYS` | `7` | | Days a VM control request may wait for a decision before it expires. |
+| `LINKEDEYE_HYPERVISOR_OVERWRITE_PLACEMENT` | `false` | | Let the vCenter sync overwrite compute VM placement values an operator typed by hand. |
 | `LINKEDEYE_AGENT_API_KEY` | empty (retrieval-only) | yes | Bearer token for the OpenAI-compatible chat API used by Ops Agent. Empty: the page still answers from live records via tools. Never sent to the browser. |
 | `LINKEDEYE_AGENT_BASE_URL` | `https://api.openai.com/v1` | | Chat Completions base URL. Resolved through the probe SSRF policy (private/metadata ranges refused unless listed in `LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS`). Redirects are not followed. |
 | `LINKEDEYE_AGENT_MODEL` | `gpt-4o-mini` | | Chat model id sent to the provider. |
