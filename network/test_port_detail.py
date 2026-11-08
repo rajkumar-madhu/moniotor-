@@ -305,7 +305,7 @@ class PortPageTests(PortCase):
     def test_hostile_names_are_escaped_and_never_reach_promql_raw(self):
         evil = '<script>alert(1)</script>"\'`${x}'
         self.i1.name = 'Gi1/0/1" or vector(1) # ' + evil
-        self.i1.alias = evil + "\n\r" + "A" * 5000
+        self.i1.alias = evil + "\n\r" + "A" * 120   # the column holds 200 characters
         self.i1.save()
         Interface.objects.filter(pk=self.i3.pk).update(name=evil, alias=evil)
         r = self.get(instant=fake_instant)

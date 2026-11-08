@@ -79,7 +79,7 @@ class UrlValueTests(PortCase):
 
 class SelectorTests(PortCase):
     def test_hostile_instance_labels_stay_inside_the_string_literal(self):
-        for inst in ('sw1"} or vector(1) #', 'sw\\', 'sw1\\"', '}{', 'a' * 255, '{__name__=~".+"}', 'sw1" ,ifIndex="2'):
+        for inst in ('sw1"} or vector(1) #', 'sw\\', 'sw1\\"', '}{', 'a' * 200, '{__name__=~".+"}', 'sw1" ,ifIndex="2'):
             Device.objects.filter(pk=self.d.pk).update(prometheus_instance=inst)
             cache.clear()
             r = self.get(instant=fake_instant)
@@ -93,7 +93,8 @@ class SelectorTests(PortCase):
                 self.assertNotIn("vector(1)", rest)
 
     def test_instance_with_control_characters_or_too_long_is_no_instance(self):
-        for inst in ("sw1\nup", "sw1\x00", "sw1\u202e", "a" * 256, "s\x85w1"):
+        # PostgreSQL enforces the 200-character column and refuses NUL bytes, so neither can be stored at all
+        for inst in ("sw1\nup", "sw1\u202e", "s\x85w1"):
             Device.objects.filter(pk=self.d.pk).update(prometheus_instance=inst)
             cache.clear()
             r = self.get(instant=fake_instant)
