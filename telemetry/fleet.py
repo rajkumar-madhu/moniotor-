@@ -67,12 +67,17 @@ def parse_interval(text):
     return total or None
 
 
-def host_state(up, target=None, now=None, stale_factor=STALE_FACTOR):
+def host_state(up, target=None, now=None, stale_factor=STALE_FACTOR, discovered=False, grace=0):
     """The one rule for a host's state. Returns exactly one of ``live`` / ``down`` / ``stale`` / ``never_seen``.
 
     ``up``     – latest value of the instance's ``up`` series: 1, 0, or None when Prometheus has no sample.
     ``target`` – the matching row from ``telemetry.targets.fetch_targets`` (``None`` when the instance is not
                  a scrape target: hosts can also arrive by remote write or federation).
+    ``grace``  – seconds added to the stale threshold. Target rows are cached for ``targets_svc.CACHE_SECONDS``,
+                 so a row's ``last_scrape`` can be that much older than the real last scrape; without the
+                 allowance a healthy 15 s target read from a 30 s cache would flap to stale.
+    ``discovered`` – True when Prometheus discovery has scraped this instance before (a
+                 ``DiscoveredTarget`` row exists), so it has produced samples at some point.
 
     * ``down``       – ``up == 0``, or Prometheus reports the scrape target itself as down (a failed scrape
                        is the authoritative "this host is not answering" signal, and it is the reason an
@@ -82,9 +87,10 @@ def host_state(up, target=None, now=None, stale_factor=STALE_FACTOR):
                        ``stale_factor`` × the target's scrape interval. An interval the target does not
                        report cannot be judged, so such a target is never called stale on age alone.
     * ``never_seen`` – no sample and no scrape target: the instance is known only from an inventory source
-                       (a CMDB item's ``prometheus_instance``), so it has never produced a sample. LinkedEye
-                       keeps no sample history, so an instance that was scraped long ago and has since lost
-                       both its target and its samples also reads as never seen.
+                       (a CMDB item's ``prometheus_instance``), so it has never produced a sample. An instance
+                       Prometheus discovery has recorded as scraped before (``discovered``) that has since lost
+                       both its target and its samples is **stale** instead: it did exist. Without a discovery
+                       row LinkedEye keeps no sample history, so such an instance reads as never seen.
     * ``live``       – everything else: ``up == 1`` with a scrape that is not overdue.
 
     The Fleet page and the Infrastructure page both label hosts through this function, so the two pages can
@@ -94,18 +100,18 @@ def host_state(up, target=None, now=None, stale_factor=STALE_FACTOR):
     if health == "down":
         return DOWN
     if not finite(up):
-        return STALE if target else NEVER_SEEN
+        return STALE if (target or discovered) else NEVER_SEEN
     if target:
         interval = parse_interval(target.get("interval"))
         last = target.get("last_scrape")
         if interval and last is not None:
             age = ((now or timezone.now()) - last).total_seconds()
-            if age > stale_factor * interval:
+            if age > stale_factor * interval + grace:
                 return STALE
     return DOWN if int(up) == 0 else LIVE
 
 
-def annotate_states(rows, targets_by_instance=None, now=None):
+def annotate_states(rows, targets_by_instance=None, now=None, discovered=(), grace=targets_svc.CACHE_SECONDS):
     """Set ``state`` (and ``state_label``) on host dicts in place, then return them.
 
     Used by both the Fleet page and the Infrastructure page: the labelling lives in exactly one place.
@@ -113,7 +119,8 @@ def annotate_states(rows, targets_by_instance=None, now=None):
     targets_by_instance = targets_by_instance or {}
     now = now or timezone.now()
     for h in rows:
-        h["state"] = host_state(h.get("up"), targets_by_instance.get(h.get("instance")), now=now)
+        h["state"] = host_state(h.get("up"), targets_by_instance.get(h.get("instance")), now=now,
+                                discovered=h.get("instance") in discovered, grace=grace)
         h["state_label"] = STATE_LABEL[h["state"]]
     return rows
 
@@ -163,7 +170,7 @@ def series_count(use_cache=True):
         out = (value, "")
     except prometheus.PrometheusError as e:
         out = (None, str(e))
-    cache.set(key, out, SLOW_CACHE_SECONDS)
+    cache.set(key, out, SLOW_CACHE_SECONDS if out[0] is not None else CACHE_SECONDS)  # retry a failure soon
     return out
 
 
@@ -214,6 +221,25 @@ def cmdb_instances():
                 for ci in qs.only("pk", "name", "site", "ci_type", "environment", "owner", "prometheus_instance")}
     except Exception as e:  # cmdb tables missing (not migrated) must not break the page
         log.warning("CMDB instance lookup failed: %s", e)
+        return {}
+
+
+def discovered_hosts():
+    """``{instance: {os, site, job}}`` for host-kind rows of Prometheus discovery (telemetry.DiscoveredTarget)
+    that were scraped at some point and are not ignored. ``{}`` when the table is unavailable."""
+    try:
+        from django.apps import apps
+        DT = apps.get_model("telemetry", "DiscoveredTarget")
+        out = {}
+        rows = sorted(DT.objects.for_tenant().hosts().exclude(state=DT.IGNORED),
+                      key=lambda d: (d.missing_since is not None, d.job))   # a row still being scraped wins
+        for d in rows:
+            det = d.details or {}
+            out.setdefault(d.instance, {"os": str(det.get("os") or det.get("kernel") or "").strip(),
+                                        "site": d.site if d.site and d.site != "All Sites" else "", "job": d.job})
+        return out
+    except Exception as e:  # discovery tables missing (not migrated) must not break the page
+        log.warning("Discovered-host lookup failed: %s", e)
         return {}
 
 
@@ -276,12 +302,18 @@ def host_states(use_cache=True, with_prometheus=True):
             rows.append({"instance": inst, "job": t.get("job", ""), "up": None, "health": "unknown"})
             known.add(inst)
     cis = cmdb_instances()
+    disc = discovered_hosts() if with_prometheus else {}
+    # hosts discovery scraped before that have since lost target and samples: stale, not "never seen"
+    for inst in sorted(disc):
+        if inst not in known:
+            rows.append({"instance": inst, "job": disc[inst]["job"], "up": None, "health": "unknown"})
+            known.add(inst)
     for inst in sorted(cis):
         if inst not in known:
             rows.append({"instance": inst, "job": "", "up": None, "health": "unknown"})
             known.add(inst)
 
-    annotate_states(rows, tmap)
+    annotate_states(rows, tmap, discovered=disc)
     clients = site_clients()
     for h in rows:
         inst = h["instance"]
@@ -290,12 +322,12 @@ def host_states(use_cache=True, with_prometheus=True):
         h["ci"] = ci
         h["ci_name"] = getattr(ci, "name", "") or ""
         h["ci_url"] = hosts_svc.ci_url(ci)
-        h["site"] = (getattr(ci, "site", "") or "") if ci is not None else ""
+        h["site"] = (getattr(ci, "site", "") or "") if ci is not None else (disc.get(inst) or {}).get("site", "")
         h["environment"] = (getattr(ci, "environment", "") or "") if ci is not None else ""
         h["environment_label"] = ENV_LABEL.get(h["environment"], h["environment"] or UNKNOWN)
         h["owner"] = (getattr(ci, "owner", "") or "") if ci is not None else ""
         h["client"] = clients.get(h["site"], "") or ""
-        h["os"] = oses.get(inst, "")
+        h["os"] = oses.get(inst) or (disc.get(inst) or {}).get("os", "")
         h["name"] = h["ci_name"] or inst
         h["url"] = host_url(inst)
         h["last_scrape"] = t.get("last_scrape") if t else None

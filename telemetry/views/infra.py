@@ -60,7 +60,7 @@ def infrastructure(request):
                 ctx["spark_error"] = str(e)
     # live / down / stale / never_seen comes from the same rule the Fleet page uses, so the two agree
     tmap, tmap_error = fleet.node_target_map(use_cache=not refresh) if ctx["prom_configured"] else ({}, "")
-    fleet.annotate_states(hosts, tmap)
+    fleet.annotate_states(hosts, tmap, discovered=fleet.discovered_hosts() if ctx["prom_configured"] else ())
     ctx["state_error"] = tmap_error
     _attach_cmdb(hosts)
     site = request.GET.get("site", "")

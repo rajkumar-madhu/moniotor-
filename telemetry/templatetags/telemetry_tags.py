@@ -2,7 +2,7 @@ from django import template
 from django.utils.html import format_html
 
 from .. import fmt
-from ..fleet import STATE_LABEL, STATE_TONE
+from ..fleet import STATE_LABEL, STATE_TONE as FLEET_STATE_TONE
 from ..hosts import HEALTH_LABEL, HEALTH_TONE, grade as _grade
 from ..models import severity_tone
 from ..nagios import STATE_TONE
@@ -91,7 +91,7 @@ def state_label(s):
 
 @register.filter
 def state_tone(s):
-    return STATE_TONE.get(s, "mute")
+    return FLEET_STATE_TONE.get(s, "mute")
 
 
 @register.filter

@@ -131,6 +131,15 @@ class HostStateTests(TestCase):
         self.assertEqual(fleet.host_state(1, self.target(age=31), now=self.now), fleet.STALE)  # past 2x
         self.assertEqual(fleet.host_state(0, self.target(age=400), now=self.now), fleet.STALE)
 
+    def test_grace_covers_the_target_cache_age(self):
+        # a 15 s target read from the 30 s target cache can look 40 s old while being perfectly healthy
+        t = self.target(age=40)
+        self.assertEqual(fleet.host_state(1, t, now=self.now), fleet.STALE)              # no allowance
+        self.assertEqual(fleet.host_state(1, t, now=self.now, grace=30), fleet.LIVE)     # cache allowance
+        self.assertEqual(fleet.host_state(1, self.target(age=61), now=self.now, grace=30), fleet.STALE)
+        rows = fleet.annotate_states([{"instance": "x:9100", "up": 1}], {"x:9100": t}, now=self.now)
+        self.assertEqual(rows[0]["state"], fleet.LIVE)   # annotate_states applies the cache allowance itself
+
     def test_stale_when_up_is_missing_but_the_target_exists(self):
         self.assertEqual(fleet.host_state(None, self.target(), now=self.now), fleet.STALE)
 
@@ -194,6 +203,11 @@ class HostStatesTests(FleetMixin, TestCase):
         cache.clear()
         with mock.patch("core.prometheus.query", side_effect=prometheus.PrometheusError("nope")):
             self.assertEqual(fleet.series_count(), (None, "nope"))
+        # a failure is cached only briefly, so a recovered Prometheus is picked up well before 5 minutes
+        with mock.patch("telemetry.fleet.cache.set") as cset:
+            with mock.patch("core.prometheus.query", side_effect=prometheus.PrometheusError("nope")):
+                fleet.series_count(use_cache=False)
+        self.assertEqual(cset.call_args[0][2], fleet.CACHE_SECONDS)
 
 
 # ============================================================================= group by / colour by
@@ -439,6 +453,34 @@ class FleetPageTests(FleetMixin, TestCase):
         self.assertEqual(r.context["counters"]["hosts"], 3)
         self.assertIsNone(r.context["counters"]["series"])
 
+    def test_hostile_parameters_fall_back_to_safe_defaults(self):
+        self.start_prom()
+        evil = "');DROP TABLE x;--{__name__=~\".*\"}<script>alert(1)</script>"
+        r = self.client.get(self.url, {"group": evil, "colour": evil, "range": evil, "state": evil,
+                                       "env": evil, "job": evil, "site": evil, "q": evil, "per": evil,
+                                       "page": evil})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.context["group"], "")
+        self.assertEqual(r.context["colour"], "state")
+        self.assertEqual(r.context["range_key"], "24h")
+        self.assertNotContains(r, "<script>alert(1)</script>")
+        self.assertEqual(self.client.get(self.url, {"format": "csv", "group": evil, "colour": evil}).status_code, 200)
+
+    def test_scraped_label_values_are_escaped(self):
+        self.start_prom()
+        bad = "<img src=x onerror=alert(1)>"
+
+        def q(query, at=None):
+            rows = fake_query(query, at)
+            if "node_os_info" in query:
+                return [_row("web-01:9100", 1.0, pretty_name=bad)]
+            return rows
+        with mock.patch("core.prometheus.query", side_effect=q):
+            r = self.client.get(self.url, {"group": "os", "per": 100})
+        self.assertEqual(r.status_code, 200)
+        self.assertNotContains(r, bad)
+        self.assertContains(r, "&lt;img src=x onerror=alert(1)&gt;")
+
     def test_viewer_may_read_and_anonymous_may_not(self):
         c = Client()
         c.force_login(User.objects.create_user("nobody", password="pw"))
@@ -518,6 +560,15 @@ class FleetScopingTests(FleetMixin, TestCase):
         self.assertIn("web-01:9100", instances)
         self.assertEqual({a["alertname"] for a in r.context["top_alerts"]}, {"Mine", "Theirs", "Global"})
 
+    def test_a_site_parameter_cannot_reach_another_sites_data(self):
+        self.start_prom()
+        r = self.client.get(self.url, {"site": "Chennai", "per": 100})
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("web-01:9100", [h["instance"] for h in r.context["page"]])
+        self.assertEqual(r.context["top_alerts"], [])
+        self.assertEqual(r.context["alert_leaders"], [])
+        self.assertNotContains(r, "Theirs")
+
     def test_csv_export_is_scoped_too(self):
         self.start_prom()
         body = self.client.get(self.url, {"format": "csv"}).content.decode()
@@ -554,3 +605,31 @@ class FleetScaleTests(FleetMixin, TestCase):
         self.assertEqual(r.context["grid_shown"], 500)
         self.assertEqual(len(r.context["grid"]), 7)
         self.assertLess(elapsed, 1.0, f"500-host fleet took {elapsed:.2f}s to render")
+
+
+# ============================================================================= discovery and tones
+@override_settings(PROMETHEUS_URL=PROM)
+class FleetDiscoveryTests(FleetMixin, TestCase):
+    def test_discovered_host_that_lost_its_target_is_stale_not_never_seen(self):
+        from .models import DiscoveredTarget, TargetKind
+        self.start_prom()
+        DiscoveredTarget.objects.create(instance="gone-01:9100", job="node", kind=TargetKind.NODE,
+                                        missing_since=timezone.now(), site="Pune",
+                                        details={"os": "Ubuntu 22.04"})
+        ci("Paper", "paper-01:9100")
+        by = {h["instance"]: h for h in fleet.host_states()["hosts"]}
+        self.assertEqual(by["gone-01:9100"]["state"], fleet.STALE)
+        self.assertEqual(by["gone-01:9100"]["os"], "Ubuntu 22.04")
+        self.assertEqual(by["gone-01:9100"]["site"], "Pune")
+        self.assertEqual(by["paper-01:9100"]["state"], fleet.NEVER_SEEN)
+
+    def test_ignored_discovered_hosts_are_left_out(self):
+        from .models import DiscoveredTarget, TargetKind
+        self.start_prom()
+        DiscoveredTarget.objects.create(instance="skip-01:9100", job="node", kind=TargetKind.NODE,
+                                        state=DiscoveredTarget.IGNORED, missing_since=timezone.now())
+        self.assertNotIn("skip-01:9100", {h["instance"] for h in fleet.host_states()["hosts"]})
+
+    def test_state_badge_tones_are_the_fleet_ones(self):
+        from .templatetags.telemetry_tags import state_tone
+        self.assertEqual([state_tone(s) for s in fleet.STATES], ["ok", "crit", "warn", "mute"])

@@ -21,15 +21,6 @@
   {% include "telemetry/_error.html" with err_title="Some fleet data is unavailable" err_message=error_text %}
 {% endif %}
 
-<section class="kpis tm-kpis" aria-label="Fleet counters">
-  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "server" 22 %}</div><div class="kpi-body"><div class="label">Hosts</div><div class="value">{{ counters.hosts }}</div></div></div><div class="sub">{{ counters.states.live }} live · {{ counters.states.down }} down</div></div>
-  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-purple">{% icon "database" 22 %}</div><div class="kpi-body"><div class="label">Series</div><div class="value">{% if counters.series %}{{ counters.series|hnum }}{% else %}–{% endif %}</div></div></div><div class="sub tm-wrap">{% if counters.series %}Metrics available in the TSDB{% else %}Series count unavailable{% endif %}</div></div>
-  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-ok">{% icon "radar" 22 %}</div><div class="kpi-body"><div class="label">Targets up</div><div class="value">{{ counters.targets_up }} <small>/ {{ counters.targets }}</small></div></div></div><div class="sub">{% if counters.targets_down %}<span class="t-crit">{{ counters.targets_down }} down</span> · {% endif %}{{ counters.target_pools }} scrape pool{{ counters.target_pools|pluralize }}</div></div>
-  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-crit">{% icon "flame" 22 %}</div><div class="kpi-body"><div class="label">Alerts firing</div><div class="value{% if counters.alerts_firing %} t-crit{% endif %}">{{ counters.alerts_firing }}</div></div></div><div class="sub tm-wrap">Right now · {{ alerts_on_hosts }} on a fleet host</div></div>
-  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-teal">{% icon "map-pin" 22 %}</div><div class="kpi-body"><div class="label">Sites</div><div class="value">{{ counters.sites }}</div></div></div><div class="sub">{% if scoped %}Your sites{% else %}With at least one host{% endif %}</div></div>
-  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-warn">{% icon "help" 22 %}</div><div class="kpi-body"><div class="label">No CMDB item</div><div class="value">{{ counters.no_cmdb }}</div></div></div><div class="sub tm-wrap">Hosts without a configuration item</div></div>
-</section>
-
 <section class="grid g-2">
   <div class="panel fl-panel">
     <div class="panel-h"><h2>Hosts</h2><div class="right tm-meta">state is always “now”</div></div>
@@ -46,7 +37,7 @@
       <div class="fl-keys">{% for s in env_bar %}<a class="fl-key{% if filter_env == s.key %} on{% endif %}" href="?{% if q_filter.urlencode %}{{ q_filter.urlencode }}&amp;{% endif %}env={{ s.key }}"><i style="background:{{ s.colour }}"></i>{{ s.label }}<b>{{ s.value }}</b></a>{% endfor %}</div>
       {% else %}<p class="empty">No environments recorded in the CMDB.</p>{% endif %}
     </div>
-    <p class="fl-note">{% for s in states %}<span class="badge {{ s.tone }}">{{ s.label }}</span> {{ s.help }}{% if not forloop.last %} · {% endif %}{% endfor %}</p>
+    <details class="fl-explain"><summary>What the four states mean</summary><div class="fl-help">{% for s in states %}<span><span class="badge {{ s.tone }}">{{ s.label }}</span><em>{{ s.help }}</em></span>{% endfor %}</div></details>
   </div>
 
   <div class="panel fl-panel">
@@ -90,6 +81,15 @@
     <p class="empty">{% if filtered %}No hosts match the filters.{% elif prom_configured %}No hosts yet. Add node_exporter scrape jobs (a job name containing <code>node</code>) or set <code>prometheus_instance</code> on CMDB items.{% else %}No hosts yet – connect Prometheus or set <code>prometheus_instance</code> on CMDB items.{% endif %}</p>
   {% endif %}
 </div>
+
+<section class="kpis tm-kpis fl-kpis" aria-label="Fleet counters">
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "server" 22 %}</div><div class="kpi-body"><div class="label">Hosts</div><div class="value">{{ counters.hosts }}</div></div></div><div class="sub">{{ counters.states.live }} live · {{ counters.states.down }} down</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-purple">{% icon "database" 22 %}</div><div class="kpi-body"><div class="label">Series</div><div class="value">{% if counters.series %}{{ counters.series|hnum }}{% else %}–{% endif %}</div></div></div><div class="sub tm-wrap">{% if counters.series %}Metrics available in the TSDB{% else %}Series count unavailable{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-ok">{% icon "radar" 22 %}</div><div class="kpi-body"><div class="label">Targets up</div><div class="value">{{ counters.targets_up }} <small>/ {{ counters.targets }}</small></div></div></div><div class="sub">{% if counters.targets_down %}<span class="t-crit">{{ counters.targets_down }} down</span> · {% endif %}{{ counters.target_pools }} scrape pool{{ counters.target_pools|pluralize }}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-crit">{% icon "flame" 22 %}</div><div class="kpi-body"><div class="label">Alerts firing</div><div class="value{% if counters.alerts_firing %} t-crit{% endif %}">{{ counters.alerts_firing }}</div></div></div><div class="sub tm-wrap">Right now · {{ alerts_on_hosts }} on a fleet host</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-teal">{% icon "map-pin" 22 %}</div><div class="kpi-body"><div class="label">Sites</div><div class="value">{{ counters.sites }}</div></div></div><div class="sub">{% if scoped %}Your sites{% else %}With at least one host{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-warn">{% icon "help" 22 %}</div><div class="kpi-body"><div class="label">No CMDB item</div><div class="value">{{ counters.no_cmdb }}</div></div></div><div class="sub tm-wrap">Hosts without a configuration item</div></div>
+</section>
 
 <section class="grid g-2">
   <div class="panel">
