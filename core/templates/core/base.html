@@ -15,13 +15,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}LinkedEye{% endblock %} · LinkedEye</title>
   <link rel="icon" href="{% static 'linkedeye/img/logo-favicon.png' %}">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'linkedeye/app.css' %}?v=infra-theme-1">
   {% block page_css %}{% endblock %}
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to content</a>
 <div class="shell" id="shell">
   <aside class="side" id="side">
     <a class="brand" href="{% url 'dashboard' %}" style="text-decoration:none">
@@ -42,8 +40,8 @@
     </nav>
     <div class="side-bottom">
       <div class="side-foot">LinkedEye v{{ le_version }} · full-stack observability<div class="ok">System operational</div></div>
-      {% if le_clients|length > 1 %}<form class="site-pick" method="get" action="{{ request.path }}">{% icon "users" 20 %}<select name="client" data-autosubmit aria-label="Client"><option value="">All Clients</option>{% for c in le_clients %}<option value="{{ c.pk }}"{% if le_client == c.pk|stringformat:"s" %} selected{% endif %}>{{ c.name }}</option>{% endfor %}</select>{% if le_site %}<input type="hidden" name="site" value="{{ le_site|urlencode }}">{% endif %}</form>{% endif %}
-      <form class="site-pick" method="get" action="{{ request.path }}">{% icon "map-pin" 20 %}<select name="site" data-autosubmit aria-label="Site"><option value="">All Sites</option>{% for s in le_sites %}<option value="{{ s }}"{% if s == le_site %} selected{% endif %}>{{ s }}</option>{% endfor %}</select>{% if le_client %}<input type="hidden" name="client" value="{{ le_client|urlencode }}">{% endif %}</form>
+      {% if le_clients|length > 1 or le_client == "unassigned" %}<form class="site-pick" method="get" action="{{ request.path }}">{% icon "users" 20 %}<select name="client" data-autosubmit aria-label="Client"><option value="">All Clients</option>{% for c in le_clients %}<option value="{{ c.pk }}"{% if le_client == c.pk|stringformat:"s" %} selected{% endif %}>{{ c.name }}</option>{% endfor %}</select>{% if le_site %}<input type="hidden" name="site" value="{{ le_site }}">{% endif %}</form>{% endif %}
+      <form class="site-pick" method="get" action="{{ request.path }}">{% icon "map-pin" 20 %}<select name="site" data-autosubmit aria-label="Site"><option value="">All Sites</option>{% for s in le_sites %}<option value="{{ s }}"{% if s == le_site %} selected{% endif %}>{{ s }}</option>{% endfor %}</select>{% if le_client %}<input type="hidden" name="client" value="{{ le_client }}">{% endif %}</form>
       <details class="user-menu">
         <summary class="user">
           <span class="avatar">{% icon "user" 20 %}</span>
@@ -59,6 +57,7 @@
       </details>
     </div>
   </aside>
+  <div class="scrim" id="scrim" data-scrim hidden></div>
   <div class="main">
     <header class="top">
       <button class="icon-btn menu-btn" type="button" aria-label="Toggle menu" aria-controls="side" aria-expanded="false" data-toggle-menu>{% icon "menu" 20 %}</button>
@@ -69,7 +68,7 @@
       <a class="icon-btn solid hide-sm" href="{% url 'coming_soon' 'help' %}" aria-label="Help">{% ficon "help" 24 %}</a>
       <a class="icon-btn hide-sm" href="{{ le_admin_url }}" aria-label="Administration">{% icon "settings" 22 %}</a>
     </header>
-    <main class="page">
+    <main class="page" id="main" tabindex="-1">
       {% block crumbs %}{% endblock %}
       {% if messages %}<ul class="messages">{% for m in messages %}<li class="{{ m.tags }}">{{ m }}</li>{% endfor %}</ul>{% endif %}
       {% block content %}{% endblock %}

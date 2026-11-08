@@ -135,5 +135,12 @@ def on_starting(server):
     if unedited:
         raise RuntimeError("refusing to start: these variables still hold '<REPLACE ...>' template placeholders: "
                            + ", ".join(unedited))
+    if os.environ.get("LINKEDEYE_DEBUG", "false").strip().lower() not in ("1", "true", "yes") \
+            and not os.environ.get("LINKEDEYE_TRUSTED_PROXIES", "").strip():
+        # Behind a reverse proxy this makes every client look like the proxy: wrong audit source IPs, and the per-address
+        # sign-in throttle becomes one counter for all users. Harmless (and correct) with no proxy in front.
+        server.log.warning("LINKEDEYE_TRUSTED_PROXIES is empty: X-Forwarded-For is ignored, so behind a reverse proxy or "
+                           "ingress all clients share the proxy's address (audit log, sign-in throttle). Set it to the "
+                           "proxy address(es), the same peers as GUNICORN_FORWARDED_ALLOW_IPS.")
     server.log.info("LinkedEye web: %s worker(s) x %s thread(s), timeout %ss, bind %s",
                     workers, threads, timeout, ", ".join(bind))

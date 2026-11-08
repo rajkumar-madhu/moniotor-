@@ -197,6 +197,7 @@ class ArrivalTests(OnboardingTestCase):
         targets = [self.make_target(self.run_, f"h{i:03d}") for i in range(40)]
         for t in targets[:5]:
             entry(t.hostname, 1)
+        logs.ingest_token()   # warm the Integrations-settings cache (one query per 60 s, not per target)
         with self.assertNumQueries(7):         # counts, up to 5 sample reads (those with lines), nearby hosts
             out = logs.target_statuses(self.run_, targets)
         self.assertEqual(sum(1 for s in out.values() if s["arriving"]), 5)

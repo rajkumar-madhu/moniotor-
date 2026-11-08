@@ -138,7 +138,10 @@ def profile(request):
     ms = list(_memberships_qs().filter(user=user))
     role, note = services.effective_role(user)
     sites = Site.objects.filter(tenant_key=settings.LINKEDEYE_TENANT).order_by("name")
-    from core.access import role_for
+    from core.access import role_for, visible_sites
+    visible = visible_sites(user)
+    if visible is not None:   # a site-scoped user only learns the names of their own sites
+        sites = sites.filter(name__in=visible)
     per_site = [{"site": s, "role": role_for(user, s.name)} for s in sites]
     ctx = {"profile": user, "memberships": ms, "role": role, "role_note": note, "per_site": per_site,
            "recent": AuditEvent.objects.filter(actor=user)[:15], "is_admin": services.is_global_admin(user),
@@ -682,33 +685,52 @@ def site_onboarding_list(request):
     return render(request, "administration/site_onboarding_list.html", {"page": page, "query": _query(request), "tab": "sites"})
 
 
+def _sync_handoff_users(request, site, user_ids):
+    """Make the viewer memberships on `site` match `user_ids`, auditing every add and remove.
+
+    Only viewer rows are touched. A viewer whose only membership is on this site is never removed: with no
+    membership left core.access treats the user as a viewer on EVERY site, so dropping it would widen access.
+    Returns the usernames that were kept for that reason."""
+    kept = []
+    stale = Membership.objects.filter(site=site, role="viewer").exclude(user_id__in=user_ids).select_related("user")
+    for m in stale:
+        if not Membership.objects.filter(user_id=m.user_id).exclude(pk=m.pk).exists():
+            kept.append(m.user.username)
+            continue
+        m.delete()
+        audit(request, "membership_remove", m.user, site=site.name, role="viewer", via="site onboarding")
+    for uid in sorted(user_ids):
+        _m, created = Membership.objects.get_or_create(user_id=uid, site=site, defaults={"role": "viewer"})
+        if created:   # an existing (possibly stronger) membership on this site is left alone
+            audit(request, "membership_add", _m.user, site=site.name, role="viewer", via="site onboarding")
+    return kept
+
+
 @admin_required
 def site_onboarding(request, pk):
     site = get_object_or_404(_sites_qs().select_related("client"), pk=pk)
-    profile, _created = SiteLesiteProfile.objects.get_or_create(site=site)
+    # No row is created by merely looking at the page: it is saved by the POST below.
+    profile = SiteLesiteProfile.objects.filter(site=site).first() or SiteLesiteProfile(site=site)
 
-    if request.GET.get("defaults"):
+    if request.method == "POST" and request.POST.get("apply_defaults"):
+        # "Apply FinSpot defaults": fill the (unsaved) form with the suggested values; nothing is written.
         defaults = default_profile_fields(site, legacy_slug_for_site(site))
-        for k, v in defaults.items():
-            setattr(profile, k, v)
-        profile.save()
+        form = SiteLesiteProfileForm(instance=profile, initial=defaults, site=site)
         messages.info(request, "Applied FinSpot default field values (not saved until you submit).")
-
-    if request.method == "POST":
+    elif request.method == "POST":
         form = SiteLesiteProfileForm(request.POST, instance=profile, site=site)
         if form.is_valid():
-            obj = form.save(commit=False)
-            obj.site = site
-            obj.save()
             user_ids = {u.pk for u in (form.cleaned_data.get("users") or [])}
             with transaction.atomic():
+                obj = form.save(commit=False)
+                obj.site = site
+                obj.save()
                 # Sync handoff users as viewers only; do not strip admin/operator memberships on this site.
-                Membership.objects.filter(site=site, role="viewer").exclude(user_id__in=user_ids).delete()
-                for uid in user_ids:
-                    m, created = Membership.objects.get_or_create(user_id=uid, site=site, defaults={"role": "viewer"})
-                    if not created and m.role != "viewer":
-                        pass  # keep existing role if user already had a stronger membership
-            audit(request, "update", object_type="core.sitelesiteprofile", site=site.name, sitename=obj.legacy_sitename)
+                kept = _sync_handoff_users(request, site, user_ids)
+                audit(request, "update", object_type="core.sitelesiteprofile", site=site.name, sitename=obj.legacy_sitename)
+            if kept:
+                messages.warning(request, "Kept " + ", ".join(kept) + " on this site: it is their only membership, and "
+                                 "removing it would give them access to every site. Remove it on the Users page if intended.")
             messages.success(request, f"Saved onboarding for “{site.name}”.")
             return redirect("administration:site_onboarding_list")
     else:
@@ -851,7 +873,8 @@ def integration_save(request, slug):
         return redirect("administration:integrations")
     form = integration_form(slug, data=request.POST)
     if not form.is_valid():
-        messages.error(request, f"Could not save {slug}: fix the highlighted fields.")
+        detail = next((str(e) for errs in form.errors.values() for e in errs), "")
+        messages.error(request, f"Could not save {slug}: {detail}" if detail else f"Could not save {slug}: fix the highlighted fields.")
         return redirect(reverse("administration:integrations") + f"#{slug}")
     ic.save(slug, form.cleaned_data, request.user)
     audit(request, "update", object_type="administration.integrationsetting", integration=slug, result="ok")

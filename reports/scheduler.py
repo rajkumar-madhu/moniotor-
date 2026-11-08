@@ -2,7 +2,7 @@
 import logging
 
 from django.conf import settings
-from django.core.mail import EmailMessage
+from django.core.mail import EmailMessage, get_connection
 from django.utils import timezone
 
 from core.events import emit
@@ -12,6 +12,39 @@ from .models import ReportRun, ScheduledReport
 
 log = logging.getLogger("linkedeye.reports")
 BATCH = 20
+
+
+def _connection():
+    """SMTP connection from Administration > Integrations when e-mail is configured there (the same rule as
+    core.notify and the welcome mail); None means Django's default backend from the environment."""
+    from administration import integration_config as ic
+
+    if not ic.has_override("email"):
+        return None
+    return get_connection(host=ic.email_host() or settings.EMAIL_HOST, port=ic.email_port(),
+                          username=ic.email_host_user() or None, password=ic.email_host_password() or None,
+                          use_tls=ic.email_use_tls())
+
+
+def _from_address():
+    from administration import integration_config as ic
+
+    return ic.default_from_email() or settings.DEFAULT_FROM_EMAIL
+
+
+def _site_allowed(owner, site):
+    """A schedule may only name a real site its owner can see (blank = every site the owner can see)."""
+    if not site:
+        return True
+    if owner is None:
+        return False
+    from core.access import visible_sites
+    from core.models import Site
+
+    allowed = visible_sites(owner)
+    if allowed is not None and site not in allowed:
+        return False
+    return Site.objects.filter(tenant_key=settings.LINKEDEYE_TENANT, name=site).exists()
 
 
 def deliver(schedule, now=None, requested_by=None):
@@ -31,7 +64,10 @@ def deliver(schedule, now=None, requested_by=None):
             raise ValueError("The schedule owner is missing or inactive; assign an active owner.")
         if not report.allowed(owner):
             raise ValueError(f"The owner {owner.get_username()} may not run this report.")
-        rows, error = registry.generate(report, registry.Ctx(start, end, owner, schedule.site))
+        if not _site_allowed(owner, schedule.site):
+            raise ValueError(f"The site “{schedule.site}” is not one the owner {owner.get_username()} can see; "
+                             "edit the schedule and choose another site.")
+        rows, error = registry.export_rows(report, registry.Ctx(start, end, owner, schedule.site))
         if error:
             raise ValueError(error)
         run.rows = len(rows)
@@ -39,7 +75,7 @@ def deliver(schedule, now=None, requested_by=None):
                 f"Period: {timezone.localtime(start):%d %b %Y %H:%M} – {timezone.localtime(end):%d %b %Y %H:%M}\n"
                 f"Site: {schedule.site or 'All sites visible to ' + owner.get_username()}\n"
                 f"Rows: {len(rows)}\n\nSent by LinkedEye ({schedule.name}).")
-        msg = EmailMessage(f"[LinkedEye] {schedule.name}", body, settings.DEFAULT_FROM_EMAIL, recipients)
+        msg = EmailMessage(f"[LinkedEye] {schedule.name}", body, _from_address(), recipients, connection=_connection())
         msg.attach(f"{report.key}-{timezone.localdate(now):%Y%m%d}.csv", registry.to_csv(report, rows), "text/csv")
         msg.send(fail_silently=False)
         run.status = "ok" if rows else "empty"
@@ -58,7 +94,7 @@ def deliver(schedule, now=None, requested_by=None):
         next_run_at=schedule.next_run_at)
     if run.status == "failed":
         emit("reports", f"Scheduled report “{schedule.name}” failed", severity="warning", message=run.error,
-             kind="job", site=schedule.site, obj=schedule, fingerprint=f"reports:schedule:{schedule.pk}")
+             kind="job", site=schedule.site if _site_allowed(schedule.owner, schedule.site) else "", obj=schedule, fingerprint=f"reports:schedule:{schedule.pk}")
     return run
 
 

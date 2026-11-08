@@ -12,11 +12,19 @@ from django.views.decorators.http import require_http_methods
 
 from administration.forms import ThrottledAuthenticationForm
 
+from .audit import _ip
+
 from .login_otp import login_otp_required, send_login_otp_email, verify_otp_code
 
 User = get_user_model()
 SESSION_USER = "otp_pending_user_id"
 SESSION_NEXT = "otp_pending_next"
+OTP_ERRORS = {
+    "invalid": "That code is incorrect.",
+    "expired": "That code has expired. Request a new one.",
+    "locked": "Too many incorrect codes. Request a new code.",
+    "throttled": "Too many incorrect codes from this address. Try again later.",
+}
 
 
 class OTPLoginView(LoginView):
@@ -27,10 +35,12 @@ class OTPLoginView(LoginView):
         if not login_otp_required():
             return super().form_valid(form)
         user = form.get_user()
-        ok, err = send_login_otp_email(user)
+        ok, err = send_login_otp_email(user, ip=_ip(self.request), reuse_pending=True)
         if not ok:
             form.add_error(None, err)
             return self.form_invalid(form)
+        if err:
+            messages.info(self.request, err)
         self.request.session[SESSION_USER] = user.pk
         self.request.session[SESSION_NEXT] = self.get_redirect_url()
         return HttpResponseRedirect(reverse("verify_otp"))
@@ -72,13 +82,13 @@ def verify_otp(request):
         if not code:
             error = "Enter the code from your e-mail."
         else:
-            ok, reason = verify_otp_code(user.pk, code)
+            ok, reason = verify_otp_code(user.pk, code, ip=_ip(request))
             if ok:
                 auth_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
                 dest = request.session.pop(SESSION_NEXT, None) or reverse("dashboard")
                 request.session.pop(SESSION_USER, None)
                 return redirect(dest)
-            error = "That code is incorrect." if reason == "invalid" else "That code has expired. Request a new one."
+            error = OTP_ERRORS.get(reason, OTP_ERRORS["expired"])
     return render(
         request,
         "registration/verify_otp.html",
@@ -95,7 +105,7 @@ def resend_otp(request):
     user = _pending_user(request)
     if user is None:
         return redirect(settings.LOGIN_URL)
-    ok, err = send_login_otp_email(user)
+    ok, err = send_login_otp_email(user, ip=_ip(request))
     if ok:
         messages.success(request, f"A new code was sent to {_mask_email(user.email)}.")
     else:

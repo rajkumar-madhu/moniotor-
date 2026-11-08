@@ -19,13 +19,15 @@ from django.utils import timezone
 from core.prometheus import PrometheusError
 from telemetry.fmt import promql_string
 
-from .metrics import finite, query
+from .metrics import finite, is_outage, query
 
 REQUIRED_METRICS = ["kube_node_status_condition", "kube_pod_status_phase", "kube_namespace_created",
                     "kube_deployment_spec_replicas", "kube_deployment_status_replicas_unavailable"]
 PHASES = ["Running", "Pending", "Succeeded", "Failed", "Unknown"]
 LIST_LIMIT = 50
 CACHE_SECONDS = 30
+OUTAGE_KEY = "compute:k8s:outage:v1"
+OUTAGE_SECONDS = 15     # after Prometheus is found unreachable, the page does not ask again for this long
 
 
 class MetricsMissing(Exception):
@@ -120,11 +122,17 @@ def live_summary(cluster, use_cache=True):
         hit = cache.get(key)
         if hit is not None:
             return hit
+    if use_cache:
+        down = cache.get(OUTAGE_KEY)
+        if down:  # one cluster already found Prometheus unreachable: do not wait for a timeout per cluster
+            return None, down
     try:
         res = (fetch_summary(pairs), "")
     except MetricsMissing:
         res = (None, "missing")
     except PrometheusError as e:
-        return None, str(e)  # not cached: the next refresh retries
+        if is_outage(e):
+            cache.set(OUTAGE_KEY, str(e), OUTAGE_SECONDS)
+        return None, str(e)  # the error itself is not cached: the next refresh retries once the outage window passed
     cache.set(key, res, CACHE_SECONDS)
     return res

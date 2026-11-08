@@ -32,6 +32,13 @@ def perms(request):
     return {"can_operate": can(u, "operate"), "can_admin": can(u, "admin")}
 
 
+def wants_refresh(request):
+    """Does the request ask for fresh data (?refresh=1) and may it have it? Bypassing the caches sends the full set of
+    Prometheus / Nagios queries straight to the servers, so only a user with the operate role can; a viewer's
+    ?refresh=1 is served from the cache like any other request."""
+    return request.GET.get("refresh") == "1" and can(request.user, "operate")
+
+
 def prom_context():
     url = settings.PROMETHEUS_URL or ""
     host = urlparse(url).netloc or url

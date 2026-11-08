@@ -10,7 +10,7 @@ from django.db import DatabaseError
 from django.db.models import Q
 from django.urls import NoReverseMatch, reverse
 
-from .models import IMPACT_FORWARD, IMPACT_REVERSE, CIType, ConfigurationItem, Relationship, RelType
+from .models import IMPACT_FORWARD, IMPACT_REVERSE, CIStatus, CIType, ConfigurationItem, Relationship, RelType
 
 SEVERITY = {"critical": 3, "warning": 2, "healthy": 1, "unknown": 0}
 STATE_CLASS = {"critical": "crit", "warning": "warn", "healthy": "ok", "unknown": "unk"}
@@ -146,13 +146,15 @@ def impacted(ci, edges=None, max_nodes=500):
     """
     edges = edges if edges is not None else edges_for(ci.tenant_key)
     adj = impact_adjacency(edges)
+    # a retired (decommissioned) CI is not in service: it is neither impacted nor a path the outage travels along
+    retired = set(ConfigurationItem.objects.filter(tenant_key=ci.tenant_key, status=CIStatus.RETIRED).values_list("pk", flat=True))
     seen = {ci.pk: (0, None, None)}
     q = deque([ci.pk])
     while q and len(seen) <= max_nodes:
         cur = q.popleft()
         depth = seen[cur][0]
         for nxt, rt, _d in adj.get(cur, ()):
-            if nxt not in seen:
+            if nxt not in seen and nxt not in retired:
                 seen[nxt] = (depth + 1, rt, cur)
                 q.append(nxt)
     seen.pop(ci.pk)

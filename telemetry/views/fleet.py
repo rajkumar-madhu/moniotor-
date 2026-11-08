@@ -11,7 +11,7 @@ from core.access import require, visible_sites
 from .. import fleet as svc
 from .. import hosts as hosts_svc
 from ..fmt import finite
-from .common import csv_response, matches, paginate, perms, prom_context, query_without_page
+from .common import csv_response, matches, paginate, perms, prom_context, query_without_page, wants_refresh
 
 GRID_MAX = 2000          # hard cap on status-grid cells, so a runaway fleet cannot blow up the page
 LEADERBOARD = 10
@@ -56,7 +56,7 @@ def _grid(rows, group, colour):
 @require("view")
 def fleet(request):
     ctx = {**prom_context(), **perms(request)}
-    refresh = request.GET.get("refresh") == "1"
+    refresh = wants_refresh(request)
     use_cache = not refresh
 
     data = svc.host_states(use_cache=use_cache, with_prometheus=ctx["prom_configured"])
@@ -74,7 +74,8 @@ def fleet(request):
     if ctx["prom_configured"]:
         targets, targets_error = svc.all_targets(use_cache=use_cache)
         targets = svc.scope_targets(request.user, targets)
-    series, series_error = svc.series_count(use_cache=use_cache) if ctx["prom_configured"] else (None, "")
+    # series_count is the heaviest query: it always uses its 300 s cache, whatever ?refresh says
+    series, series_error = svc.series_count() if ctx["prom_configured"] else (None, "")
 
     firing_total = len(firing)
     on_hosts = sum(h.get("alerts_firing", 0) for h in hosts)

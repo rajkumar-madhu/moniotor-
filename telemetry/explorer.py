@@ -28,7 +28,7 @@ RANGES = [("5m", "5 minutes", 300), ("15m", "15 minutes", 900), ("1h", "1 hour",
           ("2d", "2 days", 2 * 86400), ("7d", "7 days", 7 * 86400)]
 RANGE_SECONDS = {k: s for k, _l, s in RANGES}
 DEFAULT_RANGE = "1h"
-_DURATION = re.compile(r"^\s*(\d+)\s*([smhdw]?)\s*$")
+_DURATION = re.compile(r"^\s*(\d{1,9})\s*([smhdw]?)\s*$")   # at most 9 digits: int() of a huge digit string raises
 _UNIT = {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400, "w": 7 * 86400}
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 

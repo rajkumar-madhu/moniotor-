@@ -1,6 +1,13 @@
 # LinkedEye Secrets Audit
 
-_Last updated: 2026-06-25_
+_Last updated: 2026-11-08_
+
+> **Rotate before anything else.** Earlier revisions of this file and of
+> `lib/LinkedEyeValidation/Read.me` printed live-looking credentials (an Office 365 SMTP
+> app password, an iLO login and a SNMP v2c community string). They are redacted below
+> (`<rotate-and-remove>`) but **remain readable in git history** (commit `751df6e` and
+> later). Treat all of them as compromised: rotate/revoke them at the source, and purge
+> history (`git filter-repo`) if this repository is or will be shared.
 
 This document lists hardcoded or embedded secrets found in the codebase, what was
 remediated, and how to run production-grade Vault for application secrets.
@@ -22,7 +29,7 @@ remediated, and how to run production-grade Vault for application secrets.
 |----------|-------------|-------------|
 | `LinkedEyeWebProject/settings.py` | `SECRET_KEY`, DB passwords, Redis, Neo4j, email app key, Google OAuth | `get_app_secret()` from Vault with env fallback |
 | `app/views.py` | `DEFAULT_MASTER_KEY`, `ADMIN_DEFAULT_PASSWORD` | Removed literals; use `TOTP_MASTER_KEY` / settings |
-| `notification/views.py` | SMTP password `nwswgmrvgqvhjbbt` | `settings.LINKEDEYE_EMAIL_APPKEY` |
+| `notification/views.py` | SMTP password `<rotate-and-remove>` | `settings.LINKEDEYE_EMAIL_APPKEY` |
 | `notification/tasks.py` | SMTP password default | `settings.LINKEDEYE_EMAIL_APPKEY` |
 | `allonboard/services.py` | SMTP password | `settings.LINKEDEYE_EMAIL_APPKEY` |
 | `lib/LinkedEyeEntity/Node.py` | Neo4j password default | `get_app_secret('NEO4J_PASS')` |
@@ -34,8 +41,18 @@ remediated, and how to run production-grade Vault for application secrets.
 
 ## Files that still contain secrets (action required)
 
-| File | Risk | Action |
-|------|------|--------|
+State of the tree on 2026-11-08 (re-check with a scanner, see below):
+
+| File | State | Action |
+|------|-------|--------|
+| `login/aad.config.json` | `client_credential` is empty in the tree | Keep it empty; inject the Azure AD secret from Vault key `AZURE_CLIENT_SECRET` or a K8s secret. Rotate the old value if it was ever committed. |
+| `LinkedEyeWebProject.pyproj` | No credentials found | Local IDE project file only |
+| `lib/LinkedEyeValidation/Read.me` | Credentials replaced by placeholders | Rotate the iLO account and the SNMP community that were printed there |
+| `SECRETS_AUDIT.md` (this file) | SMTP password redacted | Rotate the SMTP app password |
+
+Add a secret scanner (gitleaks or detect-secrets) to CI so these values cannot return.
+
+------|------|--------|
 | `login/aad.config.json` | Azure AD `client_credential` in JSON | Move to Vault key `AZURE_CLIENT_SECRET` or K8s secret; remove from git |
 | `LinkedEyeWebProject.pyproj` | Dev env vars with real passwords | Local IDE only — never deploy; add to `.gitignore` if possible |
 | `DEV_SETUP_MEMORY.md` | Historical dev credentials | Documentation only — rotate if exposed |

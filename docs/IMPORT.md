@@ -72,6 +72,18 @@ Namespaces page, so a guess is never presented as a mapping.
 * **Damaged sheets retire nothing.** A sheet that failed, or whose rows could not be read at all (its key
   column was renamed or removed), is not taken to mean "everything is gone": its rows are left as they were,
   and namespaces that only other sheets mention are kept while any sheet of the run was unreadable.
+* **Namespaces need every contributing sheet.** A namespace can be created by any of the workload, service,
+  volume, ingress, certificate, secret, monitoring, tool and issue sheets as well as the mapping sheet. A
+  source that lacks one of those sheets leaves the namespaces nothing mentions any more as they were (with a
+  warning) instead of retiring namespaces the absent sheets still use.
+* **Size limits fail closed.** A sheet is read up to 100,000 data rows (200,000 scanned rows) and 2,000,000
+  cells; one upload may hold 5,000,000 cells. A sheet that is longer than the row limit is **not imported at
+  all** - the run reports an error naming the sheet and its records are left untouched - because importing
+  only its first rows would make the rest look "no longer present". A source over a cell limit is refused
+  as unreadable. Only the sheets the importer knows are parsed; others are listed as unknown without being read.
+* **Large files.** The upload page runs the import inside the web request, so a very large workbook can hit the
+  web worker's time limit. Use `manage.py import_k8s_inventory` for those. A run still "running" an hour after
+  it started (the process was killed) is marked failed when the import pages are next opened.
 * **Per sheet.** Each sheet runs in its own transaction, so one broken sheet is reported and rolled back
   while the others still import. The run ends as "failed" if anything was reported.
 * **Audited.** The upload writes an `AuditEvent` and emits a `core.events` event; every run is kept as an

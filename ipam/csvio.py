@@ -2,7 +2,7 @@
 import csv
 import io
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.http import HttpResponse
 
 from . import dns, services
@@ -12,6 +12,7 @@ from .models import AddressStatus, IPAddress, Source
 IMPORT_COLUMNS = ["address", "vrf", "status", "hostname", "description", "device", "ci"]
 MAX_ROWS = 5000
 MAX_ERRORS = 50
+CSV_TOO_LONG = "This line is malformed or a field is too long (more than 131,072 characters)."
 
 
 def _is_number(s):
@@ -72,7 +73,12 @@ def import_addresses(upload, user, update_existing=False):
         res.errors.append((0, "The file is not UTF-8 text."))
         return res
     reader = csv.DictReader(io.StringIO(text, newline=""))
-    if not reader.fieldnames:
+    try:
+        fieldnames = reader.fieldnames
+    except csv.Error:
+        res.errors.append((1, CSV_TOO_LONG))
+        return res
+    if not fieldnames:
         res.errors.append((0, "The file is empty."))
         return res
     header = {(h or "").strip().lower(): h for h in reader.fieldnames}
@@ -97,7 +103,15 @@ def import_addresses(upload, user, update_existing=False):
         if len(res.errors) < MAX_ERRORS:
             res.errors.append((line, msg))
 
-    for i, raw in enumerate(reader, start=2):
+    lines = iter(enumerate(reader, start=2))
+    while True:
+        try:
+            i, raw = next(lines)
+        except StopIteration:
+            break
+        except csv.Error:   # an oversized field or a malformed record: the reader cannot go on after it
+            err(reader.line_num, CSV_TOO_LONG)
+            break
         row = {k: (raw.get(orig) or "").strip() for k, orig in header.items() if k}
         if not any(row.values()):
             continue
@@ -166,6 +180,16 @@ def import_addresses(upload, user, update_existing=False):
         res.errors.append((0, "The file has no data rows."))
     if res.errors:
         return res
+    try:
+        _apply(res, plan, t)
+    except IntegrityError:   # a concurrent writer (a manual add, the sync job) took one of the addresses meanwhile
+        res.created, res.updated = [], []
+        res.errors.append((0, "An address in this file was added by someone else while importing. Nothing was "
+                              "imported; check the address list and upload the file again."))
+    return res
+
+
+def _apply(res, plan, t):
     with transaction.atomic():
         for existing, d in plan:
             if existing is None:
@@ -185,4 +209,3 @@ def import_addresses(upload, user, update_existing=False):
                     existing.ci = d["ci"]
                 existing.save()
                 res.updated.append(existing)
-    return res

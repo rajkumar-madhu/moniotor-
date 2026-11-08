@@ -68,7 +68,9 @@ def host_names(target):
 # ----------------------------------------------------------------------------- the product side
 def ingest_token():
     """The token the ingest endpoint enforces. Never log or return it anywhere but the generated text."""
-    return str(getattr(settings, "LOG_INGEST_TOKEN", "") or "")
+    from administration import integration_config as ic
+
+    return ic.log_ingest_token()
 
 
 def ingest_enabled():

@@ -91,11 +91,18 @@ class PageTests(Base):
         self.assertNotContains(response, "<div class=\"value\">0</div>")
 
     def test_overview_counts_unbuilt_sheets_from_the_last_import(self):
+        """A sheet whose model does not exist yet falls back to the last import's row count (all-site users)."""
+        from unittest import mock
+
+        from k8s import services
+        unbuilt = [(key, sheet, ("k8s", "NotBuiltYet") if key in ("issues", "tools") else model)
+                   for key, sheet, model in services.EXTRA_METRICS]
         self.login(self.viewer)
         run = ImportRun.objects.first()
         run.counts = {**run.counts, "12_Issues_Risks": {"rows": 42}}
         run.save(update_fields=["counts"])
-        extra = self.client.get(reverse("k8s:overview")).context["extra"]
+        with mock.patch.object(services, "EXTRA_METRICS", unbuilt):
+            extra = self.client.get(reverse("k8s:overview")).context["extra"]
         self.assertEqual(extra["issues"], {"value": 42, "source": "last import", "sheet": "12_Issues_Risks"})
         self.assertIsNone(extra["tools"]["value"])
         self.assertIsNone(extra["tools"]["source"])

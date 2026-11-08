@@ -10,7 +10,8 @@ from core.models import Client
 from core.secrets import MASK
 
 from .models import CredentialKind, OnboardingRun, RunKind, TargetType
-from .services import MAX_PASTE_BYTES, onboardable_sites, tenant
+from .services import (MAX_PASTE_BYTES, can_manage_discovery, onboardable_sites, reserved_label, site_client,
+                       tenant)
 
 class SecretTextarea(forms.Textarea):
     """A multi-line secret box (SSH private key) that never renders a value, even after a failed
@@ -41,7 +42,13 @@ class ScopeForm(forms.ModelForm):
         self.fields["site"].choices = [("", "Select a site…")] + [(n, n) for n in names]
         self.fields["kind"].choices = RunKind.choices
         self.fields["environment"] = forms.ChoiceField(choices=ENVIRONMENTS, initial="prod", label="Environment")
-        self.fields["client"].queryset = Client.objects.filter(tenant_key=tenant()).order_by("name")
+        clients = Client.objects.filter(tenant_key=tenant()).order_by("name")
+        # a site admin labels a run with the client that owns the site, never with another customer's;
+        # only an admin on every site may pick any client of the tenant
+        self.any_client = user is not None and can_manage_discovery(user)
+        if not self.any_client:
+            clients = clients.filter(pk__in=[c.pk for c in (site_client(n) for n in names) if c is not None])
+        self.fields["client"].queryset = clients
         self.fields["client"].required = False
         self.fields["client"].empty_label = "The site's own client"
         self.fields["client"].help_text = "Left empty, the client that owns the site is used."
@@ -55,6 +62,16 @@ class ScopeForm(forms.ModelForm):
         if site not in allowed:
             raise forms.ValidationError("You need the admin role on that site to onboard into it.")
         return site
+
+    def clean(self):
+        data = super().clean()
+        client, site = data.get("client"), data.get("site")
+        if client is not None and site and not self.any_client:
+            owner = site_client(site)
+            if owner is None or owner.pk != client.pk:
+                self.add_error("client", "A run is labelled with the client that owns its site. Leave this empty to "
+                                         "use it; choosing another client needs the admin role on every site.")
+        return data
 
 
 class TargetsForm(forms.Form):
@@ -102,6 +119,13 @@ class CredentialForm(forms.Form):
     notes = forms.CharField(label="Notes", max_length=300, required=False)
     apply_to = forms.ChoiceField(label="Apply to", required=False, initial="all", choices=[
         ("all", "Every target of this run"), ("none", "Do not attach it yet")])
+
+    def clean_name(self):
+        name = (self.cleaned_data.get("name") or "").strip()
+        if reserved_label(name):
+            raise forms.ValidationError("That label is reserved for the product's own tenant-wide credentials. "
+                                        "Choose another one.")
+        return name
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

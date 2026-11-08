@@ -193,7 +193,12 @@ def all_sites(user):
     names = set()
     for k, qs in sources(user).items():
         names |= set(qs.order_by().values_list("site_key" if k == "domain" else "site", flat=True).distinct())
-    names |= set(_model("core.Site").objects.filter(tenant_key=settings.LINKEDEYE_TENANT).values_list("name", flat=True))
+    from core.access import visible_sites
+    known = _model("core.Site").objects.filter(tenant_key=settings.LINKEDEYE_TENANT)
+    visible = visible_sites(user)
+    if visible is not None:     # a site-limited user must not learn the names of other customers' sites
+        known = known.filter(name__in=visible)
+    names |= set(known.values_list("name", flat=True))
     return sorted(n for n in names if n)
 
 

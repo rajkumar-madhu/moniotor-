@@ -506,7 +506,7 @@ class VerifyTests(ServersCase):
 
     def test_bearer_credential_is_sent_and_accepted_and_never_stored(self):
         cred = self.cred("bearer", "", "tok-en-secret-value-123")
-        t = self.host(credential=cred)
+        t = self.host(credential=cred, scheme="https")        # an HTTP login only travels over TLS
         out = steps.verify_target(t)
         self.assertEqual(out["state"], TargetState.EXPORTER_FOUND)
         self.assertIs(out["creds_accepted"], True)
@@ -517,7 +517,7 @@ class VerifyTests(ServersCase):
 
     def test_basic_credential_header_and_rejection(self):
         cred = self.cred("basic_auth", "scrape", SECRET)
-        t = self.host(credential=cred)
+        t = self.host(credential=cred, scheme="https")
         self.net.status = 401
         out = steps.verify_target(t)
         expected = "Basic " + base64.b64encode(f"scrape:{SECRET}".encode()).decode()

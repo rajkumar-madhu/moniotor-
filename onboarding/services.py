@@ -11,14 +11,16 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, models, transaction
 from django.utils import timezone
 
+from core import secrets
 from core.access import can_on, scope_by_site, visible_sites
 from core.audit import audit
 
 from .models import (DEFAULT_EXPORTERS, DEFAULT_PORTS, SD_STATES, STEP_SLUGS, STEP_STATUS, Credential,
-                     OnboardingRun, OnboardingTarget, RunKind, RunStatus, StepLog, TargetState, TargetType)
+                     CredentialKind, OnboardingRun, OnboardingTarget, RunKind, RunStatus, StepLog, TargetState,
+                     TargetType)
 
 log = logging.getLogger("linkedeye.onboarding")
 
@@ -64,7 +66,7 @@ def enabled_sd_targets(tenant_key=None, user=None):
     qs = (OnboardingTarget.objects
           .filter(run__tenant_key=tenant_key or tenant(), enabled=True, state__in=SD_STATES)
           .exclude(run__status=RunStatus.FAILED)
-          .select_related("run", "run__client")
+          .select_related("run", "run__client", "credential")
           .order_by("hostname", "id"))
     if user is not None:
         allowed = visible_sites(user)
@@ -173,9 +175,14 @@ _SECRETISH = ("password", "passwd", "secret", "token", "private_key", "privateke
               "api_key", "apikey", "authorization", "community", "auth_key", "priv_key")
 
 
+#: no single stored fact string may be longer than this: a hostile or buggy exporter must not be able to put
+#: megabytes into a JSON column that every run page then renders (the longest legitimate value is a shipper config)
+MAX_FACT_CHARS = 12000
+
+
 def scrub(value, _depth=0):
-    """A copy of a facts structure without secret-looking keys. Defence in depth: the hooks are
-    told never to return a secret, and this makes sure one cannot reach the database or a page."""
+    """A copy of a facts structure without secret-looking keys and with every string bounded. Defence in depth:
+    the hooks are told never to return a secret, and this makes sure one cannot reach the database or a page."""
     if _depth > 6:
         return None
     if isinstance(value, dict):
@@ -183,6 +190,8 @@ def scrub(value, _depth=0):
                 if not any(w in str(k).lower() for w in _SECRETISH)}
     if isinstance(value, (list, tuple)):
         return [scrub(v, _depth + 1) for v in value][:200]
+    if isinstance(value, str) and len(value) > MAX_FACT_CHARS:
+        return value[:MAX_FACT_CHARS - 1] + "…"
     return value
 
 
@@ -224,6 +233,36 @@ def set_target_state(target, state, error="", facts=None, first_sample_at=None):
         fields.append("first_sample_at")
     target.save(update_fields=fields)
     return target
+
+
+#: states a target reaches only when the operator activated it: a probe or an install never moves it out of them
+ACTIVATED_STATES = (TargetState.SCRAPING, TargetState.LIVE)
+
+
+def probe_state(current, new):
+    """The state to store after a verify or enable probe said `new`. A target that is already registered for
+    scraping or live keeps its state whatever the probe found (a DNS blip must not drop a healthy production
+    host from service discovery); the result is still recorded in last_error and facts."""
+    return current if current in ACTIVATED_STATES else new
+
+
+#: an install that has not released its lock after this long is taken for dead (its request was killed)
+INSTALL_LOCK_FOR = timedelta(minutes=10)
+
+
+def claim_install(target):
+    """Take the target's install lock with one conditional UPDATE, so that two requests cannot run an install on the
+    same host at once. True when this caller holds the lock (and must call release_install), False when another
+    install is running. The lock expires by itself, so a killed request cannot block the host for ever."""
+    now = timezone.now()
+    won = (OnboardingTarget.objects.filter(pk=target.pk)
+           .filter(models.Q(install_lock_until__isnull=True) | models.Q(install_lock_until__lt=now))
+           .update(install_lock_until=now + INSTALL_LOCK_FOR))
+    return bool(won)
+
+
+def release_install(target):
+    OnboardingTarget.objects.filter(pk=target.pk).update(install_lock_until=None)
 
 
 # ----------------------------------------------------------------------------- runs and targets
@@ -348,6 +387,8 @@ def parse_target_list(text, default_type=TargetType.LINUX, default_port=None):
         if not host:
             bad.append(raw.strip()[:120])
             continue
+        scheme = host_cell.strip().lower().split("://", 1)[0] if "://" in host_cell else ""
+        scheme = scheme if scheme in ("http", "https") else ""
         if host in seen:
             continue
         seen.add(host)
@@ -366,7 +407,8 @@ def parse_target_list(text, default_type=TargetType.LINUX, default_port=None):
             bad.append(raw.strip()[:120])
             continue
         addr, _ = _clean_host(address)
-        rows.append({"hostname": host, "address": addr or "", "target_type": ttype, "port": int(port)})
+        rows.append({"hostname": host, "address": addr or "", "target_type": ttype, "port": int(port),
+                     "scheme": scheme})
     return rows, bad
 
 
@@ -385,7 +427,8 @@ def add_targets(run, rows, request=None):
         if target is not None:
             changed = []
             for field, value in (("address", row.get("address") or target.address),
-                                 ("target_type", ttype), ("port", port)):
+                                 ("target_type", ttype), ("port", port),
+                                 ("scheme", row.get("scheme") or target.scheme)):
                 if getattr(target, field) != value:
                     setattr(target, field, value)
                     changed.append(field)
@@ -405,7 +448,7 @@ def add_targets(run, rows, request=None):
             with transaction.atomic():           # a savepoint: a lost race must not poison the outer transaction
                 target = OnboardingTarget.objects.create(
                     run=run, hostname=host, address=row.get("address") or "", target_type=ttype, port=port,
-                    exporter_kind=DEFAULT_EXPORTERS.get(ttype, ""), state=TargetState.NEW,
+                    scheme=row.get("scheme") or "", exporter_kind=DEFAULT_EXPORTERS.get(ttype, ""), state=TargetState.NEW,
                 )
         except IntegrityError:                   # a concurrent POST added the same host first
             skipped += 1
@@ -426,14 +469,67 @@ def remove_target(run, target, request=None):
     audit(request, "onboarding.targets.remove", run, site=run.site, hostname=host)
 
 
+#: which credential kinds make sense for which target types. A secret is only ever attached to, and used for,
+#: a target that can legitimately receive it: an SSH login belongs to a server, an SNMP community to a device,
+#: an HTTP login to something that serves /metrics. Everything else is skipped, never "attached anyway".
+_SERVERS = (TargetType.LINUX, TargetType.WINDOWS)
+CREDENTIAL_FITS = {
+    CredentialKind.SSH_PASSWORD: _SERVERS,
+    CredentialKind.SSH_KEY: _SERVERS,
+    CredentialKind.SNMP_V2C: (TargetType.DEVICE,),
+    CredentialKind.SNMP_V3: (TargetType.DEVICE,),
+    CredentialKind.BASIC_AUTH: _SERVERS + (TargetType.K8S_NODE, TargetType.URL, TargetType.PROMETHEUS),
+    CredentialKind.BEARER: _SERVERS + (TargetType.K8S_NODE, TargetType.URL),
+}
+
+
+def credential_fits(kind, target_type):
+    """True when a credential of `kind` may be attached to, and used for, a target of `target_type`."""
+    return str(target_type) in {str(t) for t in CREDENTIAL_FITS.get(str(kind), ())}
+
+
 def attach_credential(run, credential, targets=None, request=None):
-    """Point the given targets (or every target of the run) at `credential`. Idempotent."""
+    """Point the given targets (or every target of the run) at `credential`. Idempotent. Targets whose type
+    cannot take this kind of credential are skipped (and said so in the run log). Returns how many were attached."""
     qs = run.targets.all() if targets is None else run.targets.filter(pk__in=[t.pk for t in targets])
-    n = qs.update(credential=credential)
+    fitting = [t.pk for t in qs if credential_fits(credential.kind, t.target_type)]
+    skipped = qs.count() - len(fitting)
+    n = run.targets.filter(pk__in=fitting).update(credential=credential)
     log_step(run, "credentials", "ok",
              f"{credential.get_kind_display()} “{credential.name}” attached to {n} target(s)")
-    audit(request, "onboarding.credential.attach", run, site=run.site, credential=credential.pk, targets=n)
+    if skipped:
+        log_step(run, "credentials", "warn",
+                 f"{skipped} target(s) skipped: a {credential.get_kind_display()} does not apply to their type")
+    audit(request, "onboarding.credential.attach", run, site=run.site, credential=credential.pk, targets=n,
+          skipped=skipped)
     return n
+
+
+#: labels the product itself uses for its tenant-wide vault rows; a site admin may not store a row under them
+_RESERVED_LABELS = ("prometheus service discovery",)
+_RESERVED_PREFIXES = ("prometheus http",)
+
+
+def reserved_label(name):
+    """True for a vault label that belongs to the product (the service-discovery token, the Prometheus login)."""
+    norm = " ".join(str(name or "").split()).lower()
+    return norm in _RESERVED_LABELS or norm.startswith(_RESERVED_PREFIXES)
+
+
+def cleartext_allowed():
+    """True when the operator opted in to sending an exporter login over plain http (a network they trust)."""
+    return bool(getattr(settings, "LINKEDEYE_ONBOARDING_ALLOW_CLEARTEXT_CREDENTIALS", False))
+
+
+CLEARTEXT_MESSAGE = ("The attached HTTP login was not sent: this target is reached over plain http, which would put "
+                     "it on the network in clear text. Paste the target as https://host:port, or set "
+                     "LINKEDEYE_ONBOARDING_ALLOW_CLEARTEXT_CREDENTIALS=true for a network you trust.")
+
+
+def acting_request():
+    """The request on whose behalf a hook runs (set by ``secrets.acting_as`` around a POST), or None. Hooks get no
+    request of their own; this keeps their audit rows attributed to the operator instead of "system"."""
+    return secrets._actor.get()
 
 
 def clear_credential(run, target, request=None):
@@ -495,7 +591,9 @@ def read_csv(stream):
 
 
 # ----------------------------------------------------------------------------- liveness
-WAITING_STATES = (TargetState.SCRAPING, TargetState.INSTALLED, TargetState.EXPORTER_FOUND)
+#: only a target the operator activated waits for its first samples: a merely verified or installed one is not
+#: live, whatever Prometheus says about it (activation is what creates its CMDB item, device and exporter)
+WAITING_STATES = (TargetState.SCRAPING,)
 #: the background job stops polling a target that has not changed for this long (it never came up);
 #: it stays in service discovery and the operator's "Check now" still promotes it if it ever does
 GIVE_UP_AFTER = timedelta(days=30)

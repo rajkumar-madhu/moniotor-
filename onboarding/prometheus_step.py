@@ -129,6 +129,11 @@ def fetch_overview(url, username="", password=""):
     out = {"url": redact(url), "ok": False, "authenticated": authenticated, "stages": [], "errors": [],
            "warnings": [], "version": "", "revision": "", "go_version": "", "targets": 0, "up": 0, "down": 0,
            "unknown": 0, "hosts": 0, "jobs": [], "instances": [], "checked_at": timezone.now().isoformat()}
+    if authenticated and base.lower().startswith("http://") and not services.cleartext_allowed():
+        out["errors"].append(services.CLEARTEXT_MESSAGE)        # nothing is sent: not even the login
+        out["stages"].append({"name": "buildinfo", "ok": False, "detail": "Not sent: the login would travel in clear text.",
+                              "ms": 0})
+        return out
 
     def stage(name, ok, detail, ms):
         out["stages"].append({"name": name, "ok": ok, "detail": detail, "ms": ms})
@@ -424,7 +429,9 @@ def verify_prometheus(target):
     if parts is not None and (parts.hostname or "").lower() == target.hostname.lower():
         url = connected
     else:
-        url = f"{'https' if target.port == 443 else 'http'}://{target.address or target.hostname}:{target.port}"
+        host = (target.address or target.hostname or "").strip().strip("[]")
+        host = f"[{host}]" if ":" in host else host            # an IPv6 literal needs brackets in a URL
+        url = f"{target.url_scheme}://{host}:{target.port}"
     cred = target.credential if target.credential_id and target.credential.kind == CredentialKind.BASIC_AUTH else None
     if cred is not None:
         # the connected Prometheus' own login goes only to that server; any other login only from its own site

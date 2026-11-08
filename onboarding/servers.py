@@ -33,7 +33,7 @@ from probes import checks
 
 from . import install, ssh
 from .models import CredentialKind, TargetState, TargetType
-from .services import log_step
+from .services import CLEARTEXT_MESSAGE, cleartext_allowed, credential_fits, log_step
 
 log = logging.getLogger("linkedeye.onboarding")
 
@@ -118,7 +118,7 @@ def probe_tcp(ip, port, timeout=TCP_TIMEOUT):
 def fetch_metrics(target, ip, headers=None, timeout=HTTP_TIMEOUT):
     """GET /metrics from the validated address. Returns {status, body, error}. One hop, no redirects (so a
     credential is never forwarded), bounded in size and time. Goes through probes.checks only."""
-    scheme = "https" if target.port == 443 else "http"
+    scheme = target.url_scheme
     host = _host(target)
     conn = checks._open_connection(scheme, host, ip, target.port, timeout)
     watchdog = checks._Deadline(timeout, lambda c=conn: getattr(c, "_probe_sock", None))
@@ -169,8 +169,13 @@ _LABEL = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)="((?:[^"\\]|\\.)*)"')
 _KNOWN_BUILD_INFO = ("node_exporter", "windows_exporter", "wmi_exporter")
 
 
+#: a value read from a /metrics label is stored and rendered: bound it like the SSH side does
+MAX_LABEL_CHARS = 255
+
+
 def _labels(raw):
-    return {k: v.replace('\\"', '"').replace("\\\\", "\\") for k, v in _LABEL.findall(raw or "")}
+    return {k: v.replace('\\"', '"').replace("\\\\", "\\")[:MAX_LABEL_CHARS]
+            for k, v in _LABEL.findall(raw or "")}
 
 
 def _number(text):
@@ -262,12 +267,19 @@ def _credential(target):
     # never a host credential, so it can never be sent to a host an operator names
     if cred.tenant_key != run.tenant_key or cred.site != run.site:
         return None, "The attached credential belongs to another site, so it was not used."
+    # and only for a target type that can take that kind of secret: an SSH login is never offered to a URL
+    # service or a Kubernetes node, an HTTP login never to a network device (whatever got attached to it)
+    if not credential_fits(cred.kind, target.target_type):
+        return None, (f"The attached {cred.get_kind_display()} does not apply to a "
+                      f"{target.get_target_type_display().lower()}, so it was not used.")
     return cred, ""
 
 
 def _fetch_with_credential(target, ip, cred, attempts):
     """GET /metrics, sending an HTTP basic / bearer credential when one is attached. Returns the fetch dict."""
     headers = {}
+    if cred is not None and cred.kind in HTTP_KINDS and target.url_scheme != "https" and not cleartext_allowed():
+        return {"status": None, "body": b"", "error": CLEARTEXT_MESSAGE, "content_type": "", "cleartext": True}
     try:
         if cred is not None and cred.kind in HTTP_KINDS:
             with vault.use(cred, None, reason=f"verify {target.hostname}: exporter authentication") as secret:
@@ -337,6 +349,10 @@ def probe_metrics(target, attempts):
     if fetch.get("vault"):
         attempts.add("GET /metrics", False, _ms(started), "The credential vault is unavailable; the stored credential could not be used.")
         out["reason"] = "The credential vault is unavailable, so the exporter credential could not be used."
+        return out
+    if fetch.get("cleartext"):
+        attempts.add("GET /metrics", False, _ms(started), "Not sent: the HTTP login would travel in clear text.")
+        out["reason"] = CLEARTEXT_MESSAGE
         return out
     parsed, error, accepted = _classify(fetch, sent)
     if accepted is not None:

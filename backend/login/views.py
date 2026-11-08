@@ -19,8 +19,6 @@ import logging
 
 logger = logging.getLogger('linkedeye')
 
-ADMIN_DEFAULT_PASSWORD = getattr(settings, 'ADMIN_DEFAULT_PASSWORD', '') or os.getenv('ADMIN_DEFAULT_PASSWORD', '')
-
 def index(request):
     if request.user.is_authenticated:
         if request.user.groups.all()[0].name == 'Admin':
@@ -39,27 +37,16 @@ def verify(request):
         email=parsed_json['username']
         password=parsed_json['password']
         if not User.objects.filter(username=email).exists():
-            if email != "admin":
-                response['msg'] = "The username does not exist. Try again"
-                response["status"] = 500
-            else:
-                if Group.objects.filter(name='Admin').exists():
-                    pass
-                else:
-                    ob_role = Group(name='Admin', weightage = 21) # 21=010101 ['VSA','VA','ESA','EA','DSA','DA']
-                    ob_role.save()
-                group = Group.objects.get(name = 'Admin').id
-                user = User.objects.create_user(username=email,password=ADMIN_DEFAULT_PASSWORD,email=email,first_name=email,last_name=email,is_active=True)
-                user.save()
-                user.groups.add(group)
-                auth.login(request, user)
-                response["status"] = 200
-                response["redirectUrl"] = '/admindashboard'
+            # SECURITY: no auto-created admin and no login without a password check.
+            # Use ``manage.py bootstrap_admin`` to create the first administrator.
+            response['msg'] = "The username does not exist. Try again"
+            response["status"] = 500
         else:
             obj = User.objects.get(username=email)
             if obj.is_active == True:
-                user = auth.authenticate(username=email,password=password)
-                if user is None and getattr(settings, 'KEYCLOAK_ENABLED', False):
+                # An empty password never authenticates (see app/views.py verify()).
+                user = auth.authenticate(username=email,password=password) if password else None
+                if user is None and password and getattr(settings, 'KEYCLOAK_ENABLED', False):
                     # Local password check failed (wrong password, or the account
                     # has no usable password — e.g. it was auto-created by an SSO
                     # login and never onboarded through the app). Fall back to

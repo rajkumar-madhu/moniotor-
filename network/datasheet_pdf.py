@@ -49,6 +49,7 @@ MAX_PDF_BYTES = 25 * 1024 * 1024
 MAX_PAGES = 6
 MAX_IMAGE_OBJECTS = 40
 MAX_FORM_DEPTH = 2
+MAX_WALK_ENTRIES = 2000           # XObject entries examined per pass over a document (all pages, all nested Forms)
 MAX_DECODED_BYTES = 20 * 1024 * 1024
 MIN_WIDTH, MIN_HEIGHT = 200, 120
 MAX_ASPECT = 7.0                        # a straight-on 1U appliance photo is 5:1 or wider (one real 1U firewall photo measured 5.07:1); header strips are wider
@@ -654,8 +655,27 @@ def _is_decoration(box, media):
 
 
 # ------------------------------------------------------------------------------------------ walking the document
-def _walk_resources(resources, depth, visit):
-    """Call visit(xobject) for every image XObject; follow form XObjects up to MAX_FORM_DEPTH."""
+class _WalkBudget:
+    """One shared allowance for a whole pass over the document's XObject dictionaries: the wall-clock deadline and a count
+    of every entry examined, so a fan-out of Forms inside Forms cannot multiply into millions of lookups."""
+    def __init__(self, stop=None, entries=MAX_WALK_ENTRIES):
+        self.stop, self.entries, self.out = stop, entries, False
+
+    def spend(self):
+        """True while the walk may examine one more entry; once it returns False the whole walk is over."""
+        if self.out:
+            return False
+        self.entries -= 1
+        if self.entries < 0 or (self.stop is not None and time.monotonic() > self.stop):
+            self.out = True
+        return not self.out
+
+
+def _walk_resources(resources, depth, visit, budget=None, seen=None):
+    """Call visit(xobject) for every image XObject; follow form XObjects up to MAX_FORM_DEPTH. The shared budget (entries
+    examined and the deadline) ends the whole walk, not just the current level; a Form met twice is walked once."""
+    budget = budget or _WalkBudget()
+    seen = set() if seen is None else seen
     res = _resolve(resources)
     if res is None or not hasattr(res, "get"):
         return
@@ -663,6 +683,8 @@ def _walk_resources(resources, depth, visit):
     if xobjs is None or not hasattr(xobjs, "values"):
         return
     for key in list(xobjs.keys())[:200]:
+        if not budget.spend():
+            return
         ref = xobjs[key]
         xo = _resolve(ref)
         if xo is None or not hasattr(xo, "get"):
@@ -671,9 +693,16 @@ def _walk_resources(resources, depth, visit):
         ident = getattr(getattr(ref, "indirect_reference", None) or ref, "idnum", None)
         if sub == "/Image":
             if visit(xo, ident) is False:
+                budget.out = True
                 return
         elif sub == "/Form" and depth < MAX_FORM_DEPTH:
-            _walk_resources(xo.get("/Resources"), depth + 1, visit)
+            if ident is not None:
+                if ident in seen:
+                    continue
+                seen.add(ident)
+            _walk_resources(xo.get("/Resources"), depth + 1, visit, budget, seen)
+            if budget.out:
+                return
 
 
 _REASON_TEXT = {
@@ -761,11 +790,15 @@ def extract(pdf_bytes, *, deadline_seconds=DEADLINE_SECONDS, max_candidates=MAX_
                 if mid is not None:
                     mask_ids.add(mid)
             return len(mask_ids) < 1000
+        mask_budget = _WalkBudget(stop)
         for page_no in range(min(total_pages, MAX_PAGES)):
+            if mask_budget.out:
+                break
             try:
-                _walk_resources(reader.pages[page_no].get("/Resources"), 0, note_masks)
+                _walk_resources(reader.pages[page_no].get("/Resources"), 0, note_masks, mask_budget)
             except Exception:  # noqa: BLE001
                 pass
+        walk_budget = _WalkBudget(stop)
         for page_no in range(min(total_pages, MAX_PAGES)):
             if time.monotonic() > stop:
                 state["timeout"] = True
@@ -807,7 +840,9 @@ def extract(pdf_bytes, *, deadline_seconds=DEADLINE_SECONDS, max_candidates=MAX_
                                               hashlib.sha256(data).hexdigest(), _is_decoration(where.get(ident), media)))
                 return True
             try:
-                _walk_resources(resources, 0, visit)
+                _walk_resources(resources, 0, visit, walk_budget)
+                if walk_budget.out and time.monotonic() > stop:
+                    state["timeout"] = True
             except Exception:  # noqa: BLE001
                 skipped["unreadable page"] += 1
     except Exception:  # noqa: BLE001 - anything pypdf throws that the guards above missed

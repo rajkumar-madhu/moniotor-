@@ -10,17 +10,45 @@ from .models import Device, DeviceType, Environment, NetworkProductImage
 TEXT = {"class": "in"}
 
 
-def site_choices(current="", blank_label="(No site)"):
-    """Site names from core.Site plus any value already used by a device."""
+def site_choices(user, current="", blank_label="(No site)", every_site=False):
+    """Site names the user may pick: core.Site rows and sites already used by a device, limited to the user's own sites
+    (core.access.visible_sites; no user means no sites). "All Sites" and the empty choice mean every site, so they are
+    offered only to a user with the operator role tenant-wide. The current value always stays, so an edit never drops it.
+    every_site=True is the unscoped list, used only to validate a posted value (see SiteField)."""
+    from core.access import tenant_wide, visible_sites
     from core.models import Site
     t = settings.LINKEDEYE_TENANT
     names = set(Site.objects.filter(tenant_key=t).values_list("name", flat=True))
     names |= set(Device.objects.filter(tenant_key=t).order_by().values_list("site", flat=True).distinct())
+    allowed = visible_sites(user) if user is not None else set()
+    if allowed is not None and not every_site:
+        names &= allowed
+    wide = user is not None and tenant_wide(user, "operate")
     if current:
         names.add(current)
     names.discard("")
     ordered = sorted(names - {"All Sites"}, key=str.lower)
-    return [("", blank_label)] + ([("All Sites", "All Sites")] if "All Sites" in names else []) + [(n, n) for n in ordered]
+    all_sites = [("All Sites", "All Sites")] if ("All Sites" in names and (wide or every_site or current == "All Sites")) else []
+    blank = [("", blank_label)] if wide or every_site else []
+    return blank + all_sites + [(n, n) for n in ordered]
+
+
+class SiteField(forms.ChoiceField):
+    """Site select that lists only the user's own sites but still recognises every site of the tenant on submit, so a value
+    outside the user's sites reaches the view's permission check ("You cannot manage devices on this site") rather than a
+    generic invalid-choice error. Nothing is saved for it either way."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("required", False)
+        super().__init__(*args, **kwargs)
+        self.known = set()
+
+    def use(self, user, current):
+        self.choices = site_choices(user, current)
+        self.known = {v for v, _ in site_choices(user, current, every_site=True)}
+
+    def valid_value(self, value):
+        return super().valid_value(value) or str(value) in self.known
 
 
 def normalise_tags(text):
@@ -61,7 +89,7 @@ def image_from_sources(cd, user, row=None):
 
 
 class DeviceForm(forms.ModelForm):
-    site = forms.ChoiceField(required=False)
+    site = SiteField()
     # the photo: at most one of these is used; none keeps the current photo
     image_file = forms.FileField(
         required=False, label="Upload a photo",
@@ -102,9 +130,9 @@ class DeviceForm(forms.ModelForm):
             "product_page_url": forms.URLInput(attrs={"placeholder": "https://…/datasheet", "data-prod-url": "page"}),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["site"].choices = site_choices(self.instance.site if self.instance.pk else self.initial.get("site", ""))
+        self.fields["site"].use(user, self.instance.site if self.instance.pk else self.initial.get("site", ""))
         self.fields["environment"].choices = [("", "—")] + list(Environment.choices)
         self.fields["check_port"].widget.attrs.update({"min": 1, "max": 65535})
         self.fields["product_image_url"].required = False
@@ -194,11 +222,11 @@ class DiscoveryForm(forms.Form):
     ports = forms.CharField(label="TCP ports", max_length=100, initial="22,443",
                             widget=forms.TextInput(attrs={"placeholder": "22,443"}),
                             help_text=f"Comma-separated, at most {discovery.MAX_PORTS}. A host is listed when any port answers.")
-    site = forms.ChoiceField(label="Site for approved devices", required=False)
+    site = SiteField(label="Site for approved devices")
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["site"].choices = site_choices(self.initial.get("site", ""))
+        self.fields["site"].use(user, self.initial.get("site", ""))
 
     def clean_cidr(self):
         net = discovery.parse_cidr(self.cleaned_data["cidr"])
@@ -214,14 +242,14 @@ class DiscoveryForm(forms.Form):
 
 class ApproveForm(forms.Form):
     device_type = forms.ChoiceField(label="Device type", choices=DeviceType.choices)
-    site = forms.ChoiceField(required=False)
+    site = SiteField()
     name_prefix = forms.CharField(label="Name prefix", max_length=60, required=False,
                                   widget=forms.TextInput(attrs={"placeholder": "e.g. sw-"}),
                                   help_text="Devices are named prefix + IP address; rename them later.")
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["site"].choices = site_choices(self.initial.get("site", ""))
+        self.fields["site"].use(user, self.initial.get("site", ""))
 
 
 class CatalogForm(forms.ModelForm):

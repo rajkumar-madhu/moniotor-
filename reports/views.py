@@ -19,6 +19,7 @@ from .models import ReportRun, ScheduledReport
 
 PRESETS = [(1, "Last 24 hours"), (7, "Last 7 days"), (30, "Last 30 days"), (90, "Last 90 days")]
 PREVIEW_ROWS = 200
+DATE_YEARS = (1900, 9998)   # outside this range the day-after / local-midnight bounds overflow datetime
 
 
 def _site_names(user):
@@ -48,10 +49,12 @@ def _period(request, report):
             d_to = datetime.strptime(t, "%Y-%m-%d").date() if t else timezone.localdate(now)
             if d_to < d_from or (d_to - d_from).days > 366:
                 raise ValueError
+            if d_from.year < DATE_YEARS[0] or d_to.year > DATE_YEARS[1]:   # d_to + 1 day / local midnight would overflow
+                raise ValueError
             start = timezone.make_aware(datetime.combine(d_from, time.min))
             end = min(now, timezone.make_aware(datetime.combine(d_to + timedelta(days=1), time.min)))
             return start, end, f"{d_from:%d %b %Y} – {d_to:%d %b %Y}", {"from": f, "to": d_to.isoformat()}
-        except ValueError:
+        except (ValueError, OverflowError):
             pass  # fall back to the preset below
     try:
         days = int(request.GET.get("days", 7))
@@ -132,7 +135,7 @@ def download(request, key):
     report = _report_or_404(request.user, key)
     site = _site_param(request, _site_names(request.user))
     start, end, label, _ = _period(request, report)
-    rows, error = registry.generate(report, registry.Ctx(start, end, request.user, site))
+    rows, error = registry.export_rows(report, registry.Ctx(start, end, request.user, site))
     ReportRun.objects.create(report_key=key, channel="download", requested_by=request.user,
                              requested_by_name=request.user.get_username(), period_start=start, period_end=end,
                              site=site, rows=len(rows), status="failed" if error else ("ok" if rows else "empty"),

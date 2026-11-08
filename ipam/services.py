@@ -139,6 +139,8 @@ def parse_network(text):
         raise ValueError("Enter a network in CIDR notation, e.g. 10.0.1.0/24 or 2001:db8::/48.")
     if "/" not in text:
         raise ValueError("Add the prefix length, e.g. 10.0.1.0/24.")
+    if "%" in text:
+        raise ValueError("Zone identifiers (%…) are not stored in IPAM.")
     try:
         return ipaddress.ip_network(text, strict=True)
     except ValueError:
@@ -176,7 +178,7 @@ def placement_error(tenant_key, vrf, net, role, exclude_pk=None):
     when the larger block is a Container (supernet). Duplicates and any other overlap are rejected."""
     for s in overlapping(tenant_key, vrf, net, exclude_pk):
         where = f" in VRF “{vrf}”" if vrf else ""
-        if s.cidr == str(net):
+        if s.prefixlen == net.prefixlen:   # same prefix + intersecting range = the same block, whatever the spelling
             return f"{net} already exists{where}."
         if s.prefixlen < net.prefixlen and not s.is_container:
             return (f"{net} overlaps {s.cidr}{where}. Mark {s.cidr} as a Container (supernet) to nest subnets in it, "
@@ -222,14 +224,16 @@ def reassign(tenant_key, vrf, version, start_key, end_key):
     return len(changed)
 
 
-def addresses_in(subnet):
-    """Address rows inside the subnet's range in its VRF (including those assigned to child subnets)."""
-    return IPAddress.objects.filter(tenant_key=subnet.tenant_key, vrf=subnet.vrf, version=subnet.version,
-                                    addr_key__gte=subnet.net_start, addr_key__lte=subnet.net_end)
+def addresses_in(subnet, user=None):
+    """Address rows inside the subnet's range in its VRF (including those assigned to child subnets).
+    With `user`, only rows on sites that user may see: a global container holds the addresses of every site."""
+    qs = IPAddress.objects.filter(tenant_key=subnet.tenant_key, vrf=subnet.vrf, version=subnet.version,
+                                  addr_key__gte=subnet.net_start, addr_key__lte=subnet.net_end)
+    return scope_by_site(qs, user) if user is not None else qs
 
 
-def used_count(subnet):
-    return addresses_in(subnet).count()
+def used_count(subnet, user=None):
+    return addresses_in(subnet, user).count()
 
 
 def utilisation(subnet, used):
@@ -275,6 +279,21 @@ def depth(subnet):
                                  prefixlen__lt=subnet.prefixlen).count()
 
 
+def depths(subnets):
+    """{subnet pk: number of enclosing subnets} for a page of subnets, from one query (no per-row COUNT)."""
+    subnets = list(subnets)
+    if not subnets:
+        return {}
+    cond = Q()
+    for s in subnets:
+        cond |= Q(tenant_key=s.tenant_key, vrf=s.vrf, version=s.version, net_start__lte=s.net_start,
+                  net_end__gte=s.net_end, prefixlen__lt=s.prefixlen)
+    outers = list(Subnet.objects.filter(cond).order_by().values_list("tenant_key", "vrf", "version", "net_start", "net_end", "prefixlen"))
+    return {s.pk: sum(1 for t, vrf, version, start, end, plen in outers
+                      if (t, vrf, version) == (s.tenant_key, s.vrf, s.version) and start <= s.net_start
+                      and end >= s.net_end and plen < s.prefixlen) for s in subnets}
+
+
 def _blocked_ranges(subnet, nested=None):
     """Sorted [start, end] integer ranges that are not free inside the subnet: recorded addresses, the gateway
     and the ranges of child subnets (an address there belongs to the child)."""
@@ -305,9 +324,10 @@ def next_free(subnet, nested=None):
     return ipaddress.ip_address(candidate) if subnet.version == 4 else ipaddress.IPv6Address(candidate)
 
 
-def child_coverage(subnet, nested=None):
-    """% of the range covered by direct children (for containers)."""
-    kids = children(subnet, nested)
+def child_coverage(subnet, nested=None, visible_pks=None):
+    """% of the range covered by direct children (for containers); `visible_pks` limits it to children the
+    caller may see."""
+    kids = [k for k in children(subnet, nested) if visible_pks is None or k.pk in visible_pks]
     if not kids:
         return None
     covered = sum(c.size for c in kids)
@@ -315,8 +335,14 @@ def child_coverage(subnet, nested=None):
 
 
 # ------------------------------------------------------------------ address map
-def address_map(subnet, can_add=False):
+HIDDEN_CHILD = "in a child subnet you cannot see"
+
+
+def address_map(subnet, can_add=False, user=None):
     """Cells for the subnet detail map, or (None, reason) when no map is drawn.
+
+    With `user`, addresses and child subnets on sites that user cannot see are shown as anonymous "child" cells:
+    no address row, CIDR, host name or link leaves the server for them.
 
     IPv4 /22 … /32: one cell per address (≤ 1024). IPv4 /16 … /21: one cell per /24 block (≤ 64) coloured by how many
     addresses are recorded in it. Anything bigger, and every IPv6 subnet, gets no map – sizes are never enumerated."""
@@ -328,8 +354,19 @@ def address_map(subnet, can_add=False):
     start, end = key_int(subnet.net_start), key_int(subnet.net_end)
     nested = contained(subnet)
     kids = children(subnet, nested)
+    visible = None
+    if user is not None:
+        visible = set(subnets_for(user).filter(pk__in=[k.pk for k in nested]).values_list("pk", flat=True))
+
+    def label(c):
+        return c.cidr if visible is None or c.pk in visible else HIDDEN_CHILD
+
+    def link(c):
+        return c.pk if c is not None and (visible is None or c.pk in visible) else None
+
     if subnet.prefixlen >= MAP_MAX_PREFIX_V4:
-        rows = {key_int(r["addr_key"]): r for r in addresses_in(subnet).values("pk", "addr_key", "address", "status", "hostname")}
+        rows = {key_int(r["addr_key"]): r for r in
+                addresses_in(subnet, user).values("pk", "addr_key", "address", "status", "hostname")}
         gateway = int(ipaddress.ip_address(subnet.gateway)) if subnet.gateway else None
         cells = []
         for n in range(start, end + 1):
@@ -345,16 +382,16 @@ def address_map(subnet, can_add=False):
             elif n == gateway:
                 kind, title, pk = "gateway", f"{ip} · gateway (not recorded as an address)", None
             elif child:
-                kind, title, pk = "child", f"{ip} · in child subnet {child.cidr}", None
+                kind, title, pk = "child", (f"{ip} · in child subnet {child.cidr}" if link(child) else f"{ip} · {HIDDEN_CHILD}"), None
             else:
                 kind, title, pk = "free", f"{ip} · free", None
             cells.append({"ip": ip, "kind": kind, "title": title, "pk": pk,
-                          "child": child.pk if child and not row else None,
+                          "child": link(child) if not row else None,
                           "add": can_add and kind == "free", "last_octet": n & 0xFF})
         return {"mode": "address", "cells": cells, "cols": 32 if len(cells) >= 32 else len(cells)}, ""
     # /16 … /21: /24 blocks
     counts = {}
-    for k in addresses_in(subnet).values_list("addr_key", flat=True):
+    for k in addresses_in(subnet, user).values_list("addr_key", flat=True):
         b = key_int(k) >> 8
         counts[b] = counts.get(b, 0) + 1
     cells = []
@@ -364,8 +401,8 @@ def address_map(subnet, can_add=False):
         child = next((c for c in nested if c.prefixlen <= 24 and c.contains_int(b << 8)), None)
         pct = 100.0 * used / 254
         kind = ("child" if child else "free") if not used else ("crit" if pct >= 90 else "warn" if pct >= 75 else "used")
-        cells.append({"ip": str(net), "kind": kind, "used": used, "pct": pct, "child": child.pk if child else None,
-                      "title": f"{net} · {used} address{'es' if used != 1 else ''} recorded" + (f" · {child.cidr}" if child else "")})
+        cells.append({"ip": str(net), "kind": kind, "used": used, "pct": pct, "child": link(child),
+                      "title": f"{net} · {used} address{'es' if used != 1 else ''} recorded" + (f" · {label(child)}" if child else "")})
     return {"mode": "block", "cells": cells, "cols": 16 if len(cells) >= 16 else len(cells)}, ""
 
 

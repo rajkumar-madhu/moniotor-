@@ -1,4 +1,4 @@
-Hi {{ greeting_name }},
+{% autoescape off %}Hi {{ greeting_name }},
 
 Welcome to LinkedEye — your monitoring and ITSM workspace{% if invited_by %} (invited by {{ invited_by }}){% endif %}.
 
@@ -15,4 +15,4 @@ Your access:
   Sites: {{ site_scope }}
 
 Thanks,
-Team LinkedEye
+Team LinkedEye{% endautoescape %}

@@ -36,6 +36,8 @@ MAX_ZIP_MEMBERS = 200
 MAX_TOTAL_BYTES = 100 * 1024 * 1024   # everything an archive may expand to (a zip of CSVs, or an .xlsx package)
 MAX_XLSX_MEMBERS = 2000
 MAX_SCANNED_ROWS = 2 * MAX_ROWS_PER_SHEET   # rows read from a sheet, blank ones included
+MAX_CELLS_PER_SHEET = 2_000_000             # rows x columns one sheet may hold, so memory stays bounded
+MAX_CELLS_PER_SOURCE = 5_000_000            # ... and everything one upload may hold
 _XML_PROLOG_BYTES = 256 * 1024
 
 
@@ -48,6 +50,9 @@ class SheetData:
     name: str
     columns: list = field(default_factory=list)
     rows: list = field(default_factory=list)
+    # True when the reader stopped at MAX_ROWS_PER_SHEET / MAX_SCANNED_ROWS with data still to come: the rows
+    # held are NOT the whole sheet, so the importer must not treat them as a complete snapshot.
+    truncated: bool = False
 
     def __len__(self):
         return len(self.rows)
@@ -60,6 +65,7 @@ class Source:
     sha256: str
     sheets: dict = field(default_factory=dict)
     ignored: list = field(default_factory=list)
+    unread: list = field(default_factory=list)   # sheets present but not parsed because nothing imports them
 
     def get(self, sheet_name):
         return self.sheets.get(sheet_name)
@@ -96,12 +102,30 @@ def _row(columns, cells):
     return row if any_value else None
 
 
-def _sheet_from_rows(name, rows_iter):
-    """Build a SheetData from an iterable of cell lists; the first non-empty row is the header."""
-    columns, rows, scanned = None, [], 0
+class _Budget:
+    """Cells a whole source may hold (rows x columns summed over its sheets)."""
+
+    def __init__(self, limit=None):
+        self.remaining = MAX_CELLS_PER_SOURCE if limit is None else limit
+
+    def spend(self, name, cells):
+        self.remaining -= cells
+        if self.remaining < 0:
+            raise SourceError(f"{name}: the file holds more than {MAX_CELLS_PER_SOURCE:,} cells in total, "
+                              f"which is more than a real inventory needs - it was not read.")
+
+
+def _sheet_from_rows(name, rows_iter, budget=None):
+    """Build a SheetData from an iterable of cell lists; the first non-empty row is the header.
+
+    Stops at MAX_ROWS_PER_SHEET data rows / MAX_SCANNED_ROWS scanned rows. When data was still waiting past
+    the cut-off the sheet is flagged ``truncated`` so nothing downstream mistakes it for the whole sheet.
+    """
+    columns, rows, scanned, truncated, spent = None, [], 0, False, 0
     for cells in rows_iter:
         scanned += 1
         if scanned > MAX_SCANNED_ROWS:
+            truncated = any(clean(c) for c in list(cells)[:MAX_COLUMNS])
             break
         if columns is None:
             if not any(clean(c) for c in cells):
@@ -110,10 +134,17 @@ def _sheet_from_rows(name, rows_iter):
             continue
         row = _row(columns, list(cells))
         if row is not None:
+            if len(rows) >= MAX_ROWS_PER_SHEET:
+                truncated = True
+                break
             rows.append(row)
-        if len(rows) >= MAX_ROWS_PER_SHEET:
-            break
-    return SheetData(name=name, columns=columns or [], rows=rows)
+            spent += len(columns)
+            if spent > MAX_CELLS_PER_SHEET:
+                raise SourceError(f"{name}: the sheet holds more than {MAX_CELLS_PER_SHEET:,} cells "
+                                  f"(rows x columns), which is more than a real inventory needs - it was not read.")
+    if budget is not None:
+        budget.spend(name, spent)
+    return SheetData(name=name, columns=columns or [], rows=rows, truncated=truncated)
 
 
 def _sha256_bytes(data):
@@ -177,7 +208,7 @@ def _load_openpyxl():
     return openpyxl
 
 
-def read_xlsx(source, name=None):
+def read_xlsx(source, name=None, only=None):
     openpyxl = _load_openpyxl()
     if hasattr(source, "read"):
         blob = source.read()
@@ -194,26 +225,31 @@ def read_xlsx(source, name=None):
         book = openpyxl.load_workbook(handle, read_only=True, data_only=True)
     except Exception as exc:  # openpyxl raises many shapes for a broken file
         raise SourceError(f"The file could not be read as an .xlsx workbook ({type(exc).__name__}).") from exc
-    sheets, ignored = {}, []
+    sheets, ignored, unread, budget = {}, [], [], _Budget()
     try:
         for sheet_name in book.sheetnames:
             if is_ignored(sheet_name):
                 ignored.append(sheet_name)
                 continue
+            if only is not None and sheet_name not in only:
+                unread.append(sheet_name)
+                continue
             worksheet = book[sheet_name]
-            sheets[sheet_name] = _sheet_from_rows(sheet_name, worksheet.iter_rows(values_only=True))
+            # bounded on both axes: a sheet that declares A1:XFD1048576 must not be padded to that size
+            rows_iter = worksheet.iter_rows(max_row=MAX_SCANNED_ROWS + 1, max_col=MAX_COLUMNS, values_only=True)
+            sheets[sheet_name] = _sheet_from_rows(sheet_name, rows_iter, budget)
     finally:
         book.close()
-    if not sheets:
+    if not sheets and not unread:
         raise SourceError("The workbook holds no data sheets.")
-    return Source(name=display, sha256=sha, sheets=sheets, ignored=ignored)
+    return Source(name=display, sha256=sha, sheets=sheets, ignored=ignored, unread=unread)
 
 
 # ----------------------------------------------------------------------------- csv
-def _read_csv_text(text, sheet_name):
+def _read_csv_text(text, sheet_name, budget=None):
     try:
         reader = csv.reader(io.StringIO(text, newline=""))
-        return _sheet_from_rows(sheet_name, reader)
+        return _sheet_from_rows(sheet_name, reader, budget)
     except csv.Error as exc:
         raise SourceError(f"{sheet_name}: the CSV file could not be read ({exc}).") from exc
 
@@ -227,12 +263,12 @@ def _decode(blob, sheet_name):
     raise SourceError(f"{sheet_name}: the file is not text in UTF-8 or Windows-1252.")
 
 
-def read_csv_dir(directory, name=None):
+def read_csv_dir(directory, name=None, only=None):
     path = Path(directory)
     files = sorted(p for p in path.iterdir() if p.is_file() and p.suffix.lower() == CSV_SUFFIX)
     if not files:
         raise SourceError(f"No .csv sheet files found in {path.name}.")
-    sheets, ignored, parts = {}, [], []
+    sheets, ignored, unread, parts, budget = {}, [], [], [], _Budget()
     for file_path in files:
         sheet_name = file_path.stem
         if is_ignored(sheet_name):
@@ -240,13 +276,17 @@ def read_csv_dir(directory, name=None):
             continue
         blob = file_path.read_bytes()
         parts.append((sheet_name, _sha256_bytes(blob)))
-        sheets[sheet_name] = _read_csv_text(_decode(blob, sheet_name), sheet_name)
-    if not sheets:
+        if only is not None and sheet_name not in only:
+            unread.append(sheet_name)
+            continue
+        sheets[sheet_name] = _read_csv_text(_decode(blob, sheet_name), sheet_name, budget)
+    if not sheets and not unread:
         raise SourceError(f"No usable sheet files found in {path.name}.")
-    return Source(name=name or path.name, sha256=_sha256_parts(parts), sheets=sheets, ignored=ignored)
+    return Source(name=name or path.name, sha256=_sha256_parts(parts), sheets=sheets, ignored=ignored,
+                  unread=unread)
 
 
-def read_zip(source, name=None):
+def read_zip(source, name=None, only=None):
     if hasattr(source, "read"):
         blob = source.read()
         sha = _sha256_bytes(blob)
@@ -257,7 +297,7 @@ def read_zip(source, name=None):
         sha = _sha256_file(path)
         handle = str(path)
         display = name or path.name
-    sheets, ignored = {}, []
+    sheets, ignored, unread, budget = {}, [], [], _Budget()
     try:
         with zipfile.ZipFile(handle) as archive:
             members = [i for i in archive.infolist() if not i.is_dir()]
@@ -276,22 +316,34 @@ def read_zip(source, name=None):
                 if is_ignored(sheet_name):
                     ignored.append(sheet_name)
                     continue
+                if only is not None and sheet_name not in only:
+                    unread.append(sheet_name)
+                    continue
                 with archive.open(info) as fh:
                     blob = fh.read(MAX_MEMBER_BYTES + 1)
                 if len(blob) > MAX_MEMBER_BYTES:
                     raise SourceError(f"{member_name} is larger than "
                                       f"{MAX_MEMBER_BYTES // (1024 * 1024)} MB uncompressed.")
-                sheets[sheet_name] = _read_csv_text(_decode(blob, sheet_name), sheet_name)
+                sheets[sheet_name] = _read_csv_text(_decode(blob, sheet_name), sheet_name, budget)
     except zipfile.BadZipFile as exc:
         raise SourceError("The file is not a readable .zip archive.") from exc
-    if not sheets:
+    if not sheets and not unread:
         raise SourceError("The archive holds no .csv sheet files.")
-    return Source(name=display, sha256=sha, sheets=sheets, ignored=ignored)
+    return Source(name=display, sha256=sha, sheets=sheets, ignored=ignored, unread=unread)
 
 
 # ----------------------------------------------------------------------------- entry point
-def open_source(source, name=None):
+def _single_csv(blob, sheet_name, only):
+    if only is not None and sheet_name not in only:
+        return {}, [sheet_name]
+    return {sheet_name: _read_csv_text(_decode(blob, sheet_name), sheet_name, _Budget())}, []
+
+
+def open_source(source, name=None, only=None):
     """Read `source` (path, directory, uploaded file or file object) into a :class:`Source`.
+
+    `only`, when given, is the set of sheet names somebody imports: every other sheet is listed in
+    ``Source.unread`` but never parsed, so a file full of sheets nobody asked for costs nothing.
 
     Raises :class:`SourceError` with a message meant for the person who supplied the file.
     """
@@ -300,25 +352,27 @@ def open_source(source, name=None):
     if hasattr(source, "read"):
         filename = (name or getattr(source, "name", "") or "").lower()
         if filename.endswith(ZIP_SUFFIX):
-            return read_zip(source, name=name)
+            return read_zip(source, name=name, only=only)
         if filename.endswith(CSV_SUFFIX):
             blob = source.read()
             sheet_name = Path(name or getattr(source, "name", "sheet.csv")).stem
-            return Source(name=name or sheet_name, sha256=_sha256_bytes(blob),
-                          sheets={sheet_name: _read_csv_text(_decode(blob, sheet_name), sheet_name)})
-        return read_xlsx(source, name=name)
+            sheets, unread = _single_csv(blob, sheet_name, only)
+            return Source(name=name or sheet_name, sha256=_sha256_bytes(blob), sheets=sheets, unread=unread)
+        return read_xlsx(source, name=name, only=only)
     path = Path(source)
     if path.is_dir():
-        return read_csv_dir(path, name=name)
+        return read_csv_dir(path, name=name, only=only)
     if not path.exists():
         raise SourceError(f"{path} does not exist.")
     suffix = path.suffix.lower()
     if suffix in XLSX_SUFFIXES:
-        return read_xlsx(path, name=name)
+        return read_xlsx(path, name=name, only=only)
     if suffix == ZIP_SUFFIX:
-        return read_zip(path, name=name)
+        return read_zip(path, name=name, only=only)
     if suffix == CSV_SUFFIX:
         blob = path.read_bytes()
-        return Source(name=name or path.name, sha256=_sha256_bytes(blob),
-                      sheets={path.stem: _read_csv_text(_decode(blob, path.stem), path.stem)})
+        # the staged upload is saved under a random token: the sheet is named by the file the person chose
+        sheet_name = Path(name).stem if name else path.stem
+        sheets, unread = _single_csv(blob, sheet_name, only)
+        return Source(name=name or path.name, sha256=_sha256_bytes(blob), sheets=sheets, unread=unread)
     raise SourceError(f"{path.name}: expected an .xlsx workbook, a .zip of CSV sheets, or a directory of them.")

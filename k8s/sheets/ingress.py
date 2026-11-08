@@ -356,7 +356,7 @@ def import_ingresses(ctx, sheet):
         ctx.note("ingress_crosslink", {"urlchecks": want_urls, "domains": want_domains, **result})
 
 
-register_sheet(INGRESS_SHEET, 60, import_ingresses)
+register_sheet(INGRESS_SHEET, 60, import_ingresses, namespaces=True)
 
 
 # ----------------------------------------------------------------------------- 09_Certificate_Inventory
@@ -392,7 +392,7 @@ def import_certificates(ctx, sheet):
     relink_certificates(ctx.tenant)
 
 
-register_sheet(CERT_SHEET, 70, import_certificates)
+register_sheet(CERT_SHEET, 70, import_certificates, namespaces=True)
 
 
 # ----------------------------------------------------------------------------- 08_Credentials_References
@@ -446,4 +446,4 @@ def import_secret_refs(ctx, sheet):
     ctx.track(SecretRef, SECRET_SHEET, namespace__cluster=cluster)
 
 
-register_sheet(SECRET_SHEET, 80, import_secret_refs)
+register_sheet(SECRET_SHEET, 80, import_secret_refs, namespaces=True)

@@ -15,6 +15,7 @@ import time
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
+from django.db.models import prefetch_related_objects
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import NoReverseMatch, reverse
@@ -30,10 +31,15 @@ from core.events import emit
 
 from . import sd, services, steps
 from .forms import CredentialForm, RotateForm, ScopeForm, TargetsForm
-from .models import STEP_SLUGS, STEP_TITLES, CredentialKind, OnboardingRun, RunKind, RunStatus, TargetState
+from .models import (STEP_SLUGS, STEP_TITLES, CredentialKind, OnboardingRun, RunKind, RunStatus, TargetState,
+                     TargetType)
 
 log = logging.getLogger("linkedeye.onboarding")
 EXPORT_LIMIT = 5000
+#: Verify and Enable work through the run's targets inside the request; gunicorn answers for 60 s and the proxy
+#: for 90 s. Past this budget the loop stops and says how many targets are left: pressing the button again continues
+#: with them (the least recently checked go first), instead of the browser meeting a 504 while the work carries on.
+STEP_BUDGET_SECONDS = 45.0
 
 
 # ----------------------------------------------------------------------------- helpers
@@ -109,6 +115,15 @@ def _hook(run, step, fn, target=None, **kwargs):
     return result or {}, "", ms()
 
 
+def _out_of_time(started):
+    return time.monotonic() - started >= STEP_BUDGET_SECONDS
+
+
+def _budget_warning(request, left):
+    messages.warning(request, f"Stopped after the {STEP_BUDGET_SECONDS:g} s time budget of one request: {left} "
+                              "target(s) were not reached. Press the button again to continue with them.")
+
+
 def _record(run, step, target, state, error, ms):
     """The one success/failure line per hook call."""
     services.log_step(run, step, "error" if error else "ok",
@@ -135,6 +150,7 @@ def index(request):
         qs = qs.filter(targets__hostname__icontains=q).distinct()
     page = paginate(request, qs)
     rows = list(page.object_list)
+    prefetch_related_objects(rows, "targets")
     for run in rows:
         run.summary = services.run_summary(run)
         run.can_manage = services.can_onboard(request.user, run.site)
@@ -161,7 +177,8 @@ def index(request):
 @require_GET
 def runs_export(request):
     rows = []
-    for run in services.runs_for(request.user)[:EXPORT_LIMIT]:
+    runs = services.runs_for(request.user).select_related("created_by").prefetch_related("targets")
+    for run in runs[:EXPORT_LIMIT]:
         s = services.run_summary(run)
         rows.append([run.pk, run.created_at.isoformat(), run.kind, run.status, run.site,
                      run.client.name if run.client_id else "", run.environment, run.step,
@@ -479,32 +496,48 @@ def _post_credentials(request, run, action):
 def _post_verify(request, run, action):
     if action != "verify":
         return None
-    targets = list(run.targets.all())
+    targets = list(run.targets.order_by("updated_at", "id"))
     if not targets:
         messages.error(request, "Add targets first.")
         return None
     services.enter_step(run, "verify")
-    pending = done = bad = 0
-    for target in targets:
+    audit(request, "onboarding.verify.start", run, site=run.site, targets=len(targets))   # before any probe runs
+    started = time.monotonic()
+    pending = done = bad = left = 0
+    for i, target in enumerate(targets):
+        if i and _out_of_time(started):
+            left = len(targets) - i
+            break
         result, msg, ms = _hook(run, "verify", steps.verify_target, target)
         if msg:
             pending += 1
             continue
-        state, error, facts = services.hook_outcome(
+        verdict, error, facts = services.hook_outcome(
             result, target.state, TargetState.UNREACHABLE,
             default_state=services.verify_default_state(services.scrub(result)))
+        # a target that is already registered for scraping (or live) stays so: one failed probe must not drop a
+        # healthy host from service discovery. The result is recorded in last_error and the facts all the same.
+        state = services.probe_state(target.state, verdict)
         services.set_target_state(target, state, error=error, facts=facts)
-        _record(run, "verify", target, target.get_state_display(), error, ms)
+        _record(run, "verify", target, _verdict_label(verdict, state), error, ms)
         done += 1
-        bad += state in (TargetState.UNREACHABLE, TargetState.FAILED)
+        bad += verdict in (TargetState.UNREACHABLE, TargetState.FAILED)
     if pending:
         messages.warning(request, f"Reachability checks are not wired up yet ({pending} target(s) "
                                   "left as they were). The step is recorded in the run log.")
     if done:
         (messages.warning if bad else messages.success)(
             request, f"{done} target(s) verified" + (f", {bad} with a problem." if bad else "."))
-    audit(request, "onboarding.verify", run, site=run.site, targets=len(targets), verified=done)
+    if left:
+        _budget_warning(request, left)
+    audit(request, "onboarding.verify", run, site=run.site, targets=len(targets), verified=done, not_reached=left)
     return None
+
+
+def _verdict_label(verdict, state):
+    """The state shown in the run log: what the probe found, and where the target stays when it is activated."""
+    label = TargetState(verdict).label
+    return label if verdict == state else f"{label} (target stays {TargetState(state).label.lower()})"
 
 
 def _post_enable(request, run, action):
@@ -513,22 +546,48 @@ def _post_enable(request, run, action):
     options = {"install_over_ssh": request.POST.get("install_over_ssh") == "1",
                "snmp_module": (request.POST.get("snmp_module") or "").strip()[:60]}
     services.enter_step(run, "enable")
-    pending = done = 0
-    for target in run.targets.all():
-        result, msg, ms = _hook(run, "enable", steps.enable_collection, target, options=options)
+    targets = list(run.targets.order_by("updated_at", "id"))
+    audit(request, "onboarding.enable.start", run, site=run.site, targets=len(targets),
+          install_over_ssh=options["install_over_ssh"])                  # before anything is installed
+    started = time.monotonic()
+    pending = done = busy = left = 0
+    for i, target in enumerate(targets):
+        if i and _out_of_time(started):
+            left = len(targets) - i
+            break
+        locked = False
+        if options["install_over_ssh"] and target.target_type in (TargetType.LINUX, TargetType.WINDOWS):
+            if not services.claim_install(target):                      # a retry must not start a second install
+                services.log_step(run, "enable", "warn",
+                                  f"{target.hostname}: an install is already running on this host; skipped",
+                                  target=target)
+                busy += 1
+                continue
+            locked = True
+        try:
+            result, msg, ms = _hook(run, "enable", steps.enable_collection, target, options=options)
+        finally:
+            if locked:
+                services.release_install(target)
         if msg:
             pending += 1
             continue
-        state, error, facts = services.hook_outcome(result, target.state, TargetState.FAILED)
+        verdict, error, facts = services.hook_outcome(result, target.state, TargetState.FAILED)
+        state = services.probe_state(target.state, verdict)             # an activated target is never demoted
         services.set_target_state(target, state, error=error, facts=facts)
-        _record(run, "enable", target, target.get_state_display(), error, ms)
+        _record(run, "enable", target, _verdict_label(verdict, state), error, ms)
         done += 1
     if pending:
         messages.warning(request, f"Collection set-up is not wired up yet ({pending} target(s)). "
                                   "The run log records the attempt.")
+    if busy:
+        messages.warning(request, f"{busy} target(s) skipped: an install is already running on them.")
     if done:
         messages.success(request, f"Collection set-up ran for {done} target(s).")
-    audit(request, "onboarding.enable", run, site=run.site, install_over_ssh=options["install_over_ssh"])
+    if left:
+        _budget_warning(request, left)
+    audit(request, "onboarding.enable", run, site=run.site, install_over_ssh=options["install_over_ssh"],
+          ran=done, not_reached=left)
     return None
 
 
@@ -717,7 +776,7 @@ def _sd_context(request, fresh_token=None):
         "n_targets": services.enabled_sd_targets().count(),
         "vault_ok": secrets.available(), "vault_reason": secrets.unavailable_reason(),
         "rate_limit": sd.RATE_LIMIT, "rate_window": sd.RATE_WINDOW,
-        "payload_sample": sd.targets_payload()[:3],
+        "payload_sample": sd.targets_payload(limit=3),
     }
 
 

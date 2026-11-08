@@ -1,5 +1,6 @@
 from django.shortcuts import render,HttpResponse
-from django.views.decorators.csrf import csrf_exempt
+from django.contrib.auth.decorators import login_required
+from login.decorators import role_required
 import json
 import requests
 from django.conf import settings
@@ -24,10 +25,20 @@ import ssl
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
+# SECURITY: every view in this module requires a signed-in session. Views that change
+# alerting behaviour (services, escalation/device policies, pausing or snoozing alert
+# e-mail) additionally require one of NOTIFICATION_ADMIN_ROLES. login_required must stay
+# the outermost decorator because role_required dereferences request.user.groups.
+NOTIFICATION_ADMIN_ROLES = ["Admin"]
+
+
 # Create your views here.
+@login_required(login_url="/")
 def index(request):
     return render(request, 'app/notificationsettings.html')
 
+@login_required(login_url="/")
+@role_required(allowed_roles=NOTIFICATION_ADMIN_ROLES)
 def serviceoperation(request):
     if request.method == 'POST':
         response = { }
@@ -77,6 +88,7 @@ def serviceoperation(request):
             response['msg'] = 'Something went wrong'
     return HttpResponse(json.dumps(response), content_type="json")
 
+@login_required(login_url="/")
 def sendnotification(request):
     if request.method == 'POST':
         response = { }
@@ -101,11 +113,15 @@ def sendnotification(request):
                 }
         r = requests.post('http://'+settings.APPRISE_HOST+"/notify/", json=payload)
     return HttpResponse(json.dumps(response), content_type="json")
+@login_required(login_url="/")
 def sendnotifications(request):
     try:
         response = { }
         clientData = json.loads(request.POST['alldata'])
         parsed_json = clientData['data']
+        if parsed_json["user"] != request.user.get_username() and \
+                not request.user.groups.filter(name__in=NOTIFICATION_ADMIN_ROLES).exists():
+            return HttpResponse("You are not authorized to notify other users", status=403)
         user_id = User.objects.get(username=parsed_json["user"]).id
         services = UserNotificationSetingsModel.objects.filter(user_id = user_id)
         notification_obj = Notification()
@@ -127,6 +143,7 @@ def sendnotifications(request):
         print(str(e))
     return HttpResponse(json.dumps(response), content_type="json")
     
+@login_required(login_url="/")
 def get_all_services(request):
     response = {}
     userobj = User.objects.get(username=request.user)
@@ -194,6 +211,7 @@ def get_all_services(request):
 def convert_timestamp(item_date_object):
     if isinstance(item_date_object, (datetime.date, datetime.datetime)):
         return item_date_object.timestamp()
+@login_required(login_url="/")
 def save_settings(request):
     if request.method == 'POST':
         response = { }
@@ -252,6 +270,7 @@ def formatmessage(message, message_format):
         print(str(e))
         return message
 
+@login_required(login_url="/")
 def save_image(request):
     if request.method == "POST":
         image = request.FILES.get("image")
@@ -269,6 +288,7 @@ def save_image(request):
     else:
         return JsonResponse({"message": "Invalid request method."})
 
+@login_required(login_url="/")
 def profile_image(request, username):
     # Assuming that the profile images are stored in the media directory
     image_formats = ["jpg", "jpeg", "png", "gif"]
@@ -281,6 +301,7 @@ def profile_image(request, username):
             return HttpResponse(image_data, content_type=content_type)
     return HttpResponse(status=404)
 
+@login_required(login_url="/")
 def delete_profile_image(request):
     if request.method == 'DELETE':
         data = json.loads(request.body)
@@ -295,6 +316,8 @@ def delete_profile_image(request):
     return JsonResponse({'error': 'Invalid request method'})
 
 #mail escalation code:
+@login_required(login_url="/")
+@role_required(allowed_roles=NOTIFICATION_ADMIN_ROLES)
 def escalapolicy(request):
     if request.method == 'POST':
         try:
@@ -346,6 +369,8 @@ def escalapolicy(request):
             return JsonResponse({'status': 500, 'msg': f'Error: {str(e)}'})
     return JsonResponse({'status': 405, 'msg': 'Invalid request method'})
 
+@login_required(login_url="/")
+@role_required(allowed_roles=NOTIFICATION_ADMIN_ROLES)
 def get_escalation_policies(request):
     if request.method == "GET":
         data = []
@@ -367,6 +392,8 @@ def get_escalation_policies(request):
         return JsonResponse({"status": 200, "data": data})
     return JsonResponse({"status": 405, "msg": "Method Not Allowed"})
 
+@login_required(login_url="/")
+@role_required(allowed_roles=NOTIFICATION_ADMIN_ROLES)
 def edit_escalation_policy(request):
     if request.method == "GET":
         policy_id = request.GET.get("policyid")
@@ -394,6 +421,8 @@ def edit_escalation_policy(request):
 
     return JsonResponse({"status": 405, "msg": "Method Not Allowed"})
 
+@login_required(login_url="/")
+@role_required(allowed_roles=NOTIFICATION_ADMIN_ROLES)
 def delete_escalation_policy(request):
     if request.method == 'POST':
         try:
@@ -431,7 +460,8 @@ def delete_escalation_policy(request):
 
     return JsonResponse({'status': 405, 'msg': 'Invalid request method'})
 
-@csrf_exempt
+@login_required(login_url="/")
+@role_required(allowed_roles=NOTIFICATION_ADMIN_ROLES)
 def toggle_email_notification(request):
     if request.method == 'POST':
         try:
@@ -492,7 +522,8 @@ def toggle_email_notification(request):
             
     return JsonResponse({'status': 405, 'msg': 'Invalid request method'})
 
-@csrf_exempt
+@login_required(login_url="/")
+@role_required(allowed_roles=NOTIFICATION_ADMIN_ROLES)
 def snooze_email_notification(request):
     if request.method == 'POST':
         try:
@@ -723,6 +754,7 @@ def _get_device_type(obj):
         
     return None
 
+@login_required(login_url="/")
 def get_devices_by_type(request):
     """GET /notification/get_devices_by_type?device_type=Server
     Returns list of devices (ip + friendly name) from newonb for the given type.
@@ -758,6 +790,7 @@ def get_devices_by_type(request):
         return JsonResponse({'status': 500, 'msg': str(e)})
 
 
+@login_required(login_url="/")
 def get_device_alert_categories(request):
     """GET /notification/get_device_alert_categories?device_type=Server
     Returns the alert categories available for a given device type.
@@ -770,6 +803,8 @@ def get_device_alert_categories(request):
     return JsonResponse({'status': 200, 'categories': categories})
 
 
+@login_required(login_url="/")
+@role_required(allowed_roles=NOTIFICATION_ADMIN_ROLES)
 def save_device_alert_policy(request):
     """POST /notification/save_device_alert_policy
     Create or update a device-level escalation policy stored in the `policy` table.
@@ -861,6 +896,8 @@ def save_device_alert_policy(request):
         return JsonResponse({'status': 500, 'msg': str(e)})
 
 
+@login_required(login_url="/")
+@role_required(allowed_roles=NOTIFICATION_ADMIN_ROLES)
 def get_device_alert_policies(request):
     """GET /notification/get_device_alert_policies?device_ip=10.10.10.5
     Returns device-wise policies from the `policy` table (rows where device_ip is set).
@@ -897,6 +934,8 @@ def get_device_alert_policies(request):
         return JsonResponse({'status': 500, 'msg': str(e)})
 
 
+@login_required(login_url="/")
+@role_required(allowed_roles=NOTIFICATION_ADMIN_ROLES)
 def edit_device_alert_policy(request):
     """GET /notification/edit_device_alert_policy?id=<policy_id>"""
     if request.method != 'GET':
@@ -931,6 +970,8 @@ def edit_device_alert_policy(request):
         return JsonResponse({'status': 500, 'msg': str(e)})
 
 
+@login_required(login_url="/")
+@role_required(allowed_roles=NOTIFICATION_ADMIN_ROLES)
 def delete_device_alert_policy(request):
     """POST /notification/delete_device_alert_policy  Body: {"id": <policy_id>}"""
     if request.method != 'POST':

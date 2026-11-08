@@ -327,11 +327,11 @@ class AlertLeaderboardTests(TestCase):
         rows = fleet.host_alert_leaders(Alert.objects.all(), [], self.start, now=self.now)
         self.assertEqual([r["instance"] for r in rows], ["c-03:9100", "a-01:9100", "b-02:9100"])
 
-    def test_occurrences_use_fire_count_and_duration_is_clipped_to_the_window(self):
+    def test_occurrences_count_alert_rows_and_duration_is_clipped_to_the_window(self):
         alert(name="Flapping", instance="db-01:9100", severity="warning", minutes_ago=5,
               duration=48 * 3600, fire_count=7)
         rows = fleet.host_alert_leaders(Alert.objects.all(), self.hosts, self.start, now=self.now)
-        self.assertEqual(rows[0]["total"], 7)
+        self.assertEqual(rows[0]["total"], 1)     # fire_count is a lifetime counter: it says nothing about this window
         # started 48 h ago but the window is 24 h: at most 24 h of firing time is counted
         self.assertLessEqual(rows[0]["seconds"], 24 * 3600)
         self.assertGreater(rows[0]["seconds"], 23 * 3600)
@@ -343,7 +343,7 @@ class AlertLeaderboardTests(TestCase):
         alert(name="DiskFull", instance="db-01:9100", severity="critical")
         rows = fleet.top_alerts(Alert.objects.all(), self.start, now=self.now)
         self.assertEqual((rows[0]["alertname"], rows[0]["instance"], rows[0]["occurrences"]),
-                         ("HostDown", "db-01:9100", 3))
+                         ("HostDown", "db-01:9100", 2))
         self.assertEqual(rows[0]["tone"], "crit")   # the worst severity of the group wins
         self.assertEqual(len(rows), 4 - 1)
 

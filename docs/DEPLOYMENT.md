@@ -92,10 +92,13 @@ What the image does:
   read-only; byte-code is compiled at build time, so a read-only root filesystem works. `/app/data` is the only
   writable directory (for an SQLite file in single-host trials).
 * `collectstatic` runs at build time with a throwaway `LINKEDEYE_SECRET_KEY` that exists only for that build
-  step. Static files are served by **WhiteNoise**: through `whitenoise.middleware.WhiteNoiseMiddleware` when it
-  is in `settings.MIDDLEWARE` (hashed file names, compressed, cached for a year), otherwise through the WSGI
+  step (a long dummy value, because the production key rules apply to it too). Static files are served by
+  **WhiteNoise**: through `whitenoise.middleware.WhiteNoiseMiddleware` when it is in `settings.MIDDLEWARE` (hashed file names, compressed, cached for a year), otherwise through the WSGI
   wrapper `deploy/docker/container_wsgi.py` that gunicorn loads (5-minute cache). No separate web server is
   needed for `/static/`.
+* `.dockerignore` keeps the legacy `backend/` tree (its secrets notes, vault keys and compose files), `docs/` and
+  the Markdown files out of the image; only `iframeGraphs/` and `backend/template/DIRECT`, which the network pages read,
+  are kept. CI asserts this on the built image.
 * `HEALTHCHECK`: `python /app/deploy/docker/healthcheck.py web` requests `GET /healthz` from the local gunicorn
   with a `Host` header taken from `LINKEDEYE_ALLOWED_HOSTS`. `/healthz` is public and checks the database
   connection. `healthcheck.py probes` checks the scheduler heartbeat (above).
@@ -142,7 +145,8 @@ The LinkedEye containers run with a read-only root filesystem, `/tmp` on tmpfs, 
 **TLS and the published port.** `web` is published on `WEB_PUBLISH` (default `127.0.0.1:8000`, host-local only).
 Terminate TLS in a reverse proxy on the host (nginx, Caddy, HAProxy, a load balancer) that forwards to
 `127.0.0.1:8000` and sets `X-Forwarded-Proto: https`; set `GUNICORN_FORWARDED_ALLOW_IPS` to the proxy's address
-as seen from the container (the Docker bridge gateway, e.g. `172.18.0.1`) so Django knows requests were HTTPS.
+as seen from the container (the Docker bridge gateway, e.g. `172.18.0.1`) so Django knows requests were HTTPS, and set
+`LINKEDEYE_TRUSTED_PROXIES` to the same address so the console believes the proxy's `X-Forwarded-For` (see below).
 Session and CSRF cookies are `Secure` when `LINKEDEYE_DEBUG=false`, so over plain HTTP sign-in only works on
 `http://localhost:8000` (browsers treat localhost as secure); on any other host name use HTTPS.
 
@@ -176,6 +180,13 @@ server {
     }
 }
 ```
+
+Set `LINKEDEYE_TRUSTED_PROXIES` to the same proxy address as `GUNICORN_FORWARDED_ALLOW_IPS` (the two are a pair; the
+example file and `docker-compose.yml` ship both). Without it `X-Forwarded-For` is ignored, so behind the proxy every
+client has the proxy's address: the audit log records the proxy as the source of every action, and the per-address
+sign-in throttle (`LINKEDEYE_LOGIN_MAX_FAILURES_PER_IP`) is **one counter shared by all users**: 20 wrong passwords from
+anyone lock the sign-in page for everybody for 15 minutes. gunicorn logs a warning at start-up while it is empty and
+`LINKEDEYE_DEBUG` is off; `deploy/validate.py` fails a bundle that sets one but not the other.
 
 **Using an external database.** Set `LINKEDEYE_DB_ENGINE`, `LINKEDEYE_DB_HOST`, `LINKEDEYE_DB_PORT`,
 `LINKEDEYE_DB_NAME`, `LINKEDEYE_DB_USER`, `LINKEDEYE_DB_PASSWORD` in `.env` and start only the application
@@ -248,7 +259,15 @@ your own StatefulSet), and the image pushed to a registry the cluster can pull f
    * `configmap.yaml`: `LINKEDEYE_ALLOWED_HOSTS` and `LINKEDEYE_CSRF_TRUSTED_ORIGINS` (your host name; keep the
      `linkedeye-web…` service names, the kubelet probes and in-cluster Alertmanager use them),
      `LINKEDEYE_DB_HOST`, `LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS`, integrations.
-   * `ingress.yaml`: host, `ingressClassName`, TLS secret / cert-manager issuer.
+   * `configmap.yaml`: also `LINKEDEYE_TRUSTED_PROXIES`, the ingress controller's pod IP / CIDR (`kubectl -n <controller
+     namespace> get pods -o wide`). The pods refuse to start while the `<REPLACE ...>` placeholder is still there:
+     without it all users share the ingress pod's address (audit log, one shared sign-in throttle).
+   * `ingress.yaml`: host, `ingressClassName`, TLS secret / cert-manager issuer, in **both** Ingresses. The file holds
+     the ingress-nginx annotations: `linkedeye` limits request bodies to 3 MB (this global limit is what protects the
+     device form and the catalog import, which have no limit of their own) and `linkedeye-datasheet-upload` raises it
+     to 26 MB for `/network/photos/find/` only, where datasheet PDFs of up to 25 MB are uploaded, mirroring the nginx
+     example above. With another controller express the same two limits (3m everywhere, 26m on that path, 90 s read
+     timeout) in its own terms; `deploy/validate.py` checks the nginx annotations.
    * `networkpolicy.yaml`: the ingress controller's namespace and pod labels, the monitoring namespace (or delete
      that rule), and the labels of your PostgreSQL pods if they run in `fs-linkedeye`.
 2. **Create the namespace and Secret** (nothing secret goes into git):
@@ -316,11 +335,13 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 
 | Variable | Default | Secret | Description |
 |---|---|---|---|
-| `LINKEDEYE_SECRET_KEY` | none (**required** unless DEBUG) | yes | Django signing key: 50+ random characters. Changing it signs everyone out. |
+| `LINKEDEYE_SECRET_KEY` | none (**required** unless DEBUG) | yes | Django signing key: 50+ random characters (`python3 -c "import secrets; print(secrets.token_urlsafe(50))"`). With DEBUG off the console refuses to start on a key shorter than 50 characters, with fewer than 20 distinct characters, or starting with `change-me` or `dev-only`. Changing it signs everyone out. |
+| `LINKEDEYE_SESSION_COOKIE_AGE` | `28800` | | Seconds a sign-in session lives (8 hours); with the next setting on, seconds without a request. |
+| `LINKEDEYE_SESSION_SAVE_EVERY_REQUEST` | `true` | | `true`: every request renews the session, so `LINKEDEYE_SESSION_COOKIE_AGE` is an idle timeout. `false`: an absolute lifetime from sign-in. |
 | `LINKEDEYE_DEBUG` | `false` | | `true` only for local development (also makes cookies non-Secure and e-mail print to the console). Never in production. |
 | `LINKEDEYE_ALLOWED_HOSTS` | `localhost,127.0.0.1` with DEBUG, else empty (**required**) | | Comma-separated host names the console answers to. Include the public name and the names health checks / Alertmanager use (`web` in compose, `linkedeye-web…` in Kubernetes). A leading dot matches subdomains. |
 | `LINKEDEYE_CSRF_TRUSTED_ORIGINS` | empty | | Comma-separated origins with scheme, e.g. `https://linkedeye.example.com`. Required behind HTTPS. |
-| `LINKEDEYE_TRUSTED_PROXIES` | empty | | Comma-separated reverse-proxy IPs or CIDRs whose `X-Forwarded-For` is believed for audit-log source IPs (the right-most hop that is not a listed proxy is recorded). Empty: the direct peer address is recorded and `X-Forwarded-For` is ignored. Usually the same peers as `GUNICORN_FORWARDED_ALLOW_IPS` (e.g. the Docker bridge gateway, or the ingress controller's pod CIDR); never `0.0.0.0/0`. |
+| `LINKEDEYE_TRUSTED_PROXIES` | empty | | Comma-separated reverse-proxy IPs or CIDRs whose `X-Forwarded-For` is believed for audit-log source IPs (the right-most hop that is not a listed proxy is recorded). Empty: the direct peer address is recorded and `X-Forwarded-For` is ignored. It also decides what the sign-in throttle counts per address, so **set it behind any proxy or ingress**: empty, all clients share the proxy's address and 20 failed sign-ins from anyone lock everyone out. Set it together with `GUNICORN_FORWARDED_ALLOW_IPS`, to the same peers (e.g. the Docker bridge gateway, or the ingress controller's pod CIDR); never `0.0.0.0/0` or a range clients can be in. |
 | `LINKEDEYE_DB_ENGINE` | `django.db.backends.sqlite3` | | `django.db.backends.postgresql` (compose and Kubernetes default) or `django.db.backends.mysql`. |
 | `LINKEDEYE_DB_NAME` | `<project>/db.sqlite3` | | Database name (file path for SQLite; use `/app/data/…` in the container). |
 | `LINKEDEYE_DB_USER` | empty | | Database user. |
@@ -337,7 +358,7 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 | `LINKEDEYE_PROBE_TIMEOUT` | `10` | | Seconds per probe step (connect, TLS, response). |
 | `LINKEDEYE_PROBE_WORKERS` | `8` | | Parallel probe threads in `run_probes`. |
 | `LINKEDEYE_PROBE_RETENTION_DAYS` | `30` | | Days of URL / domain check results kept (pruned hourly). |
-| `LINKEDEYE_NOTIFY_WEBHOOK_URLS` | empty | yes (URLs often embed tokens) | Comma-separated URLs that receive a JSON POST per notified event (Slack, Teams, Apprise, StackStorm, …). |
+| `LINKEDEYE_NOTIFY_WEBHOOK_URLS` | empty | yes (URLs often embed tokens) | Comma-separated URLs that receive a JSON POST per notified event (Slack, Teams, Apprise, StackStorm, …). `http`/`https` only, no user name or password in the URL. Sent under the probe SSRF policy: link-local/metadata ranges are always refused, private and loopback receivers must be listed in `LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS`, redirects are not followed and any non-2xx answer counts as a failure. |
 | `LINKEDEYE_NOTIFY_EMAILS` | empty | | Comma-separated recipients of event e-mails. |
 | `LINKEDEYE_NOTIFY_SEVERITIES` | `critical,warning` | | Event severities that notify. Webhook JSON shape and e-mail templates: [NOTIFICATION_TEMPLATES.md](NOTIFICATION_TEMPLATES.md). |
 | `LINKEDEYE_EMAIL_BACKEND` | SMTP (console backend with DEBUG) | | Django e-mail backend class path. |
@@ -350,7 +371,7 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 | `LINKEDEYE_LOGIN_MAX_FAILURES` | `5` | | Failed sign-ins for one username within the window before that username is locked out. |
 | `LINKEDEYE_LOGIN_MAX_FAILURES_PER_IP` | `20` | | Failed sign-ins from one client address (see `LINKEDEYE_TRUSTED_PROXIES`) within the window before that address is locked out. |
 | `LINKEDEYE_LOGIN_WINDOW_MINUTES` | `15` | | Counting window and lock-out length for sign-in throttling. Counters live in the database, so every web worker shares them. |
-| `LINKEDEYE_LOGIN_OTP` | `false` with `LINKEDEYE_DEBUG=true`, else `true` | | After a correct password, require a one-time code sent by e-mail before the session is created (see [OTP_PATHS.md](OTP_PATHS.md)). Set `false` for local dev or automation; keep `true` in production unless you use another MFA layer. |
+| `LINKEDEYE_LOGIN_OTP` | `false` with `LINKEDEYE_DEBUG=true`, else `true` | | After a correct password, require a one-time code sent by e-mail before the session is created (see [OTP_PATHS.md](OTP_PATHS.md)). Set `false` for local dev or automation; keep `true` in production unless you use another MFA layer. The pending code is kept (hashed) in the database, so it works with any number of web workers or pods; a code is valid 5 minutes and allows 5 wrong guesses, a new one can be requested once a minute and 6 times an hour per account (20 per hour per client address), and wrong codes also count against the per-address sign-in limit. |
 | `LINKEDEYE_WELCOME_EMAIL` | `true` | | When a global admin creates a user with an e-mail address, send the welcome message ([NOTIFICATION_TEMPLATES.md](NOTIFICATION_TEMPLATES.md)). |
 | `LINKEDEYE_PORTAL_URL` | empty | | Optional absolute sign-in URL for welcome e-mails; if empty, the creating request's login URL is used. |
 | `LINKEDEYE_NOTIFY_ASYNC` | `true` | | Deliver notifications on a background pool after the event's transaction commits. `false` delivers synchronously on the emitting thread (tests). |
@@ -369,6 +390,7 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 | `LINKEDEYE_ALERTMANAGER_WEBHOOK_TOKEN` | empty (webhook answers 503) | yes | Bearer token Alertmanager must send to `POST /api/v1/alertmanager/`. |
 | `LINKEDEYE_LOG_INGEST_TOKEN` | empty (endpoint disabled) | yes | Bearer token for `POST /api/v1/logs/`. |
 | `LINKEDEYE_CREDENTIAL_KEY` | empty (the vault refuses to store a secret) | yes | Fernet key that encrypts every credential stored by Onboarding (SSH passwords and keys, SNMP communities, exporter bearer tokens) and the Prometheus service-discovery token. Generate with `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Comma-separate several keys to rotate: the first encrypts, every one may decrypt. Needs the `cryptography` package (in `requirements.txt`). Without the key or the package storing a secret **fails** with a clear message; there is no plaintext fallback. Back it up apart from the database: losing it makes the stored credentials unreadable (they are then re-entered, never guessed). |
+| `LINKEDEYE_ONBOARDING_ALLOW_CLEARTEXT_CREDENTIALS` | `false` | | Onboarding sends an exporter's HTTP basic / bearer login (and a Prometheus login) only over https (port 443, or a target pasted as `https://host:port`). `true` also allows plain http, for a network you trust. |
 | `LINKEDEYE_STACKSTORM_URL` | empty (not connected) | | StackStorm webhook base, e.g. `https://st2.example/api/v1/webhooks/`. |
 | `LINKEDEYE_STACKSTORM_API_KEY` | empty | yes | StackStorm API key. |
 | `LINKEDEYE_INCIDENT_AUTO_CREATE` | `true` | | Open incidents automatically for critical events / alerts. |
@@ -378,6 +400,7 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 | `LINKEDEYE_NAGIOS_TIMEOUT` | `10` | | Seconds per Nagios request (clamped to 1–60). |
 | `LINKEDEYE_LOG_RETENTION_DAYS` | `14` | | Days of ingested log entries kept (Logs & Events). |
 | `LINKEDEYE_TELEMETRY_ALERT_RETENTION_DAYS` | `90` | | Days resolved Alertmanager alerts are kept. |
+| `LINKEDEYE_TELEMETRY_ALERT_STALE_HOURS` | `48` | | Hours without a repeat notification after which a still-firing alert is resolved as stale (its resolved notification was lost); `0` disables. Keep it well above Alertmanager's `repeat_interval`. |
 | `LINKEDEYE_AUTOMATION_RETENTION_DAYS` | `90` | | Days of automation / StackStorm execution history kept. |
 | `LINKEDEYE_APM_RETENTION_DAYS` | `30` | | Days of APM adapter runs and status-change history kept (also capped per source). |
 | `LINKEDEYE_APM_LOG_RETENTION_DAYS` | `7` | | Days of APM execution logs kept (also capped per source). |
@@ -387,6 +410,7 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 | `LINKEDEYE_AGENT_EMBEDDING_MODEL` | `text-embedding-3-small` | | Embedding model for the knowledge index. Uses `LINKEDEYE_AGENT_API_KEY`. Lexical retrieval still runs when embeddings are unavailable. |
 | `LINKEDEYE_AGENT_TIMEOUT` | `30` | | Seconds per model HTTP call (clamped to 1–120). |
 | `LINKEDEYE_AGENT_RETENTION_DAYS` | `90` | | Days of idle Ops Agent threads kept (pruned hourly). |
+| `LINKEDEYE_AGENT_TURNS_PER_MINUTE` | `20` | | Questions one user may ask Ops Agent per minute (`0` = no limit); counted in the database. A turn also stops issuing model calls after about 25 s and answers from the retrieved records. |
 
 ### Process and container variables
 
@@ -486,7 +510,7 @@ release had no migrations; otherwise restore the backup with the old image. With
 migration as a PreSync / pre-upgrade hook.
 
 **Rotating secrets:** `LINKEDEYE_CREDENTIAL_KEY` (prepend the new key, keep the old one after it until every stored
-credential has been rotated or re-saved in Onboarding, then drop the old key; a secret encrypted with a key that is no
+credential has been rotated or re-saved in Onboarding, then drop the old key. `python manage.py rewrap_credentials` (`--dry-run` first) re-encrypts every stored credential with the new primary key and lists any row no listed key can read; drop the old key only when that list is empty; a secret encrypted with a key that is no
 longer listed cannot be read and must be re-entered), `LINKEDEYE_SECRET_KEY` (signs everyone out), webhook / ingest tokens (update Alertmanager
 and log shippers at the same time; in compose `docker compose --profile observability up -d --force-recreate web
 alertmanager`, because the Alertmanager token file is only written when the container is created) and the database password (`ALTER USER linkedeye WITH PASSWORD '…'` first,
@@ -519,6 +543,9 @@ empty volume).
 | Pod / gunicorn exits with `still hold '<REPLACE ...>' placeholders` | A Secret was created from `secret.template.yaml` without replacing every value. Set real values or delete the unused keys. |
 | Container exits with `ValueError` at start-up | A numeric `LINKEDEYE_*` variable is set to an empty string; remove the line. |
 | `RuntimeError: Set LINKEDEYE_SECRET_KEY` | No secret key and DEBUG off. |
+| `RuntimeError: LINKEDEYE_SECRET_KEY is too weak for production` | The key is shorter than 50 characters, repetitive, or a placeholder (`change-me…`, `dev-only…`). Generate a new one; this signs everyone out. |
+| `Too many failed sign-ins` for users who typed the right password | Behind a proxy with `LINKEDEYE_TRUSTED_PROXIES` empty, every client counts as the proxy address and the per-address limit is shared. Set it to the proxy peers. |
+| `413 Request Entity Too Large` (an HTML page from the proxy) uploading a datasheet PDF | The proxy's body limit on `/network/photos/find/` is below 26 MB: add the second Ingress / `location` shown above. |
 
 ## Validating the bundle
 

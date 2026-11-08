@@ -108,7 +108,8 @@ def activate(target):
       * a `cmdb.ConfigurationItem` with `prometheus_instance` set to `target.instance`;
       * a `network.Device` for SNMP targets, or a compute server for hypervisors / Kubernetes nodes;
       * an `observe.Exporter` row for the metrics endpoint;
-      * membership of the service-discovery endpoint (target.enabled = True);
+      * membership of the service-discovery endpoint: left as the operator set it on the Targets step
+        (``target.enabled``); a target held back there is wired up but not served;
       * a StepLog entry.
 
     Must save target.ci / target.device / target.exporter. The state defaults to scraping (the

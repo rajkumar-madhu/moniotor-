@@ -2,6 +2,7 @@
 cluster turns degraded (NotReady nodes or deployments with unavailable replicas) or recovers. Events fire on
 state changes only. Bounded (MAX_CLUSTERS per pass, Prometheus timeout from settings) and never raises."""
 import logging
+import time
 
 from django.conf import settings
 from django.utils import timezone
@@ -11,11 +12,13 @@ from core.events import emit
 from core.prometheus import PrometheusError
 
 from . import k8s
+from .metrics import is_outage
 from .models import Cluster, ClusterKind, K8sState
 
 log = logging.getLogger("linkedeye.compute")
 
 MAX_CLUSTERS = 100
+MAX_SECONDS = 240       # wall-clock budget of one pass (the job runs every 300 s)
 
 
 def _describe(summary):
@@ -67,7 +70,11 @@ def collect_k8s():
     qs = (Cluster.objects.filter(tenant_key=settings.LINKEDEYE_TENANT, kind=ClusterKind.KUBERNETES)
           .exclude(prometheus_selector="").order_by("k8s_checked_at", "pk")[:MAX_CLUSTERS])
     done = degraded = failed = 0
+    started, stopped = time.monotonic(), ""
     for c in qs:
+        if done + failed and time.monotonic() - started > MAX_SECONDS:
+            stopped = "time budget spent"
+            break
         try:
             state = refresh_cluster(c)
         except Exception:  # one broken cluster must not stop the rest (or the worker)
@@ -76,4 +83,8 @@ def collect_k8s():
             continue
         done += 1
         degraded += state == K8sState.WARNING
-    return f"{done} kubernetes cluster(s) collected, {degraded} degraded, {failed} failed"
+        if is_outage(c.k8s_error):  # Prometheus is down: the other clusters would each wait for a timeout too
+            stopped = "Prometheus unreachable"
+            break
+    msg = f"{done} kubernetes cluster(s) collected, {degraded} degraded, {failed} failed"
+    return msg + (f"; stopped early ({stopped})" if stopped else "")

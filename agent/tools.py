@@ -1,8 +1,12 @@
 """Read-only tools the ops agent may call. Every lookup is site-scoped to the asking user."""
+import logging
+
 from django.db.models import Q
 
 from core.access import scope_by_site
 from core.overview import _safe, _url, model as overview_model, problems as overview_problems
+
+log = logging.getLogger("linkedeye.agent")
 
 TOOL_LIMIT = 12
 
@@ -41,6 +45,7 @@ def run_tool(name, args, ctx):
     try:
         return fn(ctx, **clean)
     except Exception:
+        log.exception("agent tool %s failed", name)
         return {"error": f"{name} failed"}
 
 

@@ -6,7 +6,7 @@
       <td>{{ t.get_target_type_display }}</td>
       <td class="num">{{ t.port }}</td>
       <td class="num">{{ t.exporter_kind|default:"—" }}</td>
-      <td>{% if t.credential %}<span class="chip">{% icon "key" 13 %}{{ t.credential.name }}</span>{% else %}<span class="t-mute">none</span>{% endif %}</td>
+      <td>{% if t.credential %}<span class="chip">{% icon "key" 13 %}{% if can_manage %}{{ t.credential.name }}{% else %}attached{% endif %}</span>{% else %}<span class="t-mute">none</span>{% endif %}</td>
       <td><span class="badge {{ t.tone }}">{{ t.get_state_display }}</span></td>
       <td>{% if t.served %}<span class="chip teal">served</span>{% elif not t.enabled %}<span class="chip">held back</span>{% else %}<span class="chip mute">not yet</span>{% endif %}</td>
       <td class="t-mute">{{ t.last_error|default:"—"|truncatechars:70 }}</td>

@@ -1,6 +1,8 @@
 """One agent turn: persist the user message, call tools / the model, persist the reply."""
 import json
 import logging
+from datetime import timedelta
+from time import monotonic as _monotonic
 from types import SimpleNamespace
 
 from django.conf import settings
@@ -22,7 +24,23 @@ HISTORY_LIMIT = 16
 TOOL_ROUNDS = 4
 CONTENT_CAP = 4000
 TOOL_RESULT_CAP = 1500
-THREAD_MESSAGE_CAP = 80
+THREAD_MESSAGE_CAP = 80       # user + assistant rows (tool rows are bookkeeping and do not count)
+TURN_BUDGET_SECONDS = 25      # a turn runs inside a web request: stop issuing model rounds after this long
+
+
+class RateLimited(ValueError):
+    """The user asked too many questions in the last minute (settings.AGENT_TURNS_PER_MINUTE, counted in the
+    database so it holds across web workers)."""
+
+
+def _check_rate(user):
+    limit = int(getattr(settings, "AGENT_TURNS_PER_MINUTE", 20) or 0)
+    if limit <= 0:
+        return
+    since = timezone.now() - timedelta(seconds=60)
+    recent = Message.objects.filter(thread__owner=user, role=Message.USER, created_at__gte=since).count()
+    if recent >= limit:
+        raise RateLimited("Too many questions in a minute. Wait a moment and try again.")
 
 
 def run_turn(user, thread, text):
@@ -30,8 +48,9 @@ def run_turn(user, thread, text):
     text = (text or "").strip()[:CONTENT_CAP]
     if not text:
         raise ValueError("Message is empty.")
-    if thread.messages.count() >= THREAD_MESSAGE_CAP:
+    if thread.messages.exclude(role=Message.TOOL).count() >= THREAD_MESSAGE_CAP:
         raise ValueError("This thread is full. Start a new conversation.")
+    _check_rate(user)
     Message.objects.create(thread=thread, role=Message.USER, content=text)
     if not thread.title:
         thread.title = text.splitlines()[0][:80]
@@ -112,7 +131,10 @@ def _model_turn(thread, ctx, text):
     messages.extend(history)
     citations = [{"title": h["title"], "href": h["href"], "site": h.get("site") or ""} for h in hits if h.get("href")]
     schemas = tools.openai_tools()
+    deadline = _monotonic() + TURN_BUDGET_SECONDS
     for _round in range(TOOL_ROUNDS):
+        if _monotonic() > deadline:
+            raise llm.LLMError("The language model is taking too long. Showing retrieved records.")
         reply = llm.complete(messages, tools=schemas)
         tool_calls = reply.get("tool_calls") or []
         if not tool_calls:
@@ -146,7 +168,8 @@ def _model_turn(thread, ctx, text):
 
 
 def _openai_history(thread):
-    rows = list(thread.messages.exclude(role=Message.TOOL).order_by("created_at", "pk")[:HISTORY_LIMIT])
+    # the newest HISTORY_LIMIT messages (the question just asked is the last one), oldest first
+    rows = list(thread.messages.exclude(role=Message.TOOL).order_by("-created_at", "-pk")[:HISTORY_LIMIT])[::-1]
     out = []
     for m in rows:
         if m.role == Message.ASSISTANT:

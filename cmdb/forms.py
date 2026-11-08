@@ -37,16 +37,36 @@ def link_queryset(qs, user, field):
     return scope_by_site(qs, user, field=field)
 
 
-def site_choices(current=""):
-    """Site names from core.Site plus any value already in use, with "All Sites" first."""
+def site_choices(current="", user=None, every_site=False):
+    """Site names for the CI form: core.Site rows plus sites in use, limited to the user's own sites
+    (core.access.visible_sites; no user means no sites) so the names of other sites, or of sites that exist only through CIs
+    the user cannot see, are not disclosed. "All Sites" is offered to a user who may operate everywhere (and when it is the
+    current value). every_site=True is the unscoped list used to recognise a posted value (see SiteChoiceField)."""
+    from core.access import tenant_wide, visible_sites
     from core.models import Site
     names = set(Site.objects.filter(tenant_key=settings.LINKEDEYE_TENANT).values_list("name", flat=True))
     names |= set(ConfigurationItem.objects.filter(tenant_key=settings.LINKEDEYE_TENANT)
                  .order_by().values_list("site", flat=True).distinct())
+    allowed = visible_sites(user) if user is not None else set()
+    if allowed is not None and not every_site:
+        names &= allowed
     if current:
         names.add(current)
     names -= {"", "All Sites"}
-    return [("All Sites", "All Sites")] + [(n, n) for n in sorted(names, key=str.lower)]
+    wide = every_site or current == "All Sites" or (user is not None and tenant_wide(user, "operate"))
+    return ([("All Sites", "All Sites")] if wide else []) + [(n, n) for n in sorted(names, key=str.lower)]
+
+
+class SiteChoiceField(forms.ChoiceField):
+    """Lists only the user's own sites but still recognises every site of the tenant on submit, so a site outside the
+    user's reach gets the "You cannot manage items on this site" message from clean_site rather than a generic one."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.known = set()
+
+    def valid_value(self, value):
+        return super().valid_value(value) or str(value) in self.known
 
 
 class DateInput(forms.DateInput):
@@ -56,13 +76,45 @@ class DateInput(forms.DateInput):
         super().__init__(attrs=attrs, format="%Y-%m-%d")
 
 
+def _reject_constant(name):
+    raise json.JSONDecodeError(f"{name} is not valid JSON", "", 0)
+
+
+def _finite_float(text):
+    number = float(text)
+    if number in (float("inf"), float("-inf")):
+        raise json.JSONDecodeError("number out of range", text, 0)
+    return number
+
+
+def _bounded_int(text):
+    if len(text) > 100:          # int() refuses thousands of digits with a ValueError that is not a JSON error
+        raise json.JSONDecodeError("number out of range", text, 0)
+    return int(text)
+
+
+class StrictJSONDecoder(json.JSONDecoder):
+    """json.loads accepts NaN, Infinity and 1e999; the database stores only valid JSON, so refuse them here."""
+
+    def __init__(self, **kwargs):
+        kwargs.update(parse_constant=_reject_constant, parse_float=_finite_float, parse_int=_bounded_int)
+        super().__init__(**kwargs)
+
+
 class AttributesField(forms.JSONField):
-    """JSON object (key/value attributes). Empty input means {}."""
+    """JSON object (key/value attributes). Empty input means {}. NaN and Infinity are refused (not valid JSON)."""
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("decoder", StrictJSONDecoder)
+        super().__init__(**kwargs)
 
     def to_python(self, value):
         if value in (None, ""):
             return {}
-        value = super().to_python(value)
+        try:
+            value = super().to_python(value)
+        except ValueError:      # e.g. an integer of thousands of digits: refused by int()
+            raise forms.ValidationError(self.error_messages["invalid"], code="invalid") from None
         if not isinstance(value, dict):
             raise forms.ValidationError("Attributes must be a JSON object, e.g. {\"rack\": \"R12\"}.")
         return value
@@ -76,7 +128,7 @@ class AttributesField(forms.JSONField):
 
 
 class CIForm(forms.ModelForm):
-    site = forms.ChoiceField(label="Site", choices=())
+    site = SiteChoiceField(label="Site", choices=())
     attributes = AttributesField(required=False, widget=forms.Textarea(attrs={"rows": 4, "placeholder": '{"rack": "R12", "os": "RHEL 9"}'}),
                                  help_text="Optional JSON object with extra attributes.")
 
@@ -109,7 +161,9 @@ class CIForm(forms.ModelForm):
         tenant = settings.LINKEDEYE_TENANT
         self.fields["url_checks"].queryset = link_queryset(UrlCheck.objects.filter(tenant_key=tenant), user, "site").order_by("name")
         self.fields["domains"].queryset = link_queryset(Domain.objects.filter(tenant_key=tenant), user, "site_key").order_by("hostname")
-        self.fields["site"].choices = site_choices(self.instance.site if self.instance and self.instance.pk else "")
+        current = self.instance.site if self.instance and self.instance.pk else ""
+        self.fields["site"].choices = site_choices(current, user)
+        self.fields["site"].known = {v for v, _ in site_choices(current, user, every_site=True)}
         self.fields["site"].initial = self.instance.site if self.instance and self.instance.pk else "All Sites"
 
     def clean_name(self):

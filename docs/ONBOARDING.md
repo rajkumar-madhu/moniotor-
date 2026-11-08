@@ -20,13 +20,24 @@ and every step is idempotent: closing the browser loses nothing, and re-entering
 | **Verify** | Press *Verify*. | DNS, TCP connect, `GET /metrics` and the exporter identity, optionally host facts over SSH. Every probe goes through the SSRF-guarded `probes.checks`. Nothing is probed until you press the button. |
 | **Enable collection** | Run the shown install command on the host, or tick *Install over SSH* to let LinkedEye do it with the stored credential. | Fixed command allow-list, never free text from the form. A failed install leaves the host untouched and reports the error. SNMP devices get the exporter module, Kubernetes nodes point at kube-state-metrics. |
 | **Logs** | Press *Generate shipper configuration*. | promtail or vector config pre-filled with the log-ingest URL; the token appears on that page only. |
-| **Confirm** | Press *Activate*. | Creates or links the CMDB record, the network device or compute server, the exporter row and service-discovery membership, then waits for `up == 1`. The page polls every 10 s; a background job (`onboarding.liveness`, every 60 s) does the same with the browser closed. |
+| **Confirm** | Press *Activate*. | Creates or links the CMDB record, the network device or compute server and the exporter row (each audited as the operator who pressed the button), keeps service-discovery membership as set on the Targets step, then waits for `up == 1`. The page polls every 10 s; a background job (`onboarding.liveness`, every 60 s) does the same with the browser closed. |
 | **Done** | Press *Mark complete* (or let it complete itself when every target is live). | Links straight to the host's metrics page, the fleet view, the explorer, its logs, its CMDB record and its alerts. |
 
 A run moves through the statuses *draft → verifying → installing → waiting for data → complete* (or *failed*, which
 can be reopened). Each target moves through *new → reachable / unreachable → exporter found → installing →
-installed → scraping → live* (or *failed*). The full trail of what each step did is under **Run log**; it never
-contains a secret.
+installed → scraping → live* (or *failed*). Only an **activated** target (*scraping*) waits for `up == 1`: a target
+that is merely verified or installed is never promoted to *live*, and a run cannot complete before its targets have
+been activated. A target that is already *scraping* or *live* keeps that state when Verify or Enable runs again, even
+if the probe fails (a DNS blip must not drop a healthy host from service discovery); the failure is recorded in its
+last result and facts. The full trail of what each step did is under **Run log**; it never contains a secret.
+
+Verify and Enable work through the targets inside one request, so each stops after a 45 second time budget and says
+how many targets it did not reach; press the button again to continue with them (the least recently checked go
+first). An audit row is written before the work starts, and an *Install over SSH* takes a per-host lock (it expires
+after ten minutes), so a retry cannot start a second install on a host that is already being installed. Moving this
+work to a background job is not done yet.
+
+The client of a run is the client that owns its site. Only an admin on every site may label a run with another client.
 
 ## The credential vault
 
@@ -40,9 +51,21 @@ contains a secret.
 * Every read of a secret (an SSH login, for example) is audited with who, what and why, and stamps *Last used*.
 * A credential belongs to one site. It cannot be attached to a run in another site, and changing a run's site
   drops its credential attachments.
+* A credential also belongs to a kind of target: an SSH password or key only to Linux and Windows servers, an SNMP
+  community or v3 login only to network devices, an HTTP basic login to servers, Kubernetes nodes, URL services and
+  a Prometheus server, a bearer token to servers, Kubernetes nodes and URL services. *Apply to: every target* attaches
+  to the targets it fits and logs the rest as skipped, and verify and install ignore a mismatched attachment, so an
+  SSH password is never offered to a URL service and an HTTP login never goes to a network device.
+* An exporter's HTTP basic or bearer login is sent only over **https**. A target is https when it is on port 443 or
+  was pasted as `https://host:port` (service discovery then adds `__scheme__=https`); over plain http the login is
+  not sent and Verify says so. For a network you trust, `LINKEDEYE_ONBOARDING_ALLOW_CLEARTEXT_CREDENTIALS=true`
+  allows clear text. The same rule applies to a Prometheus login.
+* Credential labels are shown only to the site's admins; a viewer or operator sees "attached".
 * Rows that serve every site (the connected Prometheus' login and the service-discovery token) are stored
   with an empty site: a site's credentials step never lists, attaches, rotates or deletes them, and no host
-  check ever sends them to a host. Only an admin on every site connects Prometheus or issues that token. The
+  check ever sends them to a host. The service-discovery endpoint accepts only such a tenant-wide row, and the
+  labels `Prometheus service discovery` and `Prometheus http…` are reserved, so a site admin cannot plant a
+  token of their own. Only an admin on every site connects Prometheus or issues that token. The
   log-ingest token is shared by every site too, so the Logs step shows it only to an admin on every site; a
   site admin gets a `<LOG_INGEST_TOKEN>` placeholder.
 * Reading a secret from a hook (SSH, an exporter login) is audited as the operator who pressed the button.

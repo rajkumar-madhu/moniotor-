@@ -463,7 +463,63 @@ def _candidates(row):
     return [s for s in dict.fromkeys(out) if s]
 
 
-def link_row(row):
+class LinkIndex:
+    """The inventory records a pass can link targets to, read once per pass instead of once per target.
+
+    ``LinkIndex().find("cmdb", "ConfigurationItem", {"prometheus_instance": names, ...})`` answers like
+    ``Model.objects.filter(tenant_key=…, field__in=names).first()`` – first match in the model's default ordering –
+    from tables that are loaded lazily (one query per model, only when some target still needs that link)."""
+
+    FIELDS = {("cmdb", "ConfigurationItem"): ("prometheus_instance", "name", "ip_address"),
+              ("network", "Device"): ("prometheus_instance", "name", "mgmt_ip"),
+              ("observe", "Exporter"): ("metrics_url", "target", "name")}
+
+    def __init__(self):
+        self._tables = {}
+
+    def _table(self, app_label, name):
+        key = (app_label, name)
+        if key not in self._tables:
+            model, table = _model(app_label, name), None
+            if model is not None:
+                fields = self.FIELDS[key]
+                table = {f: {} for f in fields}
+                try:
+                    qs = model.objects.filter(tenant_key=tenant()).only("pk", *fields)
+                    if not model._meta.ordering:
+                        qs = qs.order_by("pk")                      # what .first() would use
+                    for pos, obj in enumerate(qs):                  # default ordering: the first match wins
+                        for f in fields:
+                            v = getattr(obj, f)
+                            if v not in (None, ""):
+                                table[f].setdefault(v, (pos, obj))
+                except Exception:   # the other module's tables are not migrated: discovery must not fail because of it
+                    log.warning("discovery link lookup failed", exc_info=True)
+                    table = None
+            self._tables[key] = table
+        return self._tables[key]
+
+    def add(self, app_label, name, obj):
+        """Make a record created during the pass visible to the targets that follow (two jobs scraping one host
+        must find the item the first one created)."""
+        table = self._tables.get((app_label, name))
+        if not table:
+            return
+        pos = max((p for per in table.values() for p, _o in per.values()), default=-1) + 1
+        for f in table:
+            v = getattr(obj, f, None)
+            if v not in (None, ""):
+                table[f].setdefault(v, (pos, obj))
+
+    def find(self, app_label, name, field, values):
+        table = self._table(app_label, name)
+        if not table:
+            return None
+        hits = [table[field][v] for v in values if v in table[field]]
+        return min(hits, key=lambda h: h[0])[1] if hits else None
+
+
+def link_row(row, index=None):
     """Attach the CMDB item / device / exporter that already represents this target. Returns the fields changed.
 
     Matching, tenant-scoped throughout (another tenant's records are never linked):
@@ -474,42 +530,53 @@ def link_row(row):
     legitimately disagree, and refusing the link there would create a duplicate item instead. The cost is that
     a viewer who may see the target also sees the name of the record behind it, which may sit on another site;
     the operator's own "Link to…" list is site-scoped (telemetry.views.discovery._link_options), since that
-    writes back to the record."""
+    writes back to the record.
+
+    A discovery pass hands in one LinkIndex so the lookups are answered from memory; without it every missing
+    link costs queries (views that link one target)."""
     changed = []
     names = _candidates(row)
     ip = (row.details or {}).get("ip") or as_ip(row.address)
 
+    def lookup(app_label, name, field, values, qs_factory):
+        if not values:
+            return None
+        if index is not None:
+            return index.find(app_label, name, field, values)
+        return _first(qs_factory(**{f"{field}__in": values}))
+
     CI = _model("cmdb", "ConfigurationItem")
     if row.ci_id is None and CI is not None:
-        ci = _first(CI.objects.filter(tenant_key=tenant(), prometheus_instance__in=names))
+        base = lambda **kw: CI.objects.filter(tenant_key=tenant(), **kw)   # noqa: E731
+        ci = lookup("cmdb", "ConfigurationItem", "prometheus_instance", names, base)
         if ci is None:
-            ci = _first(CI.objects.filter(tenant_key=tenant(), name__in=names))
+            ci = lookup("cmdb", "ConfigurationItem", "name", names, base)
         if ci is None and ip:
-            ci = _first(CI.objects.filter(tenant_key=tenant(), ip_address=ip))
+            ci = lookup("cmdb", "ConfigurationItem", "ip_address", [ip], base)
         if ci is not None:
             row.ci = ci
             changed.append("ci")
 
     Device = _model("network", "Device")
     if row.device_id is None and Device is not None:
-        dev = _first(Device.objects.filter(tenant_key=tenant(), prometheus_instance__in=names))
+        base = lambda **kw: Device.objects.filter(tenant_key=tenant(), **kw)   # noqa: E731
+        dev = lookup("network", "Device", "prometheus_instance", names, base)
         if dev is None:
-            dev = _first(Device.objects.filter(tenant_key=tenant(), name__in=names))
+            dev = lookup("network", "Device", "name", names, base)
         if dev is None:
-            dev = _first(Device.objects.filter(tenant_key=tenant(), mgmt_ip__in=names))
+            dev = lookup("network", "Device", "mgmt_ip", names, base)
         if dev is not None:
             row.device = dev
             changed.append("device")
 
     Exporter = _model("observe", "Exporter")
     if row.exporter_id is None and Exporter is not None:
-        exp = None
-        if row.scrape_url:
-            exp = _first(Exporter.objects.filter(tenant_key=tenant(), metrics_url=row.scrape_url))
+        base = lambda **kw: Exporter.objects.filter(tenant_key=tenant(), **kw)   # noqa: E731
+        exp = lookup("observe", "Exporter", "metrics_url", [row.scrape_url] if row.scrape_url else [], base)
         if exp is None:
-            exp = _first(Exporter.objects.filter(tenant_key=tenant(), target__in=names))
+            exp = lookup("observe", "Exporter", "target", names, base)
         if exp is None:
-            exp = _first(Exporter.objects.filter(tenant_key=tenant(), name__in=names))
+            exp = lookup("observe", "Exporter", "name", names, base)
         if exp is not None:
             row.exporter = exp
             changed.append("exporter")
@@ -739,6 +806,7 @@ def run(now=None, trigger="job"):
     existing = {(r.instance, r.job): r for r in DiscoveredTarget.objects.for_tenant()}
     new_rows, created_total, linked_total, touched = [], 0, 0, []
 
+    index, pending = LinkIndex(), []
     for key, t in seen.items():
         row = existing.get(key)
         is_new = row is None
@@ -749,19 +817,31 @@ def run(now=None, trigger="job"):
         if data.get("identity_failed") and not is_new:
             kind = row.kind          # the probes did not answer: keep what an earlier pass learned, do not flap
         _apply_target(row, t, kind, data, now, label)
-        row, is_new = _save_upsert(row, t, kind, data, now, label, is_new)
+        if is_new:
+            row, is_new = _save_upsert(row, t, kind, data, now, label, is_new)
         touched.append(row.pk)
-        linked = link_row(row)
+        linked = link_row(row, index)
         created = autocreate(row, flags)
-        if row.linked_to and row.state == DiscoveredTarget.NEW:
+        for made, app_label, model_name in (("ci", "cmdb", "ConfigurationItem"), ("device", "network", "Device"),
+                                            ("exporter", "observe", "Exporter")):
+            if made in created:
+                index.add(app_label, model_name, getattr(row, made))
+        has_link = row.ci_id is not None or row.device_id is not None or row.exporter_id is not None   # ids: no query
+        if has_link and row.state == DiscoveredTarget.NEW:
             row.state = DiscoveredTarget.LINKED
-        elif not row.linked_to and row.state == DiscoveredTarget.LINKED:
+        elif not has_link and row.state == DiscoveredTarget.LINKED:
             row.state = DiscoveredTarget.NEW      # the item it was linked to has been deleted
-        row.save(update_fields=["ci", "device", "exporter", "state", "updated_at"])
+        if existing.get(key) is row:
+            row.updated_at = now
+            pending.append(row)      # one batched UPDATE for all known targets instead of two saves each
+        else:
+            row.save(update_fields=["ci", "device", "exporter", "state", "updated_at"])
         linked_total += len(linked)
         created_total += len(created)
         if is_new:
             new_rows.append(row)
+    if pending:
+        DiscoveredTarget.objects.bulk_update(pending, UPSERT_FIELDS + ["updated_at"], batch_size=100)
 
     n_missing = DiscoveredTarget.objects.for_tenant().filter(missing_since__isnull=True).exclude(
         pk__in=touched).update(missing_since=now, health=DiscoveredTarget.UNKNOWN)

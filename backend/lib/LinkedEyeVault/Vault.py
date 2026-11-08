@@ -197,6 +197,32 @@ class Vault(object):
         except Exception as ex:
             raise Exception(ex)
 
+    def CreateScopedToken(self, policyName, period="768h", display_name="linkedeye-stackstorm"):
+        """Create a periodic, policy-scoped token (never root) and return its client token.
+
+        Used by the entrypoint so the root token does not have to be written to the
+        StackStorm config. The token must be renewed within ``period``.
+        """
+        if not self.isUnsealed:
+            raise Exception("Unseal Required")
+        data = {
+            "policies": [policyName],
+            "no_parent": True,
+            "renewable": True,
+            "period": period,
+            "display_name": display_name,
+        }
+        res = self._postman("/v1/auth/token/create", method="post", data=data)
+        if res.get('status') != 200:
+            raise Exception("Vault token create failed: HTTP %s" % res.get('status'))
+        try:
+            token = json.loads(res['msg'])['auth']['client_token']
+        except Exception as ex:
+            raise Exception("Vault token create returned an unexpected body: %s" % ex)
+        if not token:
+            raise Exception("Vault token create returned no token")
+        return token
+
     def GetRootToken(self):
         try:
             return self.keys["root_token"]

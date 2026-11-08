@@ -4,15 +4,24 @@ Site scoping: a Room stores the site name; Racks and CoolingUnits copy their roo
 services.sync_room_site) so every list can be filtered with core.access.scope_by_site. RackItems and
 PowerFeeds are scoped through their rack (``rack__site``).
 """
+from datetime import timedelta
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.urls import reverse
+from django.utils import timezone
 
 GLOBAL_SITE = "All Sites"
 MAX_U = 60
 EXAMPLE_MARK = "[example]"
+LIVE_MAX_AGE = timedelta(minutes=15)   # three passes of the 300 s dcim.readings job
+
+
+def is_fresh(read_at):
+    """True when a Prometheus reading is recent enough to be shown (and alerted on) as live."""
+    return read_at is not None and timezone.now() - read_at <= LIVE_MAX_AGE
 
 
 def _tenant():
@@ -213,7 +222,11 @@ class PowerFeed(models.Model):
 
     @property
     def live_kw(self):
-        return self.last_value if self.prometheus_query and self.last_value is not None else None
+        """The Prometheus value, only while it is fresh: a value older than LIVE_MAX_AGE (the readings job stopped,
+        Prometheus was un-configured …) falls back to the manual value instead of being shown as live."""
+        if self.prometheus_query and self.last_value is not None and is_fresh(self.last_read_at):
+            return self.last_value
+        return None
 
     @property
     def load_kw(self):
@@ -274,24 +287,20 @@ class CoolingUnit(models.Model):
         super().save(*args, **kwargs)
 
     @property
-    def supply_c(self):
-        if self.supply_query and self.last_supply_c is not None:
-            return self.last_supply_c
-        return self.supply_temp_c
-
-    @property
-    def return_c(self):
-        if self.return_query and self.last_return_c is not None:
-            return self.last_return_c
-        return self.return_temp_c
-
-    @property
     def supply_live(self):
-        return bool(self.supply_query and self.last_supply_c is not None)
+        return bool(self.supply_query and self.last_supply_c is not None and is_fresh(self.last_read_at))
 
     @property
     def return_live(self):
-        return bool(self.return_query and self.last_return_c is not None)
+        return bool(self.return_query and self.last_return_c is not None and is_fresh(self.last_read_at))
+
+    @property
+    def supply_c(self):
+        return self.last_supply_c if self.supply_live else self.supply_temp_c
+
+    @property
+    def return_c(self):
+        return self.last_return_c if self.return_live else self.return_temp_c
 
     @property
     def delta_t(self):

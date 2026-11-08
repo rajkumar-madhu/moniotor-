@@ -50,9 +50,10 @@ def _next(request, fallback):
 
 def _int(value, default=None):
     try:
-        return int(value)
+        n = int(value)
     except (TypeError, ValueError):
         return default
+    return n if -2**62 < n < 2**62 else default   # a larger id would overflow the database driver (HTTP 500)
 
 
 def csv_safe(value):
@@ -586,6 +587,8 @@ def _after_feed_save(request, feed, query_changed):
             msg += f" Live reading: {feed.last_value:.3f} kW." if ok else f" Live reading failed: {feed.last_error}"
         else:
             msg += " Prometheus is not connected (set LINKEDEYE_PROMETHEUS_URL), so the query is not read yet."
+            # the value of the old query must not keep showing as live
+            PowerFeed.objects.filter(pk=feed.pk).update(last_value=None, last_error="", last_read_at=None)
     elif not feed.prometheus_query and feed.last_value is not None:
         PowerFeed.objects.filter(pk=feed.pk).update(last_value=None, last_error="", last_read_at=None)
     _reevaluate(feed.rack.room)
@@ -739,6 +742,8 @@ def _after_unit_save(request, unit, query_changed):
             msg += " Live temperatures read." if ok else f" Live reading failed: {unit.last_error}"
         else:
             msg += " Prometheus is not connected (set LINKEDEYE_PROMETHEUS_URL), so the queries are not read yet."
+            CoolingUnit.objects.filter(pk=unit.pk).update(last_supply_c=None, last_return_c=None, last_error="",
+                                                          last_read_at=None)
     _reevaluate(unit.room)
     messages.success(request, msg)
 
