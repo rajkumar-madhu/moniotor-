@@ -18,6 +18,7 @@ import logging
 import os
 import threading
 import time
+import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
@@ -57,6 +58,42 @@ def _post(url, payload, timeout=5):
         return r.status
 
 
+def _log_url(url):
+    """A webhook URL as it may appear in a log: scheme://host[:port] only.
+
+    Slack, Teams and Apprise carry their token in the *path* (and some endpoints in the query), so neither may
+    be logged; any userinfo is dropped too.
+    """
+    try:
+        parts = urllib.parse.urlsplit(url or "")
+    except ValueError:
+        return "(invalid URL)"
+    host = parts.netloc.rsplit("@", 1)[-1]
+    if not parts.scheme or not host:
+        return "(invalid URL)"
+    return f"{parts.scheme}://{host}"
+
+
+def _safe_error(url, e):
+    """str(e) with the webhook URL redacted. urllib and http.client quote the URL they were handed in their own
+    error messages (`unknown url type: '<url>'`, `URL can't contain control characters. '<path>'`), which would
+    put the token back in the log that _log_url() just kept it out of."""
+    text = str(e)
+    secrets = []
+    if url:
+        secrets.append(url)
+        try:
+            parts = urllib.parse.urlsplit(url)
+            tail = urllib.parse.urlunsplit(("", "", parts.path, parts.query, parts.fragment))
+        except ValueError:
+            tail = ""
+        if tail and tail != "/":
+            secrets.append(tail)
+    for secret in sorted(secrets, key=len, reverse=True):  # longest match first
+        text = text.replace(secret, "…")
+    return text
+
+
 def _send(payload, subject, text_body, html_body=None):
     """Send one notification to every configured channel. Returns how many channels accepted it. Never raises."""
     from administration import integration_config as ic
@@ -70,7 +107,7 @@ def _send(payload, subject, text_body, html_body=None):
             _post(url, hook_payload)
             sent += 1
         except Exception as e:  # never let a notification failure break the caller
-            log.warning("webhook %s failed: %s", url.split("?")[0], e)
+            log.warning("webhook %s failed: %s", _log_url(url), _safe_error(url, e))
     recipients = ic.notify_emails()
     if recipients:
         try:

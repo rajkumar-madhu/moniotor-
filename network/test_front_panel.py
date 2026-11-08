@@ -95,8 +95,8 @@ class DeviceDetailFrontPanelTests(TestCase):
         self.assertContains(r, 'aria-label="Port 21, Ethernet21, busy or errors"')
         self.assertContains(r, "network/front-panel.js")
         self.assertContains(r, "Ports up / down")
-        self.assertContains(r, "50 / ")            # 52 ports, 13 down and 40 admin down
-        self.assertContains(r, "1 unused or admin down")
+        self.assertContains(r, '<span data-live="ports_up">50</span> / ')   # 52 ports, 13 down and 40 admin down
+        self.assertContains(r, '<span data-live="ports_unused">1</span> unused or admin down')
         self.assertContains(r, "0.50/s")           # errors KPI
         data = json.loads(re.search(r'<script id="nw-ports" type="application/json">(.*?)</script>', html, re.S).group(1))
         self.assertEqual(len(data), 52)

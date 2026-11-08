@@ -10,6 +10,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import timedelta
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import close_old_connections, connection
 from django.utils import timezone
@@ -187,13 +188,16 @@ def tick(launcher=None):
     from .models import DiscoveryRun
     launcher = launcher or launch
     now = timezone.now()
-    stale = DiscoveryRun.objects.filter(status="running", started_at__lt=now - STALE_AFTER)
+    # Only this deployment's tenant: other tenants sharing the database run their own job loop,
+    # and their queued runs must not be scanned (or failed) from here.
+    mine = DiscoveryRun.objects.filter(tenant_key=settings.LINKEDEYE_TENANT)
+    stale = mine.filter(status="running", started_at__lt=now - STALE_AFTER)
     failed = 0
     for run in stale:
         _fail(run, "Interrupted: the scan did not finish (the process running it stopped).")
         failed += 1
     started = 0
-    for run in DiscoveryRun.objects.filter(status="queued", created_at__lt=now - timedelta(seconds=15)).order_by("created_at")[:2]:
+    for run in mine.filter(status="queued", created_at__lt=now - timedelta(seconds=15)).order_by("created_at")[:2]:
         if launcher(run) is not False:
             started += 1
     if started or failed:

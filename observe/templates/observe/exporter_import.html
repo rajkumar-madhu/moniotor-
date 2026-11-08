@@ -27,6 +27,7 @@
 </form>
 <div class="panel"><div class="panel-h"><h2>File format</h2></div>
   <p class="t-mute">The first row is the header. <code>name</code>, <code>type</code> and <code>category</code> are required; the other columns are optional. The export file uses the same columns, so you can export, edit and re-import.</p>
+  <p class="t-mute">When updating existing exporters, only the columns in your header are changed — anything the file leaves out keeps its current value. A column that <em>is</em> in the header but left blank clears that field, except <code>enabled</code>: a blank cell keeps the exporter as it is (new exporters are created enabled).</p>
   <pre class="log">name,type,category,target,metrics_url,site,enabled,description
 node-exporter-01,Node Exporter,Servers,srv-app-01,http://10.10.1.20:9100/metrics,Mumbai DC,yes,
 snmp-switch-01,SNMP,Network,10.10.1.10,,Mumbai DC,yes,metrics URL to be added</pre>

@@ -13,7 +13,7 @@ from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from core.access import can, can_on, require, scope_by_site
+from core.access import can, can_on, require, scope_by_site, visible_sites
 from core.audit import audit
 from core.models import Event
 
@@ -93,7 +93,8 @@ def _modes(request):
 
 
 def _admin_modes(request):
-    """Modes the user may reconfigure: admin on the mode's own site (global modes use the user's best role)."""
+    """Modes the user may reconfigure: admin on the mode's own site; a global ("All Sites") mode needs the
+    administrator role on every site."""
     return [m for m in _modes(request) if user_can(request.user, "admin", m.site)]
 
 
@@ -117,6 +118,11 @@ class Live:
 
     def get_kind_display(self):
         return self.item.get_kind_display()
+
+
+def _mode_resolver(mode, items):
+    """A resolver scoped to the mode's own site, so a site's checklist never reads another site's check."""
+    return services.Resolver(items, sites=services.ref_sites(mode.site))
 
 
 def _live_rows(items, resolver=None):
@@ -162,7 +168,8 @@ def status(request):
             results = [_decorate(r) for r in run.results.all()]
             live = False
         else:
-            results = _live_rows(list(m.items.filter(enabled=True)))
+            items = list(m.items.filter(enabled=True))
+            results = _live_rows(items, _mode_resolver(m, items))
             live = True
         c = services.counts(results)
         if run is not None and run.trading_date == today:
@@ -309,7 +316,7 @@ def keys(request):
             ql = q.lower()
             items = [i for i in items if ql in i.name.lower() or ql in i.ref_name.lower()]
         rows = []
-        for live in _live_rows(items):
+        for live in _live_rows(items, _mode_resolver(m, items)):
             live.result = by_item.get(live.item.pk)
             # the item's current state: its sign-off / result in today's run for manual items, else live
             current = live.result.status if (live.item.kind == "manual" and live.result and run.trading_date == services.today_ist()) else live.status
@@ -418,7 +425,7 @@ def history_export(request):
 def detail(request, pk):
     run = get_object_or_404(_runs(request), pk=pk)
     results = [_decorate(r) for r in run.results.select_related("item")]
-    resolver = services.Resolver(results)
+    resolver = _mode_resolver(run.mode, results)
     for r in results:
         r.link = resolver.link(r.kind, r.ref_name) if r.automated and resolver.available(r.kind) else ""
         r.instructions = r.item.instructions if r.item_id else ""
@@ -432,6 +439,9 @@ def detail(request, pk):
         elif r.checked_at and r.automated:
             timeline.append({"at": r.checked_at, "tone": r.tone, "icon": "radar",
                              "text": f"“{r.name}” {r.code_label} – {r.detail}"})
+    if run.revalidated_at:
+        timeline.append({"at": run.revalidated_at, "tone": "info", "icon": "refresh",
+                         "text": "Run re-validated: the automated items were checked again (the run's own duration is unchanged)"})
     events = list(Event.objects.filter(source="bodeod", object_type="bodeod.run", object_id=str(run.pk)).order_by("occurred_at"))
     for e in events:
         tone = {"critical": "crit", "warning": "warn", "ok": "ok"}.get(e.severity, "info")
@@ -449,19 +459,25 @@ def detail(request, pk):
 
 
 # ------------------------------------------------------------------ checklist editor
-def _ref_suggestions():
+def _ref_suggestions(user):
+    """Reference names for the checklist datalist, limited to the sites the user may see."""
+    sites = visible_sites(user)
     out = {}
-    for kind, (app_label, model_name, field_name) in services.REF_MODELS.items():
+    for kind, (app_label, model_name, field_name, site_field) in services.REF_MODELS.items():
         M = services._model(app_label, model_name)
-        found = services.query_refs(M, field_name) if M is not None else None
+        found = services.query_refs(M, field_name, sites=sites, site_field=site_field) if M is not None else None
         if found:
             out[kind] = list(found)
     return out
 
 
 def _checklist_sections(request, modes):
-    return [{"mode": m, "rows": _live_rows(list(m.items.all())), "can_edit": user_can(request.user, "admin", m.site)}
-            for m in modes]
+    out = []
+    for m in modes:
+        items = list(m.items.all())
+        out.append({"mode": m, "rows": _live_rows(items, _mode_resolver(m, items)),
+                    "can_edit": user_can(request.user, "admin", m.site)})
+    return out
 
 
 @require_http_methods(["GET", "POST"])
@@ -514,7 +530,7 @@ def checklist(request):
     mode_form = ModeForm(instance=mode_edit, user=request.user) if (mode_edit or request.GET.get("mode_new")) else None
     existing = {m.code for m in services.modes_qs()}
     ctx = {"sections": _checklist_sections(request, modes), "form": form, "editing": editing, "mode_form": mode_form,
-           "mode_edit": mode_edit, "can_add_mode": can_admin and len(existing) < len(Mode.CODES), "refs": _ref_suggestions(),
+           "mode_edit": mode_edit, "can_add_mode": can_admin and len(existing) < len(Mode.CODES), "refs": _ref_suggestions(request.user),
            "can_edit_items": bool(admin_modes),
            "show_form": can_admin and (editing is not None or request.method == "POST" or request.GET.get("new")),
            **_perms(request)}
@@ -547,7 +563,7 @@ def mode_save(request):
     messages.error(request, "Please correct the mode settings below.")
     return render(request, "bodeod/checklist.html", {
         "sections": _checklist_sections(request, modes), "form": item_form, "editing": None, "mode_form": form,
-        "mode_edit": instance, "can_add_mode": len(existing) < len(Mode.CODES), "refs": _ref_suggestions(),
+        "mode_edit": instance, "can_add_mode": len(existing) < len(Mode.CODES), "refs": _ref_suggestions(request.user),
         "can_edit_items": bool(admin_pks), "show_form": False, **_perms(request)},
         status=400)
 

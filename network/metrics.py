@@ -5,6 +5,11 @@ Standard snmp_exporter `if_mib` series are used:
   ifOperStatus, ifAdminStatus, ifHighSpeed (falls back to ifSpeed), ifType_info / ifType,
   ifInErrors / ifOutErrors, ifInDiscards / ifOutDiscards (per-second rates over 5 min),
   changes(ifOperStatus[24h]) as the flap count, sysUpTime (TimeTicks, hundredths of a second).
+Device-level CPU, memory and temperature (the device card) are read from whichever of these the snmp_exporter module
+exposes, in this order: CPU hrProcessorLoad, cpmCPUTotal5minRev (Cisco), jnxOperatingCPU (Juniper), fgSysCpuUsage
+(Fortinet); memory hrStorageUsed/hrStorageSize for RAM, ciscoMemoryPoolUsed/Free, jnxOperatingBuffer, fgSysMemUsage;
+temperature entPhySensorValue (celsius sensors), jnxOperatingTemp, ciscoEnvMonTemperatureStatusValue. A device whose
+module has none of them simply has no figure: it is shown as "No data", never as 0.
 Interfaces are identified by the `ifIndex` label; `ifName` / `ifDescr` / `ifAlias`
 lookups give the names. Missing series are tolerated: whatever is present is stored.
 """
@@ -34,6 +39,30 @@ STALE_RATES = {"in_mbps": None, "out_mbps": None, "utilization": None,
                "errors_per_s": None, "discards_per_s": None, "flaps_24h": None}
 NOT_CONFIGURED = "No metrics source: set LINKEDEYE_PROMETHEUS_URL and the device Prometheus instance."
 NO_INSTANCE = "No metrics source: set the device's Prometheus instance (snmp_exporter target label)."
+# chart windows offered on the device detail page (?range=), shortest first
+RANGES = {"1h": 3600, "6h": 6 * 3600, "24h": 86400, "7d": 7 * 86400}
+RANGE_LABELS = {"1h": "Last hour", "6h": "Last 6 hours", "24h": "Last 24 hours", "7d": "Last 7 days"}
+DEFAULT_RANGE = "24h"
+
+
+
+def current_interfaces(device):
+    """The device's interfaces as they should be shown now.
+
+    Nothing is collected for a disabled device, so its last rates are not current traffic. Devices disabled
+    before device_form started clearing them, or through the Django admin where `enabled` is editable, still
+    carry them, so every reader blanks them (in memory only: the inventory and states stay)."""
+    interfaces = list(device.interfaces.all())
+    if not device.enabled:
+        for i in interfaces:
+            for field, value in STALE_RATES.items():
+                setattr(i, field, value)
+    return interfaces
+
+
+def range_key(value):
+    """A valid ?range= key (unknown values fall back to the default)."""
+    return value if value in RANGES else DEFAULT_RANGE
 
 
 def promql_string(value):
@@ -64,6 +93,22 @@ def queries(selector):
         # max over the state-set series (one per state) so both exporter styles count each transition once
         "flaps": f"max by (instance, ifIndex) (changes(ifOperStatus{{{s}}}[24h]))",
         "uptime": f"sysUpTime{{{s}}} / 100",
+        **device_queries(s),
+    }
+
+
+# series that are not listed here are not guessed at; add a vendor's by appending to the `or` chains
+def device_queries(s):
+    ram = r'hrStorageType=~".*(hrStorageRam|1\\.3\\.6\\.1\\.2\\.1\\.25\\.2\\.1\\.2)$"'
+    return {
+        "cpu": (f"avg by (instance) (hrProcessorLoad{{{s}}}) or avg by (instance) (cpmCPUTotal5minRev{{{s}}})"
+                f" or max by (instance) (jnxOperatingCPU{{{s}}}) or max by (instance) (fgSysCpuUsage{{{s}}})"),
+        "memory": (f"100 * sum by (instance) (hrStorageUsed{{{s},{ram}}}) / sum by (instance) (hrStorageSize{{{s},{ram}}})"
+                   f" or 100 * sum by (instance) (ciscoMemoryPoolUsed{{{s}}})"
+                   f" / (sum by (instance) (ciscoMemoryPoolUsed{{{s}}}) + sum by (instance) (ciscoMemoryPoolFree{{{s}}}))"
+                   f" or max by (instance) (jnxOperatingBuffer{{{s}}}) or max by (instance) (fgSysMemUsage{{{s}}})"),
+        "temp": (f'max by (instance) (entPhySensorValue{{{s},entPhySensorType=~"celsius|8"}})'
+                 f" or max by (instance) (jnxOperatingTemp{{{s}}}) or max by (instance) (ciscoEnvMonTemperatureStatusValue{{{s}}})"),
     }
 
 
@@ -89,7 +134,7 @@ def _if_type(metric, value):
 def fetch(instances):
     """Query Prometheus for the given instance labels.
     Returns ({instance: {"interfaces": {ifIndex: {...}}, "uptime": seconds|None}}, [errors])."""
-    data = {i: {"interfaces": {}, "uptime": None} for i in instances}
+    data = {i: {"interfaces": {}, "uptime": None, "cpu": None, "memory": None, "temp": None} for i in instances}
     errors = []
     selector = f'instance=~"{regex_alternation(instances)}"'
     for key, promql in queries(selector).items():
@@ -103,8 +148,8 @@ def fetch(instances):
             inst = m.get("instance")
             if inst not in data:
                 continue
-            if key == "uptime":
-                data[inst]["uptime"] = v
+            if key in ("uptime", "cpu", "memory", "temp"):
+                data[inst][key] = v
                 continue
             idx = m.get("ifIndex", "")
             if not str(idx).isdigit():
@@ -131,25 +176,55 @@ def _rate(v):
     return None if v is None else round(max(0.0, v), 3)
 
 
+def _bounded(v, lo, hi):
+    """A reading inside its physical range, else None (a bogus sensor value is no data, not a number to show)."""
+    if v is None or isinstance(v, bool) or v != v or not lo <= v <= hi:
+        return None
+    return round(float(v), 1)
+
+
+def failed_keys(errors):
+    """The query keys fetch() could not read, taken back out of its "<key>: <message>" strings.
+
+    Only real query keys count, so a generic note such as "no IF-MIB interface series" is ignored."""
+    reported = {str(e).split(":", 1)[0] for e in (errors or ())}
+    return reported & set(queries(""))
+
+
+def _kept_state(obj, field, query_failed):
+    """What to store for an admin/oper status the data does not carry.
+
+    A query that failed says nothing about the interface, so the stored state is kept: overwriting it
+    with "unknown" would also swallow the next up/down transition. A series that is simply absent
+    (no error) still becomes "unknown"."""
+    if query_failed and obj is not None:
+        return getattr(obj, field) or "unknown"
+    return "unknown"
+
+
 def apply(device, result, errors, now=None):
     """Store one device's metrics. Returns the list of (interface, old_oper, new_oper) transitions."""
     from .models import Interface
     now = now or timezone.now()
     interfaces = result.get("interfaces", {}) if result else {}
     uptime = result.get("uptime") if result else None
+    cpu = _bounded(result.get("cpu") if result else None, 0, 100)
+    memory = _bounded(result.get("memory") if result else None, 0, 100)
+    temp = _bounded(result.get("temp") if result else None, -50, 250)
     transitions = []
-    if not interfaces and uptime is None:
+    if not interfaces and uptime is None and cpu is None and memory is None and temp is None:
         # nothing for this instance: keep the inventory but stop showing stale traffic numbers
         Interface.objects.filter(device=device).update(**STALE_RATES)
         msg = f'No snmp_exporter series in Prometheus for instance "{device.prometheus_instance}"'
         if errors:
             msg += " (" + "; ".join(errors) + ")"
         device.metrics_error = msg[:300]
-        device.uptime_seconds = None
-        device.save(update_fields=["metrics_error", "uptime_seconds"])
+        device.uptime_seconds = device.cpu_pct = device.memory_pct = device.temperature_c = None
+        device.save(update_fields=["metrics_error", "uptime_seconds", "cpu_pct", "memory_pct", "temperature_c"])
         return transitions
 
     existing = {i.if_index: i for i in Interface.objects.filter(device=device)}
+    failed = failed_keys(errors)
     for idx, row in interfaces.items():
         speed = row.get("speed")
         speed = round(speed, 3) if speed else (0.0 if speed == 0 else None)
@@ -161,7 +236,8 @@ def apply(device, result, errors, now=None):
         fields = {
             "name": (row.get("name") or f"if{idx}")[:150], "alias": (row.get("alias") or "")[:200],
             "if_type": row.get("type") or (obj.if_type if obj else ""),
-            "admin_status": row.get("admin") or "unknown", "oper_status": row.get("oper") or "unknown",
+            "admin_status": row.get("admin") or _kept_state(obj, "admin_status", "admin" in failed),
+            "oper_status": row.get("oper") or _kept_state(obj, "oper_status", "oper" in failed),
             "speed_mbps": speed, "in_mbps": i_in, "out_mbps": i_out, "utilization": util,
             "errors_per_s": _rate(row.get("errors")), "discards_per_s": _rate(row.get("discards")),
             "flaps_24h": None if row.get("flaps") is None else max(0, int(row["flaps"])), "updated_at": now,
@@ -181,10 +257,29 @@ def apply(device, result, errors, now=None):
         Interface.objects.filter(pk__in=[i.pk for i in existing.values()]).update(**STALE_RATES)
         errors = list(errors) + ["no IF-MIB interface series"]
     device.uptime_seconds = int(uptime) if uptime is not None else None
+    device.cpu_pct, device.memory_pct, device.temperature_c = cpu, memory, temp
     device.metrics_updated_at = now
     device.metrics_error = ("Partial data: " + "; ".join(errors))[:300] if errors else ""
-    device.save(update_fields=["uptime_seconds", "metrics_updated_at", "metrics_error"])
+    device.save(update_fields=["uptime_seconds", "cpu_pct", "memory_pct", "temperature_c", "metrics_updated_at", "metrics_error"])
     return transitions
+
+
+def align_series(series, step):
+    """Snap every series onto the first one's step grid.
+
+    core.prometheus.query_range ends each query at its own time.time(), so the series of one chart come back with
+    timestamps a few milliseconds apart. Merged as-is, every series has a gap at every other x position and
+    charts.js draws isolated points instead of a line. Only timestamps within a few seconds of the grid move, so
+    points that are genuinely elsewhere are never merged."""
+    base = next((vals[0][0] for vals in series if vals), None)
+    if base is None or not step:
+        return series
+    tol = min(step / 4, 15.0)
+
+    def snap(t):
+        g = base + round((t - base) / step) * step
+        return g if abs(t - g) <= tol else t
+    return [[(snap(t), v) for t, v in vals] for vals in series]
 
 
 def _range_chart(device, seconds, if_index, unit, empty, build):
@@ -207,6 +302,7 @@ def _range_chart(device, seconds, if_index, unit, empty, build):
         return None, f"Prometheus query failed: {e}"
     if not any(series):
         return None, empty
+    series = align_series(series, step)
     stamps = sorted({t for vals in series for t, _v in vals})
     lookups = [dict(v) for v in series]
     fmt = "%H:%M" if seconds <= 86400 else "%d %b"
@@ -222,7 +318,7 @@ def _range_chart(device, seconds, if_index, unit, empty, build):
 def traffic_range(device, seconds=86400, if_index=None):
     """Inbound/outbound Mbps over time for the detail page chart: the whole device, or one port."""
     def build(sel):
-        return [({"name": name, "color": color, "area": True, "areaOpacity": opacity, "width": 1.4},
+        return [({"name": name, "color": color, "area": True, "areaOpacity": opacity, "width": 1.4, "endDot": True},
                  f"sum((rate(ifHC{metric}Octets{{{sel}}}[5m]) or rate(if{metric}Octets{{{sel}}}[5m]))) * 8 / 1e6")
                 for name, metric, color, opacity in (("Inbound", "In", "var(--chart-6)", 0.12), ("Outbound", "Out", "var(--brand)", 0.13))]
     return _range_chart(device, seconds, if_index, "Mbps",
@@ -239,3 +335,17 @@ def errors_range(device, seconds=86400, if_index=None):
     return _range_chart(device, seconds, if_index, "/s",
                         f'No error or discard counters in Prometheus for instance "{device.prometheus_instance}" in this period.',
                         build)
+
+
+def port_bars(interfaces, limit=10):
+    """Grouped bars of current inbound / outbound Mbps for the busiest ports (stored rates, no Prometheus call).
+    None when no interface has a rate yet."""
+    rated = [i for i in interfaces if i.in_mbps is not None or i.out_mbps is not None]
+    if not rated:
+        return None
+    top = sorted(rated, key=lambda i: (-max(i.in_mbps or 0, i.out_mbps or 0), i.if_index))[:limit]
+    return {"labels": [i.name for i in top],
+            "tipLabels": [f"{i.name} · {i.alias}" if i.alias else i.name for i in top],
+            "unit": "Mbps", "stacked": False,
+            "series": [{"name": "Inbound", "color": "var(--chart-6)", "values": [i.in_mbps for i in top]},
+                       {"name": "Outbound", "color": "var(--brand)", "values": [i.out_mbps for i in top]}]}

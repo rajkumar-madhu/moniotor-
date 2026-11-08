@@ -14,3 +14,4 @@ class NetworkConfig(AppConfig):
         register("network.reachability", 60, jobs.poll_devices)
         register("network.metrics", 60, jobs.collect_metrics)
         register("network.discovery", 30, jobs.discovery_tick)
+        register("network.photo_candidates", 15 * 60, jobs.prune_photo_candidates)

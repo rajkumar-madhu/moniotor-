@@ -1,0 +1,12 @@
+# Optional extra: Pillow, used to convert print-colour (CMYK) and oversized photos found in vendor datasheet PDFs
+# (network/imaging_pillow.py). Without it LinkedEye still reads datasheets, skips those pictures and says how to fix it.
+# Install on top of requirements.txt:  pip install -r requirements.txt -r requirements-images.txt
+# Pillow ships manylinux/macOS/Windows wheels that bundle libjpeg-turbo and zlib, so no compiler or system packages are needed.
+# The Dockerfile installs it when built with --build-arg DB_EXTRAS="postgres images".
+#
+# Floor 13.0: earlier releases have published memory-safety bugs in the JPEG decoder (including the draft/scaled decode path
+# this feature uses: GHSA-8g5g-8vmr-9782) and in the JPEG encoder (GHSA-g7cr-3p24-7wf7), fixed in 13.0.0, which also carries
+# the many decoder and denial-of-service fixes of 12.x. Keep it current like any library that parses untrusted files.
+# Ceiling <14: the next major may change APIs this module relies on; raise it after reading the release notes.
+# LinkedEye refuses to use an installed Pillow older than 13.0 and says so.
+Pillow>=13.0,<14

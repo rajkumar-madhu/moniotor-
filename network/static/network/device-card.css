@@ -1,0 +1,124 @@
+/* Device card: photo (or a labelled illustration) next to live figures. Used on the device header, the device list,
+ * and the compute server rows, so nothing here is scoped to one page. Tokens come from the console theme. */
+.dc { --dc-photo-bg: #f6f4ef; min-width: 0; }
+.dc-photo {
+  position: relative; display: grid; place-items: center; overflow: hidden; flex: none;
+  border-radius: 10px; border: 1px solid var(--line-soft); background: var(--panel-2); aspect-ratio: 16 / 10;
+}
+.dc-photo.has-photo { background: var(--dc-photo-bg); }                   /* product shots are cut out on white */
+.dc-photo.is-art { border-style: dashed; }                                /* an illustration never passes for a photo */
+/* fills the frame by position, not by percentage: the frame only has an aspect-ratio, so height:100% would not resolve
+ * and a square photo would be laid out taller than the frame and cropped */
+.dc-zoom { position: absolute; inset: 0; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; color: inherit; text-decoration: none; }
+a.dc-zoom:hover { text-decoration: none; }
+a.dc-zoom:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; border-radius: 10px; }
+.dc-photo img { display: block; width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; padding: 8px; box-sizing: border-box; }
+/* a small stored photo (under 300 px on its long side, class set by the template) keeps its natural size instead of being
+ * blown up to fill the frame; it still shrinks to fit a smaller frame and is never cropped or stretched */
+.dc-photo img.is-small { width: auto; height: auto; }
+.dc-add {
+  position: absolute; right: 6px; bottom: 6px; z-index: 1; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
+  border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--primary); text-decoration: none;
+  font: 600 11.5px/1.5 var(--font);
+}
+.dc-add:hover { border-color: var(--primary); text-decoration: none; }
+.dc-add:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.dc-art { display: block; width: 78%; height: auto; max-height: 86%; }
+.dc-art .a-body { fill: var(--panel-3); stroke: var(--ink-2); stroke-width: 1.6; }
+.dc-art .a-dim { fill: var(--line); stroke: none; }
+.dc-art .a-line, .dc-art .a-ring { fill: none; stroke: var(--ink-2); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.dc-art .a-led { fill: var(--muted); }
+.dc-art .a-led.a-on, .dc-art .a-bolt { fill: var(--brand); }
+.dc-tag {
+  position: absolute; left: 6px; bottom: 6px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--muted); font: 600 9.5px/1.5 var(--font); letter-spacing: .08em; text-transform: uppercase;
+}
+
+.dc-main { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.dc-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
+.dc-name { font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.dc-uptime { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.dc-uptime b { color: var(--ink-2); font-weight: 600; }
+.dc-uptime b.t-mute { color: var(--muted); font-weight: 500; }
+.dc-sub { flex-basis: 100%; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.dc-figs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 0; }
+.dc-fig { min-width: 0; padding: 9px 11px 8px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--panel-2); }
+.dc-fig dt { margin: 0 0 3px; font-size: 10.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+.dc-fig dd { margin: 0; min-width: 0; }
+.dc-fig b { font: 600 20px/1.15 var(--font); color: var(--ink); font-variant-numeric: tabular-nums; }
+.dc-fig b.t-warn { color: var(--warn-ink); }
+.dc-fig b.t-crit { color: var(--crit-ink); }
+.dc-fig b.t-mute, .dc-fig b.t-mute b { color: var(--muted); font-size: 13px; font-weight: 500; }
+.dc-io { display: flex; align-items: baseline; gap: 6px; }
+.dc-io i { flex: none; width: 24px; font: normal 600 10.5px/1 var(--font); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.dc-traffic b { font-size: 15px; }
+.dc-traffic b.t-mute { font-size: 13px; }
+.dc-spark { display: block; height: 22px; margin-top: 6px; }
+.dc-spark svg { display: block; width: 100%; height: 22px; }
+.dc b.nw-live-flash, .dc .nw-live-flash { animation: none; }
+
+/* hero: the device detail header */
+.dc-hero {
+  display: grid; grid-template-columns: minmax(180px, 230px) minmax(0, 1fr); gap: 18px; align-items: start;
+  padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel);
+}
+.dc-hero .dc-main { gap: 12px; }
+.dc-hero .dc-head .badge { font-size: 13.5px; padding: 4px 10px 4px 7px; }
+.nw-card-band { margin: 0 0 14px; }
+
+/* tile: the cards view of the device list */
+.dc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; padding: 14px; }
+.dc-tile { display: flex; flex-direction: column; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+.dc-tile .dc-photo { aspect-ratio: 16 / 9; }
+.dc-tile .dc-figs { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.dc-tile .dc-fig b { font-size: 17px; }
+.dc-tile .dc-traffic b { font-size: 14px; }
+.dc-tile[data-status="down"] { border-color: var(--crit-line); }
+
+/* row + thumb: tables */
+.dc-row { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 10px; align-items: start; }
+.dc-thumb { display: block; }
+.dc-row .dc-photo, .dc-thumb .dc-photo { width: 62px; aspect-ratio: 62 / 44; border-radius: 7px; }
+.dc-row .dc-photo img, .dc-thumb .dc-photo img { padding: 3px; }
+.dc-row .dc-tag, .dc-thumb .dc-tag { display: none; }                   /* too small to read: the dashed frame says it */
+.dc-row .dc-main { gap: 4px; }
+.dc-row .dc-sub { font-size: 11.5px; }
+.dc-row .dc-name { font-size: 13.5px; }
+.dc-row .dc-head { gap: 2px 8px; }
+.dc-row .dc-head .badge { font-size: 11.5px; padding: 1px 7px 1px 5px; }
+.dc-row .dc-figs { display: flex; flex-wrap: wrap; gap: 2px 12px; }
+.dc-row .dc-fig { display: flex; align-items: baseline; gap: 5px; padding: 0; border: 0; background: none; border-radius: 0; }
+.dc-row .dc-fig dt { margin: 0; font-size: 10px; }
+.dc-row .dc-fig dd { display: flex; gap: 6px; }
+.dc-row .dc-fig b, .dc-row .dc-traffic b { font-size: 12.5px; font-weight: 600; }
+.dc-row .dc-fig b.t-mute { font-size: 12px; }
+.dc-row .dc-io i { width: auto; font-size: 9.5px; }
+.dc-row .dc-spark { display: none; }
+.dc-cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.dc-cell .dc-photo { width: 54px; aspect-ratio: 54 / 38; }
+.dc-cell .nm-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* live indicator on list pages */
+.dc-live { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+.dc-live[hidden] { display: none; }
+.dc-live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--chart-ok); }
+.dc-live[data-state="paused"] .dc-live-dot { background: var(--stone-2); }
+.dc-live[data-state="error"] .dc-live-dot { background: var(--chart-crit); }
+.dc-live[data-state="error"] { color: var(--crit-ink); }
+.dc-viewseg { display: inline-flex; }
+
+@media (max-width: 960px) {
+  .dc-hero .dc-figs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .dc-hero { grid-template-columns: minmax(0, 1fr); padding: 10px; gap: 12px; }
+  .dc-hero .dc-photo { aspect-ratio: 16 / 8; max-height: 170px; }
+  .dc-fig b { font-size: 18px; }
+  .dc-grid { grid-template-columns: minmax(0, 1fr); padding: 10px; }
+}
+@media (prefers-reduced-motion: reduce) { .dc * { transition: none !important; animation: none !important; } }
+
+/* the compute servers table: give the card room so the name, status and uptime share a line */
+.dc-td { min-width: 340px; }
+.dc-td .dc-row { min-width: 0; }

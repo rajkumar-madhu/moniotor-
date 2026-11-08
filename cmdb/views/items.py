@@ -65,9 +65,26 @@ def items(request):
         "sites": base.order_by("site").values_list("site", flat=True).distinct(),
         "domains": services.domain_names(request.user),
         "filtered": any(request.GET.get(k) for k in ("q", "type", "status", "env", "site", "domain")),
-        **perms(request),
+        **perms(request), **discovery_banner(request),
     }
     return render(request, "cmdb/items.html", ctx)
+
+
+def discovery_banner(request):
+    """{undiscovered, discovery_url}: hosts Prometheus scrapes that have no configuration item yet.
+
+    Empty when the telemetry module is absent or has not been migrated, so the CMDB never depends on it."""
+    try:
+        from telemetry.discovery import unlinked_host_count
+        n = unlinked_host_count(request.user)
+    except Exception:
+        return {"undiscovered": 0, "discovery_url": ""}
+    if not n:
+        return {"undiscovered": 0, "discovery_url": ""}
+    try:
+        return {"undiscovered": n, "discovery_url": reverse("telemetry:discovery")}
+    except Exception:
+        return {"undiscovered": 0, "discovery_url": ""}
 
 
 # ----------------------------------------------------------------------------- detail
@@ -272,8 +289,10 @@ def relationship_create(request):
     fallback = reverse("cmdb:relationships")
     if form.is_valid():
         src, tgt = form.cleaned_data["source"], form.cleaned_data["target"]
-        if not (services.can_manage(request.user, "operate", src.site) or services.can_manage(request.user, "operate", tgt.site)):
-            messages.error(request, "You cannot change relationships of these items.")
+        # the edge belongs to the source CI's site: that is the site relationships() marks row
+        # permissions with and relationship_delete checks, so creating it needs operate there
+        if not services.can_manage(request.user, "operate", src.site):
+            messages.error(request, f"You cannot change relationships of items on {src.site or 'All Sites'}.")
             return redirect(safe_next(request, fallback))
         rel = form.save()
         audit(request, "create", rel, source=src.name, target=tgt.name, rel_type=rel.rel_type, origin=rel.origin)

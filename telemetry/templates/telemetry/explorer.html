@@ -40,7 +40,7 @@
     {% if result %}
     <div class="panel">
       <div class="panel-h"><h2>Result</h2><div class="right tm-meta">{{ result.total }} series · step {{ step }}s · {{ points }} points max</div></div>
-      {% if result.chart %}<div class="chart tm-chart tall" data-chart="line" data-src="r-chart"></div>{{ result.chart|json_script:"r-chart" }}
+      {% if result.chart %}<div class="chart tm-chart tall" data-chart="line" data-src="r-chart" data-sync="explorer" data-kinds="line,area,bars"></div>{{ result.chart|json_script:"r-chart" }}
       {% else %}<div class="no-data">The query returned no series for this range.</div>{% endif %}
     </div>
     {% if result.series %}

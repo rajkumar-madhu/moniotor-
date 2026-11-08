@@ -2,36 +2,31 @@
 <section class="kpis nw-dkpis nw-vm-kpis nw-dkpis-strip" aria-label="VM summary">
   <div class="kpi"><div class="kpi-top"><div class="tile bg-info sq">{% icon "cpu" 22 %}</div>
     <div class="kpi-body"><div class="label">CPU usage</div>
-      {% if vm_metrics.cpu is not None %}<div class="value">{{ vm_metrics.cpu|floatformat:1 }}%</div>
-      <div class="sub{% if vm_metrics.cpu_delta != None and vm_metrics.cpu_delta < 0 %} t-ok{% elif vm_metrics.cpu_delta %} t-warn{% endif %}">{% if vm_metrics.cpu_delta != None %}{% if vm_metrics.cpu_delta > 0 %}+{% endif %}{{ vm_metrics.cpu_delta|floatformat:0 }}%{% else %}Guest CPU{% endif %}</div>
-      {% else %}<div class="value t-mute">–</div><div class="sub">No guest metrics</div>{% endif %}
+      <div class="value{% if vm_metrics.cpu is None %} t-mute{% endif %}" data-live="cpu" data-live-tone="cpu">{% if vm_metrics.cpu is not None %}{{ vm_metrics.cpu|floatformat:1 }}%{% else %}–{% endif %}</div>
+      <div class="sub">{% if vm_metrics %}Guest CPU, all cores{% else %}No guest metrics{% endif %}</div>
     </div></div></div>
   <div class="kpi"><div class="kpi-top"><div class="tile bg-purple sq">{% icon "layers" 22 %}</div>
     <div class="kpi-body"><div class="label">Memory usage</div>
-      {% if vm_metrics.memory is not None %}<div class="value">{{ vm_metrics.memory|floatformat:1 }}%</div>
-      <div class="sub{% if vm_metrics.memory_delta != None and vm_metrics.memory_delta < 0 %} t-ok{% elif vm_metrics.memory_delta %} t-warn{% endif %}">{% if vm_metrics.memory_delta != None %}{% if vm_metrics.memory_delta > 0 %}+{% endif %}{{ vm_metrics.memory_delta|floatformat:0 }}%{% else %}Guest memory{% endif %}</div>
-      {% else %}<div class="value t-mute">–</div><div class="sub">No guest metrics</div>{% endif %}
+      <div class="value{% if vm_metrics.memory is None %} t-mute{% endif %}" data-live="memory" data-live-tone="memory">{% if vm_metrics.memory is not None %}{{ vm_metrics.memory|floatformat:1 }}%{% else %}–{% endif %}</div>
+      <div class="sub">{% if vm_metrics %}Used of total (MemAvailable){% else %}No guest metrics{% endif %}</div>
     </div></div></div>
   <div class="kpi"><div class="kpi-top"><div class="tile bg-warn sq">{% icon "hdd" 22 %}</div>
-    <div class="kpi-body"><div class="label">Disk usage (total)</div>
-      {% if vm_metrics.disk is not None %}<div class="value">{{ vm_metrics.disk|floatformat:1 }}%</div>
-      <div class="sub{% if vm_metrics.disk_delta != None and vm_metrics.disk_delta > 0 %} t-warn{% elif vm_metrics.disk_delta != None %} t-ok{% endif %}">{% if vm_metrics.disk_delta != None %}{% if vm_metrics.disk_delta > 0 %}+{% endif %}{{ vm_metrics.disk_delta|floatformat:0 }}%{% else %}Root filesystem{% endif %}</div>
-      {% else %}<div class="value t-mute">–</div><div class="sub">No guest metrics</div>{% endif %}
+    <div class="kpi-body"><div class="label">Disk usage (root)</div>
+      <div class="value{% if vm_metrics.disk is None %} t-mute{% endif %}" data-live="disk" data-live-tone="disk">{% if vm_metrics.disk is not None %}{{ vm_metrics.disk|floatformat:1 }}%{% else %}–{% endif %}</div>
+      <div class="sub">{% if vm_metrics %}Root filesystem{% else %}No guest metrics{% endif %}</div>
     </div></div></div>
   <div class="kpi"><div class="kpi-top"><div class="tile bg-ok sq">{% icon "activity" 22 %}</div>
     <div class="kpi-body"><div class="label">Network (total)</div>
-      {% if vm_metrics.network_mbps is not None %}<div class="value">{{ vm_metrics.network_mbps|floatformat:1 }} Mb/s</div>
-      <div class="sub{% if vm_metrics.network_delta != None and vm_metrics.network_delta > 0 %} t-ok{% endif %}">{% if vm_metrics.network_delta != None %}{% if vm_metrics.network_delta > 0 %}+{% endif %}{{ vm_metrics.network_delta|floatformat:0 }}%{% else %}RX + TX{% endif %}</div>
-      {% else %}<div class="value t-mute">–</div><div class="sub">No guest metrics</div>{% endif %}
+      <div class="value{% if vm_metrics.network_mbps is None %} t-mute{% endif %}" data-live="network" data-live-tone="network">{% if vm_metrics.network_mbps is not None %}{{ vm_metrics.network_mbps|floatformat:1 }} Mb/s{% else %}–{% endif %}</div>
+      <div class="sub">{% if vm_metrics %}RX + TX{% else %}No guest metrics{% endif %}</div>
     </div></div></div>
   <div class="kpi"><div class="kpi-top"><div class="tile bg-info sq">{% icon "clock" 22 %}</div>
     <div class="kpi-body"><div class="label">Uptime</div>
-      {% if device.uptime_seconds is not None %}<div class="value">{{ device.uptime_short }}</div><div class="sub">{{ device.uptime_display }}</div>
-      {% elif sample_mode %}<div class="value">27d</div><div class="sub">27 days, 8 hours (sample)</div>
+      {% if device.uptime_seconds is not None %}<div class="value" data-live="uptime_short">{{ device.uptime_short }}</div><div class="sub" data-live="uptime_display">{{ device.uptime_display }}</div>
       {% else %}<div class="value t-mute">–</div><div class="sub" title="{{ metrics_msg }}">No uptime yet</div>{% endif %}
     </div></div></div>
-  <div class="kpi"><div class="kpi-top"><div class="nw-status t-{{ device.status|tone }}">{% if device.status == "up" %}{% ficon "check-circle" 38 %}{% elif device.status == "down" %}{% ficon "x-circle" 38 %}{% else %}{% ficon "help" 38 %}{% endif %}</div>
-    <div class="kpi-body"><div class="label">Status</div><div class="value t-{{ device.status|tone }}">{{ vm_power }}</div>
-      <div class="sub">{% if vm_meta.ha or vm_metrics.ha %}HA: {{ vm_meta.ha|default:vm_metrics.ha }}{% else %}Last seen: {{ device.last_seen|ago }}{% endif %}</div>
+  <div class="kpi"><div class="kpi-top"><div class="nw-status t-{{ device.status|tone }}" data-live-tone="status"><span class="nw-st-ic is-ok">{% ficon "check-circle" 38 %}</span><span class="nw-st-ic is-crit">{% ficon "x-circle" 38 %}</span><span class="nw-st-ic is-other">{% ficon "help" 38 %}</span></div>
+    <div class="kpi-body"><div class="label">Status</div><div class="value t-{{ device.status|tone }}" data-live="status" data-live-tone="status">{{ vm_power }}</div>
+      <div class="sub">{% if vm_meta.ha %}HA: {{ vm_meta.ha }}{% else %}Last seen: <span data-live="last_seen">{{ device.last_seen|ago }}</span>{% endif %}</div>
     </div></div></div>
 </section>

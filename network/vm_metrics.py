@@ -1,18 +1,19 @@
-"""Guest metrics for virtual_machine detail Overview (node_exporter + sample fallback)."""
+"""Guest metrics for virtual_machine detail pages, read live from node_exporter series in Prometheus.
+
+Nothing here invents numbers: without Prometheus, an instance label or node_exporter series the page shows
+a "not connected" state that names what to set."""
 from __future__ import annotations
 
-import math
-import time
 from datetime import datetime, timezone as dt_tz
 
 from django.utils import timezone
 
 from core import prometheus
 
-from .metrics import promql_string, regex_alternation
+from .metrics import align_series, promql_string, regex_alternation
 
-# Tags like cluster:Compute-01, host:esxi-01, datastore:DS01, vcpu:4, memory_gb:16
-META_KEYS = ("cluster", "host", "datastore", "vcpu", "memory_gb", "tools", "created", "ha", "os")
+# Tags like cluster:Compute-01, host:esxi-01, datastore:DS01, vcpu:4, memory_gb:16, vcenter:vcsa.example.com
+META_KEYS = ("cluster", "host", "datastore", "vcpu", "memory_gb", "tools", "created", "ha", "os", "vcenter")
 
 VM_ACTIONS = [
     ("power-on", "Power on", "play"),
@@ -60,8 +61,11 @@ def _instant(promql):
     return rows[0]["value"]
 
 
-def _chart_from_series(series_defs, unit, seconds):
-    """Build the standard line-chart dict from [(style, [(ts, val), ...]), ...]."""
+def _chart_from_series(series_defs, unit, seconds, step=None):
+    """Build the standard line-chart dict from [(style, [(ts, val), ...]), ...] (series from separate range
+    queries are aligned onto one step grid first, see metrics.align_series)."""
+    aligned = align_series([vals for _style, vals in series_defs], step)
+    series_defs = [(style, vals) for (style, _old), vals in zip(series_defs, aligned)]
     stamps = sorted({t for _style, vals in series_defs for t, _v in vals})
     if not stamps:
         return None
@@ -159,6 +163,40 @@ def batch_guest_instants(devices):
     return out
 
 
+def batch_guest_extras(devices):
+    """Inbound and outbound throughput and temperature for a page of devices, three batched queries in all.
+
+    Maps device pk -> {"rx_mbps", "tx_mbps", "temp"} with None for missing series (or when Prometheus is unreachable)."""
+    out = {d.pk: {"rx_mbps": None, "tx_mbps": None, "temp": None} for d in devices}
+    inst_to_pks = {}
+    for d in devices:
+        inst = (d.prometheus_instance or "").strip()
+        if inst:
+            inst_to_pks.setdefault(inst, []).append(d.pk)
+    if not inst_to_pks or not prometheus.configured():
+        return out
+    regex = regex_alternation(list(inst_to_pks))
+    nic = 'device!~"lo|veth.*|docker.*|br.*"'
+    queries = {
+        "rx_mbps": f'sum by (instance) (rate(node_network_receive_bytes_total{{{nic},instance=~"{regex}"}}[5m])) * 8 / 1e6',
+        "tx_mbps": f'sum by (instance) (rate(node_network_transmit_bytes_total{{{nic},instance=~"{regex}"}}[5m])) * 8 / 1e6',
+        "temp": (f'max by (instance) (node_hwmon_temp_celsius{{instance=~"{regex}"}})'
+                 f' or max by (instance) (node_thermal_zone_temp{{instance=~"{regex}"}})'),
+    }
+    for key, promql in queries.items():
+        try:
+            rows = prometheus.query(promql)
+        except prometheus.PrometheusError:
+            continue
+        for r in rows:
+            inst, v = (r.get("metric") or {}).get("instance", ""), r.get("value")
+            if v is None or v != v:
+                continue
+            for pk in inst_to_pks.get(inst, []):
+                out[pk][key] = v
+    return out
+
+
 def _perf_step(seconds):
     return max(15, int(seconds / 120))
 
@@ -170,6 +208,23 @@ PERF_RANGE_SECONDS = {
     "24h": 86400,
     "7d": 604800,
 }
+# node_exporter boot time -> seconds since boot (max over duplicate scrape jobs of one instance)
+UPTIME_PROMQL = "max(node_time_seconds{{{sel}}} - node_boot_time_seconds{{{sel}}})"
+
+
+def guest_uptimes(instances):
+    """{instance label: seconds since boot} for the instances node_exporter reports.
+    Raises prometheus.PrometheusError (the caller decides how to report it)."""
+    if not instances:
+        return {}
+    sel = f'instance=~"{regex_alternation(instances)}"'
+    rows = prometheus.query(f"max by (instance) (node_time_seconds{{{sel}}} - node_boot_time_seconds{{{sel}}})")
+    out = {}
+    for r in rows:
+        inst = (r.get("metric") or {}).get("instance")
+        if inst and r.get("value") is not None:
+            out[inst] = max(0, int(r["value"]))
+    return out
 
 
 def fetch_guest_performance(device, seconds=86400):
@@ -274,6 +329,7 @@ def fetch_guest_metrics(device):
             f' + rate(node_network_transmit_bytes_total{{device!~"lo|veth.*|docker.*|br.*",{sel}}}[5m]))'
             f' * 8 / 1e6'
         )
+        uptime = _instant(UPTIME_PROMQL.format(sel=sel))
     except prometheus.PrometheusError:
         return None
 
@@ -281,7 +337,7 @@ def fetch_guest_metrics(device):
     if mem_avail is not None and mem_total and mem_total > 0:
         mem_pct = 100.0 * (1.0 - (mem_avail / mem_total))
 
-    if all(v is None for v in (cpu, mem_pct, disk, net)):
+    if all(v is None for v in (cpu, mem_pct, disk, net, uptime)):
         return None
 
     step_1h, step_24h = 60, 600
@@ -312,7 +368,7 @@ def fetch_guest_metrics(device):
         ({"name": "CPU", "color": "var(--chart-6)", "width": 1.6}, cpu_1h),
         ({"name": "Memory", "color": "var(--brand)", "width": 1.6}, mem_1h),
         ({"name": "Disk", "color": "var(--teal)", "width": 1.6}, disk_1h),
-    ], "%", 3600)
+    ], "%", 3600, step_1h)
     cpu_chart = _chart_from_series(
         [({"name": "CPU", "color": "var(--chart-6)", "area": True, "areaOpacity": 0.12, "width": 1.4}, cpu_24h)],
         "%", 86400)
@@ -323,10 +379,9 @@ def fetch_guest_metrics(device):
         [({"name": "Network", "color": "var(--teal)", "area": True, "areaOpacity": 0.12, "width": 1.4}, net_24h)],
         "Mb/s", 86400)
 
-    source = f"Prometheus · node_exporter on {device.mgmt_ip}:9100"
     return {
-        "sample": False,
-        "source": source,
+        "source": f"Prometheus · node_exporter instance {device.prometheus_instance}",
+        "uptime": None if uptime is None else max(0, int(uptime)),
         "cpu": cpu,
         "memory": mem_pct,
         "disk": disk,
@@ -343,179 +398,28 @@ def fetch_guest_metrics(device):
     }
 
 
-def _wave(n, base, amp, phase=0.0):
-    now = time.time()
-    step = 3600 / max(n - 1, 1)
-    out = []
-    for i in range(n):
-        t = now - 3600 + i * step
-        out.append((t, base + amp * math.sin((i / max(n - 1, 1)) * math.pi * 2 + phase)))
-    return out
-
-
-def _wave_day(n, base, amp, phase=0.0):
-    now = time.time()
-    step = 86400 / max(n - 1, 1)
-    out = []
-    for i in range(n):
-        t = now - 86400 + i * step
-        out.append((t, base + amp * math.sin((i / max(n - 1, 1)) * math.pi * 4 + phase)))
-    return out
-
-
-def sample_vm_metrics(device):
-    """Deterministic demo tiles/charts matching the LinkedEye Prototype VM-APP-01 look."""
-    util_1h = _chart_from_series([
-        ({"name": "CPU", "color": "var(--chart-6)", "width": 1.6}, _wave(61, 24.6, 6, 0.2)),
-        ({"name": "Memory", "color": "var(--brand)", "width": 1.6}, _wave(61, 58.3, 4, 1.1)),
-        ({"name": "Disk", "color": "var(--teal)", "width": 1.6}, _wave(61, 62.1, 2, 2.0)),
-    ], "%", 3600)
-    cpu_24h = _chart_from_series(
-        [({"name": "CPU", "color": "var(--chart-6)", "area": True, "areaOpacity": 0.12, "width": 1.4},
-          _wave_day(97, 24.6, 8, 0.3))],
-        "%", 86400)
-    mem_24h = _chart_from_series(
-        [({"name": "Memory", "color": "var(--brand)", "area": True, "areaOpacity": 0.12, "width": 1.4},
-          _wave_day(97, 58.3, 5, 1.4))],
-        "%", 86400)
-    net_24h = _chart_from_series(
-        [({"name": "Network", "color": "var(--teal)", "area": True, "areaOpacity": 0.12, "width": 1.4},
-          _wave_day(97, 12.4, 3, 0.7))],
-        "Mb/s", 86400)
-    return {
-        "sample": True,
-        "source": "Sample data · enable Prometheus node_exporter for live guest metrics",
-        "cpu": 24.6,
-        "memory": 58.3,
-        "disk": 62.1,
-        "network_mbps": 12.4,
-        "cpu_delta": -12.0,
-        "memory_delta": -5.0,
-        "disk_delta": 3.0,
-        "network_delta": 18.0,
-        "ha": "protected",
-        "util_1h": util_1h,
-        "cpu_24h": cpu_24h,
-        "memory_24h": mem_24h,
-        "network_24h": net_24h,
-        "info": {
-            "vcpu": "4",
-            "memory_gb": "16",
-            "tools": "Running 12.4.5",
-            "created": "12 Jan 2025",
-            "cluster": "Compute-01",
-            "host": "esxi-host-01",
-            "datastore": "DS01",
-            "vcenter": "vcsa.wecrew.in",
-        },
-    }
-
-
-def resolve_vm_metrics(device, force_sample=False):
-    """Prefer live Prometheus; fall back to sample when forced or when guest series are missing."""
-    if not force_sample:
-        live = fetch_guest_metrics(device)
-        if live:
-            return live, False
-    return sample_vm_metrics(device), True
-
-
-def _sample_series(seconds, base, amp, phase=0.0):
-    """Synthetic time series for sample mode; density scales with window length."""
-    now = time.time()
-    n = max(24, min(200, max(2, seconds // 60)))
-    step = seconds / max(n - 1, 1)
-    out = []
-    for i in range(n):
-        t = now - seconds + i * step
-        out.append((t, base + amp * math.sin((i / max(n - 1, 1)) * math.pi * 3 + phase)))
-    return out
-
-
-def sample_guest_performance(seconds=86400):
-    """Demo charts for Performance tab when live Prometheus is unavailable."""
-    cpu = _sample_series(seconds, 24.6, 8.0, 0.2)
-    mem = _sample_series(seconds, 58.3, 6.0, 1.1)
-    disk_used = _sample_series(seconds, 62.0, 4.0, 2.0)
-    net = _sample_series(seconds, 12.4, 5.0, 0.7)
-    disk_io = _sample_series(seconds, 8.2, 3.5, 1.5)
-    load1 = _sample_series(seconds, 1.8, 0.6, 0.4)
-    return {
-        "seconds": seconds,
-        "sample": True,
-        "cpu": _chart_from_series(
-            [({"name": "CPU", "color": "var(--chart-6)", "area": True, "areaOpacity": 0.12, "width": 1.4}, cpu)],
-            "%",
-            seconds,
-        ),
-        "memory": _chart_from_series(
-            [({"name": "Memory", "color": "var(--brand)", "area": True, "areaOpacity": 0.12, "width": 1.4}, mem)],
-            "%",
-            seconds,
-        ),
-        "disk_used": _chart_from_series(
-            [({"name": "Root disk used", "color": "var(--teal)", "area": True, "areaOpacity": 0.12, "width": 1.4}, disk_used)],
-            "%",
-            seconds,
-        ),
-        "network": _chart_from_series(
-            [({"name": "Network", "color": "var(--accent-blue)", "area": True, "areaOpacity": 0.12, "width": 1.4}, net)],
-            "Mb/s",
-            seconds,
-        ),
-        "disk_io": _chart_from_series(
-            [({"name": "Read + write", "color": "var(--chart-3)", "area": True, "areaOpacity": 0.12, "width": 1.4}, disk_io)],
-            "MB/s",
-            seconds,
-        ),
-        "load1": _chart_from_series(
-            [({"name": "Load (1m)", "color": "var(--chart-7)", "width": 1.4}, load1)],
-            "load",
-            seconds,
-        ),
-    }
-
-
-def resolve_vm_performance(device, force_sample=False, seconds=86400):
-    """Performance tab: same PromQL as Overview but configurable range."""
-    if seconds not in PERF_RANGE_SECONDS.values():
-        seconds = 86400
-    if force_sample:
-        return sample_guest_performance(seconds), True
-    if not prometheus.configured() or not device.prometheus_instance:
-        return None, False
-    live = fetch_guest_performance(device, seconds=seconds)
-    if live:
-        return live, False
-    return None, False
-
-
-def vm_info_rows(device, meta, metrics):
-    """Rows for the VM Information table."""
-    sample_info = (metrics or {}).get("info") or {}
-    vcpu = meta.get("vcpu") or sample_info.get("vcpu") or "–"
-    mem = meta.get("memory_gb") or sample_info.get("memory_gb") or "–"
-    tools = meta.get("tools") or sample_info.get("tools") or "–"
-    created = meta.get("created") or sample_info.get("created") or "–"
-    if created == "–" and device.created_at:
+def vm_info_rows(device, meta):
+    """Rows for the VM Information table: device fields plus key:value tags (see META_KEYS)."""
+    created = meta.get("created") or ""
+    if not created and device.created_at:
         created = timezone.localtime(device.created_at).strftime("%d %b %Y")
-    cluster = meta.get("cluster") or sample_info.get("cluster") or "–"
-    host = meta.get("host") or sample_info.get("host") or "–"
-    datastore = meta.get("datastore") or sample_info.get("datastore") or "–"
-    vcenter = sample_info.get("vcenter") or "–"
+    mem = meta.get("memory_gb") or ""
+    if mem and not mem.upper().endswith("GB"):
+        mem = f"{mem} GB"
     return [
         ("Hostname", device.name),
         ("Management IP", device.mgmt_ip),
+        ("Prometheus instance", device.prometheus_instance or "–"),
         ("Vendor / platform", device.vendor or "–"),
         ("Guest OS", meta.get("os") or device.firmware or device.model or "–"),
-        ("Cluster", cluster),
-        ("Host", host),
-        ("Datastore", datastore),
-        ("vCPU", vcpu),
-        ("Memory", f"{mem} GB" if mem not in ("–", "") and not str(mem).endswith("GB") else mem),
-        ("VMware Tools", tools),
-        ("Created", created),
-        ("vCenter", vcenter),
+        ("Cluster", meta.get("cluster") or "–"),
+        ("Host", meta.get("host") or "–"),
+        ("Datastore", meta.get("datastore") or "–"),
+        ("vCPU", meta.get("vcpu") or "–"),
+        ("Memory", mem or "–"),
+        ("VMware Tools", meta.get("tools") or "–"),
+        ("Created", created or "–"),
+        ("vCenter", meta.get("vcenter") or "–"),
         ("Environment", device.get_environment_display() or "–"),
         ("Role", device.role or "–"),
     ]

@@ -1,0 +1,152 @@
+{% extends "core/base.html" %}{% load le static telemetry_tags %}
+{% block title %}Discovery{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'telemetry/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "telemetry/_crumbs.html" with crumb_here="Discovery" %}{% endblock %}
+{% block content %}
+<div class="pg-telemetry">
+<div class="head">
+  <div class="glyph g-teal">{% icon "radar" 30 %}</div>
+  <div><h1>Discovery</h1><p>Everything Prometheus scrapes, gathered automatically{% if prom_configured %} <span class="src">· {{ prom_host }}</span>{% endif %}</p></div>
+  <div class="actions">
+    {% if prom_configured %}
+    <a class="btn" href="?{{ query.urlencode }}{% if query.urlencode %}&amp;{% endif %}format=csv">{% icon "download" 17 %}Export</a>
+    {% if can_discover %}
+    <form method="post" action="{% url 'telemetry:discovery_run' %}">{% csrf_token %}
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <button class="btn primary" type="submit">{% icon "refresh" 17 %}Discover now</button></form>
+    {% endif %}
+    {% endif %}
+    <a class="btn" href="{% url 'telemetry:infrastructure' %}">{% icon "server" 17 %}Infrastructure</a>
+  </div>
+</div>
+
+{% if not prom_configured %}
+  {% include "telemetry/_not_connected.html" with nc_title="Prometheus" nc_env="LINKEDEYE_PROMETHEUS_URL" nc_extra="(for example http://prometheus.internal:9090)" nc_text="Once Prometheus is connected, LinkedEye reads its scrape targets every 5 minutes and gathers what each exporter reports — hostname, OS, kernel, CPU, memory, interfaces and filesystems — so hosts no longer have to be typed into the CMDB by hand." %}
+{% else %}
+
+{% if last_run and not last_run.ok %}
+<p class="tm-note" role="alert">{% icon "alert" 15 %}<span>The last discovery pass failed {{ last_run.started_at|since }}: {{ last_run.error|default:"unknown error" }}</span></p>
+{% endif %}
+{% if kpis.unlinked %}
+<p class="tm-note info">{% icon "info" 15 %}<span><b>{{ kpis.unlinked }}</b> discovered host{{ kpis.unlinked|pluralize }} {{ kpis.unlinked|pluralize:"is,are" }} not in the CMDB yet. Select them below and choose <em>Add to CMDB</em>, or switch on auto-create in <a href="{% url 'administration:integrations' %}#prometheus">Integrations</a>.</span></p>
+{% endif %}
+
+<section class="kpis tm-kpis disc-kpis" aria-label="Summary">
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "radar" 22 %}</div><div class="kpi-body"><div class="label">Targets</div><div class="value">{{ kpis.targets }}</div></div></div><div class="sub">{{ kinds|length }} kind{{ kinds|length|pluralize }}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-ok">{% icon "check" 22 %}</div><div class="kpi-body"><div class="label">Up</div><div class="value">{{ kpis.up }}</div></div></div><div class="sub">Last scrape succeeded</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-crit">{% icon "x" 22 %}</div><div class="kpi-body"><div class="label">Down</div><div class="value{% if kpis.down %} t-crit{% endif %}">{{ kpis.down }}</div></div></div><div class="sub">Scrape failing</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-purple">{% icon "server" 22 %}</div><div class="kpi-body"><div class="label">Hosts</div><div class="value">{{ kpis.hosts }}</div></div></div><div class="sub">Linux &amp; Windows</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-warn">{% icon "database" 22 %}</div><div class="kpi-body"><div class="label">Not in CMDB</div><div class="value{% if kpis.unlinked %} t-warn{% endif %}">{{ kpis.unlinked }}</div></div></div><div class="sub">Hosts without an item</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-teal">{% icon "plus" 22 %}</div><div class="kpi-body"><div class="label">New (24 h)</div><div class="value">{{ kpis.new_24h }}</div></div></div><div class="sub">First seen since yesterday</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-mute">{% icon "clock" 22 %}</div><div class="kpi-body"><div class="label">Last Run</div><div class="value" style="font-size:19px">{% if last_run %}{{ last_run.started_at|since }}{% else %}Never{% endif %}</div></div></div><div class="sub tm-wrap">{% if last_run %}{{ last_run.queries }} quer{{ last_run.queries|pluralize:"y,ies" }} · {{ last_run.duration_ms|ms }} · every 5 min{% else %}The job runs every 5 minutes{% endif %}</div></div>
+</section>
+
+{% if kpis.targets %}
+<section class="grid g-3">
+  <div class="panel"><div class="panel-h"><h2>Target Health</h2></div>
+    <div class="donut-wrap"><div class="chart" data-chart="donut" data-src="d-donut"></div>
+      <div class="donut-legend">
+        <span><i class="dot fill-ok"></i>Up</span><b>{{ kpis.up }}</b>
+        <span><i class="dot fill-crit"></i>Down</span><b>{{ kpis.down }}</b>
+        <span><i class="dot fill-nodata"></i>Unknown</span><b>{{ kpis.unknown }}</b>
+      </div></div></div>
+  <div class="panel"><div class="panel-h"><h2>What Was Found</h2></div>
+    <div class="table-wrap dense borderless tm-table"><table>
+      <thead><tr><th>Kind</th><th class="num">Targets</th></tr></thead>
+      <tbody>{% for value, label, n in kinds %}
+        <tr><td><a href="?kind={{ value }}">{{ label }}</a></td><td class="num">{{ n }}</td></tr>
+      {% endfor %}</tbody></table></div></div>
+  <div class="panel"><div class="panel-h"><h2>Gathered Automatically</h2></div>
+    <ul class="tm-facts">
+      <li>{% icon "check-circle" 15 %}<span>Scrape target, job, pool and every target label</span></li>
+      <li>{% icon "check-circle" 15 %}<span>Hostname, OS, kernel, architecture and exporter version</span></li>
+      <li>{% icon "check-circle" 15 %}<span>CPU cores, memory, boot time, interfaces and filesystems</span></li>
+      <li>{% icon "check-circle" 15 %}<span>The site, from the <code>{{ site_label }}</code> target label</span></li>
+      <li>{% icon "check-circle" 15 %}<span>Links to the CMDB item, device or exporter that already exists</span></li>
+    </ul>
+    <p class="tm-meta" style="margin:10px 0 0">Prometheus alert rules are on the <a href="{% url 'telemetry:prometheus' %}#rules">Prometheus Metrics</a> page.</p></div>
+</section>
+{% endif %}
+
+<div class="panel">
+  <div class="panel-h"><h2>Discovered Targets ({{ page.paginator.count }})</h2>
+    <div class="right">
+      <nav class="seg" aria-label="Presence">
+        <a href="?{{ gone_query.urlencode }}{% if gone_query.urlencode and not show_missing %}&amp;{% endif %}{% if not show_missing %}missing=1{% endif %}" class="{% if show_missing %}on{% endif %}">{% if show_missing %}Hide{% else %}Show{% endif %} gone ({{ kpis.missing }})</a>
+      </nav>
+    </div></div>
+
+  <form class="toolbar tm-filters" method="get">
+    {% if request.GET.per %}<input type="hidden" name="per" value="{{ request.GET.per }}">{% endif %}
+    {% if show_missing %}<input type="hidden" name="missing" value="1">{% endif %}
+    <label class="search">{% icon "search" 16 %}<input type="search" name="q" value="{{ request.GET.q }}" placeholder="Search instance, hostname, job, OS…" aria-label="Search targets"></label>
+    <select name="kind" data-autosubmit aria-label="Kind"><option value="">All Kinds</option>{% for v, l in kind_choices %}<option value="{{ v }}"{% if request.GET.kind == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <select name="health" data-autosubmit aria-label="Health"><option value="">All Health</option>{% for v, l in healths %}<option value="{{ v }}"{% if request.GET.health == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <select name="state" data-autosubmit aria-label="State"><option value="">All States</option>{% for v, l in states %}<option value="{{ v }}"{% if request.GET.state == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <select name="site" data-autosubmit aria-label="Site"><option value="">Every Site</option>{% for s in sites %}<option value="{{ s }}"{% if request.GET.site == s %} selected{% endif %}>{{ s }}</option>{% endfor %}</select>
+    {% if filtered %}<a class="btn icon blue" href="{% url 'telemetry:discovery' %}" title="Clear filters" aria-label="Clear filters">{% icon "x" 16 %}</a>{% endif %}
+  </form>
+
+<form method="post" action="{% url 'telemetry:discovery_action' %}" id="targets">{% csrf_token %}
+  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+  {% if can_operate %}
+  <div class="tm-bulk" role="group" aria-label="Bulk actions">
+    <span class="tm-meta" data-sel-count>No target selected</span>
+    <button class="btn sm primary" type="submit" name="action" value="add_to_cmdb">{% icon "database" 15 %}Add to CMDB</button>
+    <button class="btn sm" type="submit" name="action" value="create_device">{% icon "network" 15 %}Create device</button>
+    <button class="btn sm" type="submit" name="action" value="ignore">{% icon "pause" 15 %}Ignore</button>
+    <button class="btn sm" type="submit" name="action" value="unignore">{% icon "eye" 15 %}Un-ignore</button>
+    <span class="tm-bulk-site"><select name="site" aria-label="Site to set">{% for s in site_choices %}<option>{{ s }}</option>{% endfor %}</select>
+      <button class="btn sm" type="submit" name="action" value="set_site">{% icon "map-pin" 15 %}Set site</button></span>
+  </div>
+  {% endif %}
+
+  <div class="table-wrap dense tm-table" style="margin-top:12px"><table>
+    <thead><tr>
+      {% if can_operate %}<th class="cb"><input type="checkbox" data-check-all="target" aria-label="Select all targets on this page"></th>{% endif %}
+      <th>Target</th><th>Kind / job</th><th>Health</th><th>Site</th><th>System</th><th class="num">Size</th><th>Linked to</th><th>First seen</th><th>Last seen</th><th></th>
+    </tr></thead>
+    <tbody>
+    {% for t in page %}
+      <tr{% if t.missing_since %} class="gone"{% endif %}>
+        {% if can_operate %}<td class="cb">{% if t.can_act %}<input type="checkbox" name="target" value="{{ t.pk }}" aria-label="Select {{ t.instance }}">{% endif %}</td>{% endif %}
+        <td class="inst"><a class="host-name" href="{{ t.get_absolute_url }}">{{ t.display_name }}</a><span class="sub mono">{{ t.instance }}</span></td>
+        <td><span class="chip {% if t.is_host %}purple{% else %}mute{% endif %}">{{ t.get_kind_display }}</span><span class="sub">{{ t.job|default:"–" }}</span></td>
+        <td>{% if t.missing_since %}{% badge "inactive" "Gone" %}{% else %}{% badge t.health %}{% endif %}</td>
+        <td>{{ t.site }}{% if t.site_manual %} <span class="tag" title="Set by an operator; discovery keeps it">set</span>{% endif %}</td>
+        <td class="wrap">{{ t.summary_line|default:"–" }}</td>
+        <td class="num">{% if t.details.cores %}{{ t.details.cores }} <small>cores</small>{% endif %}{% if t.details.memory_bytes %}<span class="sub">{{ t.details.memory_bytes|hbytes }}</span>{% endif %}{% if not t.details.cores and not t.details.memory_bytes %}–{% endif %}</td>
+        <td>{% if t.ci %}<a href="{{ t.ci.get_absolute_url }}">{% icon "database" 13 %} {{ t.ci.name }}</a>{% elif t.device %}<a href="{{ t.device.get_absolute_url }}">{% icon "network" 13 %} {{ t.device.name }}</a>{% elif t.exporter %}<a href="{{ t.exporter.get_absolute_url }}">{% icon "exporters" 13 %} {{ t.exporter.name }}</a>{% elif t.is_ignored %}<span class="t-mute">Ignored</span>{% else %}<span class="t-warn">Not in inventory</span>{% endif %}</td>
+        <td title="{{ t.first_seen|date:'Y-m-d H:i:s' }}">{{ t.first_seen|since }}</td>
+        <td title="{{ t.last_seen|date:'Y-m-d H:i:s' }}">{{ t.last_seen|since }}</td>
+        <td class="row-actions"><a class="btn icon blue" href="{{ t.get_absolute_url }}" title="Details for {{ t.instance }}" aria-label="Details for {{ t.instance }}">{% icon "eye" 15 %}</a></td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="{% if can_operate %}11{% else %}10{% endif %}" class="empty">{% if filtered %}No target matches the filters.{% elif last_run %}Prometheus reports no scrape targets.{% else %}Discovery has not run yet — it runs every 5 minutes, or press <em>Discover now</em>.{% endif %}</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+</form>
+  {% include "core/_pager.html" with pager_noun="targets" %}
+</div>
+{{ donut|json_script:"d-donut" }}
+{% endif %}
+</div>
+<script>
+(function () {
+  var all = document.querySelector('[data-check-all]');
+  var count = document.querySelector('[data-sel-count]');
+  function boxes() { return Array.prototype.slice.call(document.querySelectorAll('input[name="target"]')); }
+  function refresh() {
+    if (!count) return;
+    var n = boxes().filter(function (b) { return b.checked; }).length;
+    count.textContent = n ? n + ' target' + (n === 1 ? '' : 's') + ' selected' : 'No target selected';
+  }
+  if (all) all.addEventListener('change', function () {
+    boxes().forEach(function (b) { b.checked = all.checked; });
+    refresh();
+  });
+  boxes().forEach(function (b) { b.addEventListener('change', refresh); });
+  refresh();
+})();
+</script>
+{% endblock %}

@@ -339,6 +339,20 @@ class _SecretOptionalMixin:
 class PrometheusIntegrationForm(_SecretOptionalMixin, forms.Form):
     url = OptionalHttpsURLField(label="Server URL", required=False)
     timeout = forms.FloatField(label="Timeout (seconds)", required=False, min_value=1, max_value=120)
+    # discovery (telemetry.discovery): what the product gathers and creates by itself
+    site_label = forms.RegexField(
+        label="Site label", required=False, regex=r"^[a-zA-Z_][a-zA-Z0-9_]*$", max_length=100,
+        error_messages={"invalid": "A Prometheus label name: letters, digits and underscores."},
+        help_text='Target label discovery reads the site from. Default "site"; targets without it go to "All Sites".')
+    autocreate_ci = forms.BooleanField(
+        label="Auto-create CMDB items for new hosts", required=False,
+        help_text="Every newly discovered Linux or Windows host becomes a server configuration item.")
+    autocreate_devices = forms.BooleanField(
+        label="Auto-create devices for SNMP targets", required=False,
+        help_text="Every newly discovered SNMP target becomes a network device (vendor and model are left blank).")
+    autoregister_exporters = forms.BooleanField(
+        label="Auto-register exporters", required=False,
+        help_text="Every newly discovered target is added to the Exporters inventory with its scrape URL.")
 
 
 class AlertmanagerIntegrationForm(_SecretOptionalMixin, forms.Form):

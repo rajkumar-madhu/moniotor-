@@ -11,12 +11,14 @@ import logging
 
 from django.conf import settings
 from django.core.cache import cache
+from django.utils import timezone
 
 from core.access import scope_by_site
 
 from . import palette as pal, promapi
-from .fmt import finite, from_epoch, human_bytes, human_number, human_rate
-from .hosts import CACHE_SECONDS, FS_FILTER, NET_FILTER, RANGES, _run_parallel, align, host_selector, step_for
+from .fmt import finite, from_epoch, human_bytes, human_duration, human_number, human_rate
+from .hosts import (CACHE_SECONDS, FS_FILTER, HEALTH_LABEL, HEALTH_TONE, NET_FILTER, RANGES, _run_parallel, align,
+                    grade, host_selector, step_for, thresholds)
 
 log = logging.getLogger("linkedeye.telemetry")
 
@@ -24,6 +26,8 @@ DISK_FILTER = 'device!~"loop[0-9]+|ram[0-9]+|sr[0-9]+|fd[0-9]+"'
 MAX_SERIES_PER_CHART = 12   # per-device charts on big hosts: keep the busiest, say how many were left out
 STACKED_POINTS = 96         # stacked charts render as bars; fewer points keep the bars readable at 400 px
 RATE = "[5m]"
+GAUGE_DOM = {"cpu": "hm-g-cpu", "memory": "hm-g-memory", "disk": "hm-g-disk"}
+SPARK_DOM = {"load": "hm-s-load", "net": "hm-s-net", "diskio": "hm-s-diskio"}
 
 
 # ----------------------------------------------------------------------------- chart specification
@@ -177,6 +181,15 @@ def sections_spec(instance):
     ]
 
 
+def gauge_queries(instance):
+    """Range queries the summary gauges need beyond what hosts.fetch_host already fetched (CPU %, memory %)."""
+    sel = host_selector(instance)
+    return {
+        "disk_root": (f'100 * max by (instance) (1 - (node_filesystem_avail_bytes{{mountpoint="/",{FS_FILTER},{sel}}}'
+                      f' / node_filesystem_size_bytes{{mountpoint="/",{FS_FILTER},{sel}}}))'),
+    }
+
+
 def instant_queries(instance):
     sel = host_selector(instance)
     return {
@@ -293,8 +306,122 @@ def core_table(rows):
         v = r.get("value")
         if finite(v):
             cpu = (r.get("metric") or {}).get("cpu", "")
-            cores.append({"cpu": cpu, "busy": max(0.0, min(100.0, float(v)))})
+            busy = max(0.0, min(100.0, float(v)))
+            cores.append({"cpu": cpu, "busy": busy, "grade": grade("cpu", busy), "text": f"{busy:.1f}%"})
     return sorted(cores, key=lambda c: (-c["busy"], c["cpu"]))
+
+
+# ----------------------------------------------------------------------------- summary strip (gauges, sparks, KPIs)
+def _edges(values):
+    """(first, last) finite values of an aligned series, or (None, None)."""
+    vs = [v for v in values or () if finite(v)]
+    return (vs[0], vs[-1]) if vs else (None, None)
+
+
+def _delta(values, range_key, unit="%"):
+    """Change over the range as {value, text}: '+1.2 pts in 1h' / 'no change in 1h'; None without two points."""
+    vs = [v for v in values or () if finite(v)]
+    if len(vs) < 2:
+        return None
+    d = vs[-1] - vs[0]
+    if abs(d) < 0.05:
+        return {"value": 0.0, "text": f"no change in {range_key}"}
+    word = "pts" if unit == "%" else unit
+    return {"value": round(d, 2), "text": f"{d:+.1f} {word} in {range_key}"}
+
+
+def _gauge(metric, label, value, values, range_key, sub=""):
+    warn, crit = thresholds().get(metric, (70.0, 90.0))
+    return {"value": round(value, 1) if finite(value) else None, "max": 100, "unit": "%", "label": label,
+            "text": fmt_value(value, "%"), "tone": grade(metric, value), "sub": sub,
+            "delta": _delta(values, range_key),
+            "thresholds": [{"to": warn, "color": "var(--chart-ok)"}, {"to": crit, "color": "var(--chart-warn)"},
+                           {"to": 100, "color": "var(--chart-crit)"}]}
+
+
+def _spark(values, color):
+    vs = [round(float(v), 3) for v in values or () if finite(v)]
+    return {"values": vs, "color": color} if len(vs) >= 2 else None
+
+
+def _series_values(chart, name=None):
+    """Values of one series of an aligned chart (first series when `name` is None); [] when absent."""
+    for s in (chart or {}).get("series") or []:
+        if name is None or s.get("name") == name:
+            return s.get("values") or []
+    return []
+
+
+def _sum_series(chart):
+    """Per-point sum of every series of an aligned chart (None where no series has a value)."""
+    series = [s.get("values") or [] for s in (chart or {}).get("series") or []]
+    if not series:
+        return []
+    out = []
+    for i in range(max(len(v) for v in series)):
+        vs = [v[i] for v in series if i < len(v) and finite(v[i])]
+        out.append(sum(vs) if vs else None)
+    return out
+
+
+def summary_strip(host, by_key, disk_root_values, range_key):
+    """Gauge / sparkline payloads and the KPI texts of the summary strip, from data already fetched.
+
+    The page renders these server-side and the Live poll (host_metrics_json) sends the same structure, so the
+    strip never shows a value the server would not have rendered. Everything here is text or numbers."""
+    charts = host.get("charts") or {}
+    cores = host.get("cores")
+    gauges = {
+        "cpu": _gauge("cpu", "CPU", host.get("cpu"), _series_values(charts.get("cpu")), range_key,
+                      sub=f"{cores:.0f} cores" if cores else "cores unknown"),
+        "memory": _gauge("memory", "Used RAM", host.get("memory"), _series_values(charts.get("memory")), range_key,
+                         sub=f"of {human_bytes(host.get('mem_total'))}"),
+        "disk": _gauge("disk", "Root disk", host.get("disk"), disk_root_values, range_key, sub="used on /"),
+    }
+    disk_bw = (by_key.get("disk_bw") or {}).get("data")
+    sparks = {
+        "load": _spark(_series_values(charts.get("load"), "1m"), pal.CORAL),
+        "net": _spark(_series_values(charts.get("net"), "Receive"), pal.TEAL),
+        "diskio": _spark(_sum_series(disk_bw), pal.BLUE),
+    }
+
+    def last_sum(chart_key, suffix):
+        vals = [row["raw"]["last"] for row in (by_key.get(chart_key) or {}).get("legend", []) if row["name"].endswith(suffix)]
+        return sum(vals) if vals else None
+    disk_read, disk_write = last_sum("disk_bw", " read"), last_sum("disk_bw", " write")
+    kpis = {
+        "cpu": gauges["cpu"]["text"], "cpu_sub": gauges["cpu"]["sub"],
+        "memory": gauges["memory"]["text"], "memory_sub": gauges["memory"]["sub"],
+        "disk": gauges["disk"]["text"], "disk_sub": gauges["disk"]["sub"],
+        "load1": human_number(host.get("load1")),
+        "load_sub": f"{human_number(host.get('load5'))} · {human_number(host.get('load15'))} (5m · 15m)",
+        "net": human_rate(host.get("rx")), "net_sub": f"in · out {human_rate(host.get('tx'))}",
+        "diskio": human_rate(disk_read), "diskio_sub": f"read · write {human_rate(disk_write)}",
+        "uptime": human_duration(host.get("uptime")), "uptime_sub": "scrape down" if host.get("up") == 0 else "scrape up",
+    }
+    tones = {"cpu": gauges["cpu"]["tone"], "memory": gauges["memory"]["tone"], "disk": gauges["disk"]["tone"],
+             "load1": grade("load", host.get("load_per_core")), "uptime_sub": "crit" if host.get("up") == 0 else "ok"}
+    return {"gauges": gauges, "sparks": sparks, "kpis": kpis, "tones": tones,
+            "disk_read": disk_read, "disk_write": disk_write}
+
+
+def live_payload(host, full):
+    """JSON for the Live poll: every chart payload keyed by its DOM id, plus the summary strip and per-core table."""
+    charts = {c["dom_id"]: c["data"] for s in full["sections"] for c in s["charts"] if c["has"]}
+    legends = {c["dom_id"]: [{k: r[k] for k in ("name", "last", "mean", "min", "max")} for r in c["legend"]]
+               for s in full["sections"] for c in s["charts"] if c["has"]}
+    summary = full["summary"]
+    for k, dom in GAUGE_DOM.items():
+        charts[dom] = summary["gauges"][k]
+    for k, dom in SPARK_DOM.items():
+        if summary["sparks"].get(k):
+            charts[dom] = summary["sparks"][k]
+    health = host.get("health", "unknown")
+    return {"generated": timezone.now().isoformat(timespec="seconds"), "instance": full["instance"],
+            "range": full["range"], "health": {"key": health, "label": HEALTH_LABEL.get(health, "Unknown"),
+                                               "tone": HEALTH_TONE.get(health, "mute")},
+            "summary": summary["kpis"], "tones": summary["tones"], "charts": charts, "legends": legends,
+            "cores": full["cores"]}
 
 
 def mount_table(filesystems, inst):
@@ -377,7 +504,9 @@ def fetch_host_full(host, range_key="1h", use_cache=True):
     instance = host["instance"]
     if range_key not in RANGES:
         range_key = "1h"
-    key = "telemetry:hostfull:v1:" + hashlib.sha1(f"{instance}|{range_key}".encode()).hexdigest()
+    # v2: this payload gained "summary" and the per-core rows gained grade/text. live_payload() reads full["summary"]
+    # directly, so a v1 entry left in a shared cache (Redis) by the previous release would 500 the Live poll.
+    key = "telemetry:hostfull:v2:" + hashlib.sha1(f"{instance}|{range_key}".encode()).hexdigest()
     if use_cache:
         hit = cache.get(key)
         if hit is not None:
@@ -390,6 +519,8 @@ def fetch_host_full(host, range_key="1h", use_cache=True):
         for c in sec["charts"]:
             for gi, g in enumerate(c["groups"]):
                 jobs[(c["key"], gi)] = ("range", g["q"], bar_step if c["kind"] == "bars" else step)
+    for name, q in gauge_queries(instance).items():
+        jobs[("gauge", name)] = ("range", q, step)
     for name, q in instant_queries(instance).items():
         jobs[name] = ("instant", q, None)
 
@@ -404,14 +535,13 @@ def fetch_host_full(host, range_key="1h", use_cache=True):
         sections.append({**sec, "charts": charts, "has_any": any(c["has"] for c in charts),
                          "missing": [c for c in charts if not c["has"]]})
     by_key = {c["key"]: c for s in sections for c in s["charts"]}
-
-    def last_sum(chart_key, suffix):
-        vals = [row["raw"]["last"] for row in by_key[chart_key]["legend"] if row["name"].endswith(suffix)]
-        return sum(vals) if vals else None
+    disk_rows = res.get(("gauge", "disk_root")) or []
+    disk_root = [v for _t, v in (disk_rows[0].get("values") or [])] if disk_rows else []
+    summary = summary_strip(host, by_key, disk_root, range_key)
     out = {
         "instance": instance, "range": range_key, "seconds": seconds, "step": step, "bar_step": bar_step,
-        "sections": sections,
-        "disk_read": last_sum("disk_bw", " read"), "disk_write": last_sum("disk_bw", " write"),
+        "sections": sections, "summary": summary,
+        "disk_read": summary["disk_read"], "disk_write": summary["disk_write"],
         "cores": core_table(inst.get("cores")),
         "mounts": mount_table(host.get("filesystems"), inst),
         "ifaces": iface_table(inst),

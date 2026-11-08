@@ -21,11 +21,11 @@
 
 <section class="grid g-2">
   <div class="panel">
-    <div class="panel-h"><h2>Probe scheduler freshness</h2><small>warn when the newest result is older than {{ h.stale_minutes }} min</small></div>
+    <div class="panel-h"><h2>Probe scheduler freshness</h2><small>warn when the newest result is older than the longest check interval plus a grace period (at most {{ h.stale_minutes }} min)</small></div>
     <div class="table-wrap dense"><table>
-      <thead><tr><th>Source</th><th class="num">Enabled</th><th>Latest result</th><th>Age</th><th>Status</th></tr></thead>
+      <thead><tr><th>Source</th><th class="num">Enabled</th><th>Latest result</th><th>Age</th><th>Stale after</th><th>Status</th></tr></thead>
       <tbody>{% for p in h.probes %}
-        <tr><td>{{ p.label }}</td><td class="num">{{ p.enabled }}</td><td>{% if p.latest %}{{ p.latest|date:"j M Y H:i:s" }}{% else %}–{% endif %}</td><td>{{ p.age_text }}</td>
+        <tr><td>{{ p.label }}</td><td class="num">{{ p.enabled }}</td><td>{% if p.latest %}{{ p.latest|date:"j M Y H:i:s" }}{% else %}–{% endif %}</td><td>{{ p.age_text }}</td><td>{{ p.stale_minutes }} min</td>
           <td title="{{ p.note }}">{% if p.status == 'ok' %}{% badge "ok" "Fresh" %}{% elif p.status == 'warn' %}{% badge "warning" "Stale" %}{% else %}{% badge "inactive" "Idle" %}{% endif %}</td></tr>
       {% endfor %}</tbody></table></div>
     <dl class="kv adm-kv adm-gap">

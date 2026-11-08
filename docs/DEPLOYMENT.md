@@ -61,9 +61,17 @@ docker push registry.example.com/linkedeye:9.0
 
 | Build argument | Default | Purpose |
 |---|---|---|
-| `DB_EXTRAS` | `postgres` | Space-separated list of `requirements-<name>.txt` extras: `postgres` (psycopg 3 binary, no system libraries), `mysql` (mysqlclient; compiled in the build stage, `libmariadb3` at runtime). |
+| `DB_EXTRAS` | `postgres` | Space-separated list of `requirements-<name>.txt` extras: `postgres` (psycopg 3 binary, no system libraries), `mysql` (mysqlclient; compiled in the build stage, `libmariadb3` at runtime), `images` (optional Pillow, see below). |
 | `PYTHON_VERSION` | `3.12` | Base image `python:<version>-slim`. |
 | `VERSION`, `REVISION` | `9.0`, empty | OCI labels (`org.opencontainers.image.version` / `.revision`). |
+
+**Print-colour datasheet photos (optional Pillow).** Many print-oriented vendor datasheets store product photos as CMYK JPEGs.
+Without the optional image library LinkedEye skips them and tells the operator to save the photo from the PDF and upload it; with
+it, it converts them to ordinary RGB photos (and shrinks photos over 2 MB / 4096 px). Add it with
+`docker build --build-arg DB_EXTRAS="postgres images" ...` or, outside Docker,
+`pip install -r requirements.txt -r requirements-images.txt` (Pillow 13.x wheels, no compiler or system packages). It is
+untrusted-file parsing code: keep it updated, and allow roughly 300 MB of memory headroom per worker process for the two
+concurrent conversions it permits. Details and the safety limits: [NETWORK.md](NETWORK.md#print-colour-datasheets-and-the-optional-image-library-networkimaging_pillowpy).
 
 Behind a TLS-intercepting proxy give pip your CA bundle as a build secret (never baked into a layer):
 `docker build --secret id=pip_ca,src=/etc/ssl/certs/corp-bundle.pem ...`
@@ -138,7 +146,18 @@ server {
     ssl_certificate     /etc/ssl/linkedeye/fullchain.pem;
     ssl_certificate_key /etc/ssl/linkedeye/privkey.pem;
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    client_max_body_size 2m;
+    client_max_body_size 3m;   # device photos are up to 2 MB plus form overhead
+    location = /network/photos/find/ {   # datasheet PDFs (up to 25 MB) are uploaded here
+        client_max_body_size 26m;
+        proxy_read_timeout 90s;     # a page address is fetched inside the request
+        # LinkedEye keeps the upload in memory and writes nothing. nginx, by default, buffers a request body larger than
+        # 16 KB in its own temporary directory (client_body_temp_path) before passing it on; put that on tmpfs if a datasheet
+        # must never touch a disk, or add `proxy_request_buffering off;` (then a slow uploader holds a worker for its duration).
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
     location / {
         proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host $host;

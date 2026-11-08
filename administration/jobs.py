@@ -4,8 +4,9 @@
   from a dedicated thread every SCHEDULER_HEARTBEAT_SECONDS, so a long pass never makes the heartbeat stale; the
   row's data carries `loop_at` (when the main loop last finished a pass) so a hung loop is still detectable. A
   standby scheduler (another instance holds the lease) writes Heartbeat(key="scheduler-standby:<host>") instead.
-* Probe-freshness watchdog: when enabled URL/domain checks stop producing results for longer than
-  services.PROBE_STALE_SECONDS it emits one warning event (fingerprint administration:probe-freshness), and an
+* Probe-freshness watchdog: when enabled URL/domain checks stop producing results for longer than their longest
+  configured interval plus a grace period (services.stale_after, at least services.PROBE_STALE_SECONDS) it emits
+  one warning event (fingerprint administration:probe-freshness), and an
   "ok" event when results are fresh again. State is kept in Heartbeat(key="probe-freshness") so a restart does not
   repeat the warning.
 Never raises.

@@ -2,6 +2,7 @@
 snmp_exporter) and subnet discovery runs."""
 import ipaddress
 import re
+from datetime import timedelta
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -66,8 +67,88 @@ class Environment(models.TextChoices):
     DEV = "dev", "Development"
 
 
+class DeviceImage(models.Model):
+    """A stored product photo (PNG, JPEG or WebP), kept as bytes in the database so it works with several app
+    replicas and needs no media volume. Content-addressed: one row per (tenant, SHA-256). The bytes are validated by
+    network.imaging before a row is written and are only ever served by network.image_views with a pinned type.
+    Nothing here is bundled with LinkedEye; every image was uploaded or fetched by a user of this installation."""
+    SOURCES = [("upload", "Uploaded"), ("fetched", "Fetched from a URL"), ("catalog", "Product catalog"),
+               ("datasheet", "From a datasheet")]
+    MAX_BYTES = 2 * 1024 * 1024
+    MAX_DIMENSION = 4096
+    TYPES = ["image/png", "image/jpeg", "image/webp"]
+
+    tenant_key = models.CharField(max_length=100, db_index=True, default=_tenant)
+    sha256 = models.CharField(max_length=64)
+    content_type = models.CharField(max_length=20)
+    width = models.PositiveIntegerField()
+    height = models.PositiveIntegerField()
+    byte_size = models.PositiveIntegerField()
+    data = models.BinaryField()
+    source = models.CharField(max_length=10, choices=SOURCES, default="upload")
+    source_url = models.URLField(max_length=500, blank=True, default="",
+                                 help_text="Where a fetched image came from (no query string or credentials).")
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name="+")
+    created_at = models.DateTimeField(default=timezone.now)
+    origin = models.CharField(max_length=80, blank=True, default="",
+                              help_text="Where in the source it was found, e.g. 'datasheet page 1' or 'og:image'.")
+    # A candidate is a picture found in a datasheet or product page that nobody has picked yet. It belongs to the user who
+    # searched (candidate_owner = their id, 0 for a real photo), is shown to nobody else, is never attached to a device and
+    # is deleted after CANDIDATE_TTL. The owner is part of the unique key so two people looking at the same datasheet
+    # each get their own rows.
+    is_candidate = models.BooleanField(default=False)
+    candidate_owner = models.PositiveIntegerField(default=0)
+
+    CANDIDATE_TTL = timedelta(hours=1)
+    MAX_CANDIDATES_PER_TENANT = 60
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["tenant_key", "is_candidate", "created_at"], name="network_devimg_cand_idx")]
+        constraints = [
+            models.UniqueConstraint(fields=["tenant_key", "sha256", "candidate_owner"], name="network_deviceimage_tenant_sha_owner_unique"),
+            models.CheckConstraint(check=models.Q(is_candidate=False, candidate_owner=0) | models.Q(is_candidate=True, candidate_owner__gt=0),
+                                   name="network_deviceimage_candidate_owner_ok"),
+            models.CheckConstraint(check=models.Q(content_type__in=["image/png", "image/jpeg", "image/webp"]),
+                                   name="network_deviceimage_type_ok"),
+            models.CheckConstraint(check=models.Q(byte_size__gte=1, byte_size__lte=2 * 1024 * 1024),
+                                   name="network_deviceimage_size_ok"),
+            models.CheckConstraint(check=models.Q(width__gte=1, width__lte=4096, height__gte=1, height__lte=4096),
+                                   name="network_deviceimage_dims_ok"),
+        ]
+
+    def __str__(self):
+        return f"{self.sha256[:12]} {self.content_type} {self.width}x{self.height}"
+
+    @property
+    def ext(self):
+        return {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}[self.content_type]
+
+    @property
+    def url(self):
+        """Same-origin address of the bytes (login and per-device scoping apply there)."""
+        return reverse("network:image", args=[self.sha256, self.ext])
+
+    @property
+    def candidate_url(self):
+        """Address of a candidate's bytes: only its owner gets them (see network.photo_views.candidate_image)."""
+        return reverse("network:photo_candidate", args=[self.pk])
+
+    @property
+    def long_side(self):
+        return max(self.width, self.height)
+
+    @property
+    def is_small(self):
+        """Under 300 px on the long side: shown at natural size, never blown up."""
+        return self.long_side < 300
+
+
 class NetworkProductImage(models.Model):
-    """Curated vendor product photo and datasheet URLs for device onboarding (per tenant)."""
+    """Curated vendor product photo for device onboarding (per tenant). LinkedEye ships no rows and no photos: add
+    your own on the Product catalog page. `image` is the stored copy that is shown; `product_image_url` is the older
+    hotlink field, kept for rows created before images could be stored."""
     tenant_key = models.CharField(max_length=100, db_index=True, default=_tenant)
     vendor = models.CharField(max_length=100, db_index=True)
     device_type = models.CharField(
@@ -78,7 +159,9 @@ class NetworkProductImage(models.Model):
         max_length=120, blank=True, default="",
         help_text="Match device model: exact, then startswith, then substring (case-insensitive). Leave empty for a vendor default.",
     )
-    product_image_url = models.URLField(max_length=500)
+    image = models.ForeignKey("DeviceImage", on_delete=models.SET_NULL, null=True, blank=True, related_name="catalog_rows")
+    product_image_url = models.URLField(max_length=500, blank=True, default="",
+                                        help_text="Legacy hotlink. Prefer a stored image.")
     product_page_url = models.URLField(max_length=500, blank=True, default="")
     notes = models.CharField(max_length=200, blank=True, default="")
 
@@ -113,9 +196,10 @@ class Device(models.Model):
     environment = models.CharField(max_length=10, choices=Environment.choices, blank=True, default=Environment.PROD)
     contact = models.CharField(max_length=150, blank=True)
     description = models.TextField(blank=True)
+    image = models.ForeignKey("DeviceImage", on_delete=models.SET_NULL, null=True, blank=True, related_name="devices")
     product_image_url = models.URLField(
         "Product image URL", max_length=500, blank=True,
-        help_text="Shown on the device overview. Can be filled from the product catalog when you pick vendor and model.")
+        help_text="Legacy hotlink, used only when the device has no stored photo. Prefer uploading or fetching a photo.")
     product_page_url = models.URLField(
         "Product page URL", max_length=500, blank=True,
         help_text="Optional datasheet or vendor product page.")
@@ -134,9 +218,15 @@ class Device(models.Model):
     last_error = models.CharField(max_length=300, blank=True)
     status_changed_at = models.DateTimeField(null=True, blank=True)
     consecutive_failures = models.PositiveIntegerField(default=0)
+    # the status the last reachability event was emitted for: a Down device that goes through Unknown
+    # (monitoring turned off, or a check refused by the probe policy) must still recover its incident.
+    last_alert_status = models.CharField(max_length=10, choices=DeviceStatus.choices, blank=True, default="")
 
     # metrics state (written by the Prometheus job)
     uptime_seconds = models.BigIntegerField(null=True, blank=True)
+    cpu_pct = models.FloatField(null=True, blank=True, help_text="CPU load % from SNMP (HOST-RESOURCES or vendor MIB)")
+    memory_pct = models.FloatField(null=True, blank=True, help_text="Memory used % from SNMP")
+    temperature_c = models.FloatField(null=True, blank=True, help_text="Hottest temperature sensor, degrees Celsius")
     metrics_updated_at = models.DateTimeField(null=True, blank=True)
     metrics_error = models.CharField(max_length=300, blank=True)
 
@@ -157,6 +247,10 @@ class Device(models.Model):
     @property
     def tag_list(self):
         return [t.strip() for t in self.tags.split(",") if t.strip()]
+
+    @property
+    def photo_label(self):
+        return f"{self.vendor or self.get_device_type_display()} {self.model}".strip()
 
     @property
     def is_example(self):
