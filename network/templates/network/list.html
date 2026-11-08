@@ -8,6 +8,7 @@
   <div class="glyph bg-info">{% icon icon 30 %}</div>
   <div><h1>{{ title }}</h1><p>{{ intro }} · reachability checked every minute{% if last_poll %} · last poll {{ last_poll|ago }}{% endif %}</p></div>
   <div class="actions">
+    <a class="btn" href="{% url 'network:fabric' %}">{% icon "network" 17 %}Fabric map</a>
     <a class="btn" href="{% url 'network:export' %}?{{ export_query }}">{% icon "download" 17 %}Export</a>
     {% if can_operate %}
     <a class="btn" href="{% url 'network:photos' %}">{% icon "image" 17 %}Missing photos</a>

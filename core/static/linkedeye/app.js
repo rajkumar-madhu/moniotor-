@@ -35,14 +35,34 @@
   // filters that submit on change
   document.querySelectorAll('[data-autosubmit]').forEach(s => s.addEventListener('change', () => s.form.submit()));
 
+  const RAIL_KEY = 'linkedeye-rail-pinned';
+  const shell = document.getElementById('shell');
+  const side = document.getElementById('side');
+  const menuBtn = document.querySelector('[data-toggle-menu]');
+  const pinRail = pinned => {
+    if (!shell) return;
+    shell.classList.toggle('rail-open', pinned);
+    if (menuBtn) menuBtn.setAttribute('aria-expanded', String(pinned));
+    try { localStorage.setItem(RAIL_KEY, pinned ? '1' : '0'); } catch (_) { /* private mode */ }
+  };
+  if (shell && window.innerWidth > 860) {
+    let pinned = true;
+    try {
+      const saved = localStorage.getItem(RAIL_KEY);
+      if (saved === '0') pinned = false;
+      if (saved === '1') pinned = true;
+    } catch (_) { /* ignore */ }
+    pinRail(pinned);
+  }
   // hamburger: pin the icon rail open on desktop, slide it in on phones
   document.addEventListener('click', e => {
     const btn = e.target.closest('[data-toggle-menu]');
     if (!btn) return;
     const open = window.innerWidth > 860
-      ? document.getElementById('shell').classList.toggle('rail-open')
-      : document.getElementById('side').classList.toggle('open');
-    btn.setAttribute('aria-expanded', String(open));
+      ? !shell.classList.contains('rail-open')
+      : (side && side.classList.toggle('open'));
+    if (window.innerWidth > 860) pinRail(open);
+    else btn.setAttribute('aria-expanded', String(open));
   });
 
   // the user menu closes on a click anywhere else
