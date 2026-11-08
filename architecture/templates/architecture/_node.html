@@ -1,0 +1,11 @@
+<a class="nd-a" href="{{ n.href }}" data-dev="{{ n.id }}" aria-label="{{ n.name }}, {{ n.type }}, {{ n.state_label }}{% if n.weak %}, tier inferred{% endif %}"><g class="nd nd-{{ n.mode }} st-{{ n.state }}" transform="translate({{ n.x }} {{ n.y }})">
+  <rect class="nd-bg" width="{{ n.w }}" height="{{ n.h }}" rx="{% if n.chip %}8{% else %}10{% endif %}"/>
+  {% if not n.chip %}<rect class="nd-ph" x="5" y="5" width="{{ n.pw }}" height="{{ n.ph }}" rx="6"/>
+  {% if n.photo %}<image href="{{ n.photo.url }}" x="7" y="6" width="{{ n.pw|add:-4 }}" height="{{ n.ph|add:-2 }}" preserveAspectRatio="xMidYMid meet" decoding="async"/>
+  {% else %}<svg class="arch-art" x="7" y="6" width="{{ n.pw|add:-4 }}" height="{{ n.ph|add:-2 }}" viewBox="0 0 160 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">{{ n.art }}</svg>{% endif %}
+  <text class="nd-name" x="{{ n.cx }}" y="{{ n.name_y }}" text-anchor="middle" style="font-size:{{ n.fs }}px">{{ n.label }}</text>
+  {% if n.show_model %}<text class="nd-model" x="{{ n.cx }}" y="{{ n.model_y }}" text-anchor="middle">{{ n.model }}</text>{% endif %}
+  {% if n.weak %}<g class="nd-inf" transform="translate(11 11)"><circle r="6.5"/><text y="3.4" text-anchor="middle">?</text></g>{% endif %}
+  {% else %}<text class="nd-name" x="{{ n.name_x }}" y="{{ n.name_y|add:-1 }}" style="font-size:{{ n.fs }}px">{{ n.label }}</text>{% endif %}
+  <circle class="nd-dot" cx="{{ n.dot_x }}" cy="{{ n.dot_y }}" r="{% if n.chip %}4{% else %}5{% endif %}"/>
+</g></a>

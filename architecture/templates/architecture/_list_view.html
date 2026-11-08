@@ -1,0 +1,25 @@
+{% load le architecture_tags %}
+<div class="ar-list" id="ar-list">
+<p class="t-mute small">The same tiers as the drawing, as tables: every device, its status and why it sits where it does.</p>
+{% for t in tables %}
+<section class="panel ar-tier" aria-labelledby="ar-tier-{{ t.tier }}">
+  <div class="panel-h"><h2 id="ar-tier-{{ t.tier }}">{{ t.label }}</h2><span class="chip {{ t.tone }}">{{ t.rows|length }}</span></div>
+  <div class="table-wrap dense"><table>
+    <thead><tr><th>Device</th><th>Model</th><th>Status</th><th>Management IP</th><th class="num">Links</th>{% if t.tier == "server" %}<th>Group</th><th>Rack</th>{% endif %}<th>Placement</th></tr></thead>
+    <tbody>{% for r in t.rows %}<tr>
+      <td><a href="{{ r.d.get_absolute_url }}">{{ r.d.name }}</a><div class="t-mute small">{{ r.d.get_device_type_display }}{% if r.d.site %} · {{ r.d.site }}{% endif %}</div></td>
+      <td>{{ r.d.vendor }} {{ r.d.model }}</td>
+      <td>{% if r.state == "disabled" %}<span class="badge mute">Monitoring disabled</span>{% else %}{% badge r.state %}{% endif %}</td>
+      <td class="mono">{{ r.d.mgmt_ip }}</td>
+      <td class="num">{{ r.links }}</td>
+      {% if t.tier == "server" %}<td>{{ r.p.group }}</td><td>{{ r.rack|default:"–" }}</td>{% endif %}
+      <td><span class="small" title="{{ r.p.reason }}">{% if r.p.source == "override" %}<span class="chip purple">placement</span>{% elif r.p.weak %}<span class="chip warn">inferred</span>{% else %}<span class="chip mute">automatic</span>{% endif %}</span>
+        <div class="t-mute small">{{ r.p.reason }}{% if r.p.group_reason and t.tier == "server" %} {{ r.p.group_reason }}{% endif %}</div>
+        {% if r.can_edit %}<a class="small" href="{% url 'architecture:placement_edit' r.d.pk %}?next={{ request.get_full_path|urlencode }}">Change placement</a>{% endif %}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endfor %}
+{% if hidden %}<section class="panel"><div class="panel-h"><h2>Hidden from the drawing</h2><span class="chip mute">{{ hidden|length }}</span></div>
+  <ul class="ar-plain">{% for d in hidden %}<li><a href="{{ d.get_absolute_url }}">{{ d.name }}</a>{% if can_edit %} <a class="small" href="{% url 'architecture:placement_edit' d.pk %}?next={{ request.get_full_path|urlencode }}">Change placement</a>{% endif %}</li>{% endfor %}</ul></section>{% endif %}
+</div>

@@ -1,0 +1,6 @@
+<nav class="tabs ar-tabs" aria-label="Architecture sections">
+  <a href="{% url 'architecture:overview' %}"{% if section == 'diagram' %} class="on" aria-current="page"{% endif %}>Diagram</a>
+  <a href="{% url 'architecture:links' %}"{% if section == 'links' %} class="on" aria-current="page"{% endif %}>Links</a>
+  {% if can_edit %}<a href="{% url 'architecture:suggest' %}"{% if section == 'suggest' %} class="on" aria-current="page"{% endif %}>Find links (LLDP)</a>
+  <a href="{% url 'architecture:links_import' %}"{% if section == 'import' %} class="on" aria-current="page"{% endif %}>Import CSV</a>{% endif %}
+</nav>

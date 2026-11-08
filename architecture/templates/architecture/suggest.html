@@ -1,0 +1,30 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}Find links (LLDP){% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'architecture/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "architecture/_crumbs.html" with leaf="Find links (LLDP)" %}{% endblock %}
+{% block content %}
+<div class="pg-architecture">
+<div class="head"><div class="glyph">{% icon "search" 30 %}</div><div><h1>Find links with LLDP</h1><p>Neighbours that your switches report through Prometheus, matched to devices LinkedEye knows. Nothing is added until you accept it.</p></div>
+  <div class="actions"><form method="get"><input type="hidden" name="find" value="1"><button class="btn primary" type="submit">{% icon "refresh" 16 %}Find links</button></form></div></div>
+{% include "architecture/_tabs.html" with section="suggest" %}
+{% include "architecture/_prom.html" %}
+{% if not searched %}
+<section class="panel ar-empty">{% icon "search" 32 %}<h2>Look for neighbours</h2>
+  <p>This reads <code>lldpRemSysName</code>, <code>lldpRemPortId</code>, <code>lldpRemPortDesc</code>, <code>lldpLocPortDesc</code> and <code>ifName</code> from Prometheus (snmp_exporter with the <code>lldp</code> module) and proposes a link where both ends are devices you already have. Each device needs its <b>Prometheus instance</b> set so its neighbours can be attributed to it.</p></section>
+{% elif result.error %}
+<div class="ar-alert crit" role="alert">{% icon "alert" 16 %}<span>{{ result.error }}</span></div>
+{% else %}
+<section class="panel"><div class="panel-h"><h2>{{ result.suggestions|length }} suggested link{{ result.suggestions|length|pluralize }}</h2></div>
+  <p class="small t-mute">{{ result.rows }} neighbour row{{ result.rows|pluralize }} read; {{ result.known }} already recorded as links; {{ result.unknown }} not matched to exactly one known device (not shown). Accepted links are drawn dashed until you confirm them on the Links page.</p>
+  {% if result.suggestions %}
+  <form method="post">{% csrf_token %}
+  <div class="table-wrap dense"><table><thead><tr><th class="cb"><input type="checkbox" data-check-all aria-label="Select all suggestions"></th><th>Device A</th><th>Port A</th><th>Device B</th><th>Port B</th></tr></thead>
+    <tbody>{% for s in result.suggestions %}<tr><td class="cb"><input type="checkbox" name="pick" value="{{ s.token }}" aria-label="Accept {{ s.a_name }} {{ s.a_port }} to {{ s.b_name }} {{ s.b_port }}"></td>
+      <td>{{ s.a_name }}</td><td class="mono">{{ s.a_port|default:"–" }}</td><td>{{ s.b_name }}</td><td class="mono">{{ s.b_port|default:"–" }}</td></tr>{% endfor %}</tbody></table></div>
+  <div class="ar-form-foot"><button class="btn primary" type="submit">{% icon "check" 15 %}Add the selected links</button></div></form>
+  {% else %}<p class="empty">No new links: everything LLDP reports between known devices is already recorded.</p>{% endif %}
+</section>
+{% endif %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="{% static 'architecture/forms.js' %}" defer></script>{% endblock %}

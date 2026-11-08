@@ -1,0 +1,50 @@
+{% load le static architecture_tags %}
+<div class="ar-stage">
+<section class="panel ar-diagram" aria-label="Architecture drawing">
+  {% if notes %}<ul class="ar-notes">{% for n in notes %}<li>{% icon "info" 14 %}<span>{{ n.text }}</span>{% if n.tier %} <a href="?{% for b in bands %}{% if b.b.tier == n.tier %}{{ b.expand_q }}{% endif %}{% endfor %}">Open {{ n.tier }} tier</a>{% elif n.group %} <a href="?{{ expand_group_q|dict_get:n.group }}">Open the group</a>{% endif %}</span></li>{% endfor %}</ul>{% endif %}
+  {% if f.expand %}<p class="ar-notes-line"><a href="?{{ collapse_q }}">{% icon "layers" 14 %}Collapse the opened tiers and groups again</a></p>{% endif %}
+  <div class="ar-canvas" tabindex="-1">
+  <svg id="ar-svg" class="ar-svg lc-{{ f.lc }}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {{ res.width }} {{ res.height }}" width="{{ res.width }}" height="{{ res.height }}" role="group" aria-labelledby="ar-t ar-d">
+    <title id="ar-t">Data Center Architecture</title>
+    <desc id="ar-d">Tiers from top to bottom: {% for c in chips %}{{ c.label }} ({{ c.count }}){% if not forloop.last %}, {% endif %}{% endfor %}. {{ kpis.links }} link{{ kpis.links|pluralize }}: {{ kpis.links_up }} up, {{ kpis.links_down }} down, {{ kpis.links_unknown }} unknown. The List view tab shows the same devices as tables.</desc>
+    <g class="ar-bands">
+    {% for bb in bands %}{% with b=bb.b %}
+      <g class="band band-{{ b.tier }} tone-{{ bb.tone }}" data-tier="{{ b.tier }}">
+        <rect class="band-bg" x="{{ b.x }}" y="{{ b.y }}" width="{{ b.w }}" height="{{ b.h }}" rx="18"/>
+        <g class="band-tag" transform="translate({{ b.x|add:16 }} {{ b.y|add:-13 }})"><rect width="{{ bb.tag_w }}" height="27" rx="9"/><text x="14" y="18.5">{{ bb.tag }}</text></g>
+        {% if b.collapsed %}<a class="band-open" href="?{{ bb.expand_q }}"><text x="{{ b.w|add:b.x|add:-18 }}" y="{{ b.y|add:3 }}" text-anchor="end">Show full size</text></a>{% endif %}
+      </g>
+    {% endwith %}{% endfor %}
+    </g>
+    {% if cloud %}<g class="cloud" transform="translate({{ cloud.0 }} {{ cloud.1 }})" aria-hidden="true">
+      <path d="M44 62C14 62 6 34 30 30C26 6 64 0 76 20C86 -4 138 -4 146 20C162 4 204 14 194 38C218 40 216 62 190 62Z"/>
+      <text x="110" y="40" text-anchor="middle">Internet / WAN</text></g>{% endif %}
+    <g class="ar-edges">
+    {% for p in paths %}<g class="{{ p.cls }}"{% if p.kind != "sym" %} data-link="{{ p.key }}"{% endif %}{% if p.lw %} style="--lw:{{ p.lw }}"{% endif %}><path class="lk-line" d="{{ p.d }}"/>{% if p.hit %}<path class="lk-hit" d="{{ p.d }}"/>{% endif %}</g>
+    {% endfor %}
+    {% for a in aggs %}<g class="agg"><path d="{{ a.d }}"/><text x="{{ a.cx }}" y="{{ a.cy }}" text-anchor="middle">{{ a.count }} links</text></g>{% endfor %}
+    </g>
+    <g class="ar-nodes">
+    {% for n in nodes %}{% include "architecture/_node.html" %}{% endfor %}
+    {% for c in cards %}
+      <g class="card gc-{{ c.colour }}" data-group="{{ c.key }}">
+        <rect class="card-bg" x="{{ c.x }}" y="{{ c.y }}" width="{{ c.w }}" height="{{ c.h }}" rx="20"/>
+        <g transform="translate({{ c.x|add:12 }} {{ c.y|add:10 }})"><rect class="card-pill" width="{{ c.pill_w }}" height="27" rx="9"/><text class="card-title" x="13" y="18.5">{{ c.label_fit }}</text></g>
+        <text class="card-count" x="{{ c.x|add:14 }}" y="{{ c.y|add:44 }}"><tspan data-group-count="{{ c.key }}">{{ c.count_text }}</tspan></text>
+        {% for n in c.tiles %}{% include "architecture/_node.html" %}{% endfor %}
+        {% if c.more %}<a class="tile-more" href="?{{ expand_group_q|dict_get:c.key }}" aria-label="Show the {{ c.hidden }} more servers of {{ c.label }}"><rect x="{{ c.more.x }}" y="{{ c.more.y }}" width="{{ c.more.w }}" height="{{ c.more.h }}" rx="9"/><text x="{{ c.more.cx }}" y="{{ c.more.cy }}" text-anchor="middle">+{{ c.hidden }} more</text></a>{% endif %}
+        {% for r in c.racks %}{% if r.url %}<a class="rack-line" href="{{ r.url }}"><text x="{{ c.x|add:14 }}" y="{{ r.y }}">{{ r.name }}{% if r.text %} · {{ r.text }}{% endif %}</text></a>{% else %}<text class="rack-line" x="{{ c.x|add:14 }}" y="{{ r.y }}">{{ r.name }}{% if r.text %} · {{ r.text }}{% endif %}</text>{% endif %}{% endfor %}
+      </g>
+    {% endfor %}
+    </g>
+  </svg>
+  </div>
+  <p class="ar-foot">{{ kpis.devices }} device{{ kpis.devices|pluralize }}, {{ kpis.links }} link{{ kpis.links|pluralize }}{% if ignored %}; {{ ignored }} server-to-server link{{ ignored|pluralize }} not drawn{% endif %}. Hover a device to follow its links, click a link for its details, click a device to open it.</p>
+</section>
+<aside class="panel ar-side" id="ar-side" aria-live="polite" hidden>
+  <div class="panel-h"><h2 id="ar-side-title">Link</h2><div class="right"><button class="btn icon" type="button" id="ar-side-close" aria-label="Close the link details">{% icon "x" 16 %}</button></div></div>
+  <dl class="ar-kv" id="ar-side-body"></dl>
+  <div class="ar-side-actions" id="ar-side-actions"></div>
+</aside>
+</div>
+<div class="ar-tip" id="ar-tip" role="tooltip" hidden></div>

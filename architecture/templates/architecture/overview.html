@@ -1,0 +1,75 @@
+{% extends "core/base.html" %}{% load le static architecture_tags %}
+{% block title %}Data Center Architecture{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'architecture/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "architecture/_crumbs.html" with leaf="Data Center Architecture" %}{% endblock %}
+{% block content %}
+<div class="pg-architecture">
+<div class="head">
+  <div class="glyph">{% icon "network" 30 %}</div>
+  <div><h1>Data Center Architecture</h1><p>The fabric as it is wired: tiers, links and server groups drawn from your devices, links and racks{% if f.site %} at {{ f.site }}{% endif %}.</p></div>
+  <div class="actions">
+    {% if not empty and f.view == "diagram" %}<button class="btn" type="button" id="ar-download" title="Save the drawing as a standalone SVG file">{% icon "download" 17 %}Download SVG</button>{% endif %}
+    <a class="btn" href="{% url 'architecture:links' %}">{% icon "edit" 17 %}{% if can_edit %}Edit links{% else %}Links{% endif %}</a>
+    {% if can_edit %}<a class="btn primary" href="{% url 'architecture:link_create' %}">{% icon "plus" 17 %}Add link</a>{% endif %}
+  </div>
+</div>
+{% include "architecture/_tabs.html" with section="diagram" %}
+
+<form class="toolbar compact ar-toolbar" method="get" aria-label="Filter the drawing">
+  <input type="hidden" name="view" value="{% if f.view != 'diagram' %}{{ f.view }}{% endif %}">
+  {% if f.lc != "fabric" %}<input type="hidden" name="lc" value="{{ f.lc }}">{% endif %}
+  {% if not f.live %}<input type="hidden" name="live" value="0">{% endif %}
+  <select name="site" data-autosubmit aria-label="Site"><option value="">All sites</option>{% for s in sites %}<option{% if f.site == s %} selected{% endif %}>{{ s }}</option>{% endfor %}</select>
+  <select name="env" data-autosubmit aria-label="Environment"><option value="">All environments</option>{% for v, l in envs %}<option value="{{ v }}"{% if f.env == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+  <noscript><button class="btn" type="submit">{% icon "filter" 15 %}Filter</button></noscript>
+  {% if f.site or f.env %}<a class="btn icon" href="{% url 'architecture:overview' %}" title="Clear filters" aria-label="Clear filters">{% icon "x" 16 %}</a>{% endif %}
+  <span class="ar-grow"></span>
+  {% if not empty and f.view == "diagram" %}
+  <nav class="seg" aria-label="Link colours">{% for k, l in link_colours %}<a href="?{{ q_lc|dict_get:k }}"{% if f.lc == k %} class="on" aria-current="true"{% endif %}>{{ l }}</a>{% endfor %}</nav>
+  <a class="btn ar-live{% if f.live %} on{% endif %}" id="ar-live" href="?{{ q_live }}" role="switch" aria-checked="{% if f.live %}true{% else %}false{% endif %}" title="Refresh states every 30 seconds without reloading">{% icon "refresh" 15 %}<span>Live</span><i class="ar-pulse" aria-hidden="true"></i></a>
+  <details class="ar-legend"><summary class="btn">{% icon "info" 15 %}Legend</summary>
+    {% include "architecture/_legend.html" %}
+  </details>
+  {% endif %}
+</form>
+
+<div id="ar-prom">{% include "architecture/_prom.html" %}</div>
+
+{% if empty %}
+<section class="panel ar-empty">
+  {% icon "network" 36 %}
+  <h2>{% if hidden_count %}Every device is hidden{% else %}No fabric to draw yet{% endif %}</h2>
+  {% if hidden_count %}<p>{{ hidden_count }} device{{ hidden_count|pluralize }} {{ hidden_count|pluralize:"is,are" }} hidden by a placement. Open a device's placement and clear “Hide” to draw it again.</p>
+  {% else %}
+  <p>This page draws your data centre from three things LinkedEye already knows: <b>network devices</b> (routers, firewalls, switches, servers), the <b>links</b> between them, and the <b>racks</b> the servers sit in. Add devices under Network Devices, record the cables here (by hand, from a CSV, or from LLDP), and mount servers in racks under Data Centre.</p>
+  {% if f.site or f.env %}<p class="t-mute">The current filter ({% if f.site %}site {{ f.site }}{% endif %}{% if f.env %} environment {{ f.env }}{% endif %}) shows no devices. <a href="{% url 'architecture:overview' %}">Clear it</a>.</p>{% endif %}
+  {% endif %}
+  <div class="actions">
+    {% if can_edit %}<a class="btn" href="{% url 'architecture:link_create' %}">{% icon "plus" 16 %}Add link</a><a class="btn" href="{% url 'architecture:links_import' %}">{% icon "upload" 16 %}Import links</a>{% endif %}
+    {% if example_site and not hidden_count %}<form method="post" action="{% url 'architecture:example_load' %}" data-confirm="Load the example fabric (19 servers, 12 switches, routers and firewalls, tagged “example”) on {{ example_site }}?">{% csrf_token %}<button class="btn primary" type="submit">{% icon "layers" 16 %}Load example fabric</button></form>{% endif %}
+  </div>
+  <p class="t-mute small">The example is made of real records on documentation IP ranges, so nothing is probed. Remove it again with <code>manage.py seed_architecture --remove</code>.</p>
+</section>
+{% else %}
+
+<section class="kpis ar-kpis" aria-label="Summary" id="ar-kpis">
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "server" 22 %}</div><div class="kpi-body"><div class="label">Devices</div><div class="value">{{ kpis.devices }}</div></div></div>
+    <div class="sub ar-chips">{% for c in chips %}<span class="chip {% if c.tier == 'other' %}warn{% else %}mute{% endif %}">{{ c.label }} {{ c.count }}</span>{% endfor %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-ok">{% icon "link" 22 %}</div><div class="kpi-body"><div class="label">Links</div><div class="value"><span data-kpi="links">{{ kpis.links }}</span></div></div></div>
+    <div class="sub"><span class="t-ok"><b data-kpi="links_up">{{ kpis.links_up }}</b> up</span> · <span class="{% if kpis.links_down %}t-crit{% endif %}"><b data-kpi="links_down">{{ kpis.links_down }}</b> down</span> · <span class="t-mute"><b data-kpi="links_unknown">{{ kpis.links_unknown }}</b> unknown</span></div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-{% if kpis.devices_down %}crit{% else %}ok{% endif %}" data-kpi-tile="devices_down">{% icon "alert" 22 %}</div><div class="kpi-body"><div class="label">Devices down</div><div class="value"><span data-kpi="devices_down">{{ kpis.devices_down }}</span></div></div></div>
+    <div class="sub">of {{ kpis.devices }} drawn{% if kpis.hidden %} · {{ kpis.hidden }} hidden{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-purple">{% icon "layers" 22 %}</div><div class="kpi-body"><div class="label">Oversubscription</div><div class="value"><span data-kpi="over">{% if kpis.over %}{{ kpis.over.ratio }} : 1{% else %}–{% endif %}</span></div></div></div>
+    <div class="sub" data-kpi="over_sub"{% if kpis.over %} title="Leaf downlink speed divided by uplink speed, over {{ kpis.over.leaves }} leaf switch{{ kpis.over.leaves|pluralize:"es" }}; worst is {{ kpis.over.worst }} at {{ kpis.over.worst_ratio }} : 1"{% endif %}>{% if kpis.over %}{{ kpis.over.leaves }} {% if kpis.over.leaves == 1 %}leaf{% else %}leaves{% endif %} · worst {{ kpis.over.worst }}{% else %}needs link speeds on leaf uplinks and server links{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-{% if kpis.unclassified %}warn{% else %}mute{% endif %}">{% icon "help" 22 %}</div><div class="kpi-body"><div class="label">Unclassified</div><div class="value">{{ kpis.unclassified }}</div></div></div>
+    <div class="sub">{% if kpis.unclassified %}not part of a tier; set a placement{% else %}every device has a tier{% endif %}</div></div>
+</section>
+
+<nav class="tabs ar-viewtabs" aria-label="View">{% for k, l in views %}<a href="?{{ q_view|dict_get:k }}"{% if f.view == k %} class="on" aria-current="page"{% endif %}>{{ l }}</a>{% endfor %}</nav>
+
+{% if no_links %}<div class="ar-alert warn" role="status">{% icon "info" 16 %}<span>No links are recorded between these devices yet, so the tiers are drawn without connections. {% if can_edit %}<a href="{% url 'architecture:link_create' %}">Add a link</a>, <a href="{% url 'architecture:links_import' %}">import a CSV</a> or <a href="{% url 'architecture:suggest' %}">look for LLDP neighbours</a>.{% endif %}</span></div>{% endif %}
+{% if f.view == "list" %}{% include "architecture/_list_view.html" %}{% else %}{% include "architecture/_diagram.html" %}{% endif %}
+{% endif %}
+</div>
+{% endblock %}
+{% block scripts %}{% if not empty and f.view == "diagram" %}{{ data|json_script:"ar-data" }}{{ conf|json_script:"ar-conf" }}<script src="{% static 'architecture/architecture.js' %}" defer></script>{% endif %}{% endblock %}
