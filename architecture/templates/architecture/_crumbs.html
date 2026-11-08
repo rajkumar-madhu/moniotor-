@@ -1,0 +1,1 @@
+{% load le %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'architecture:overview' %}">Architecture</a>{% if leaf %}{% icon "chevron-right" 14 %}<span>{{ leaf }}</span>{% endif %}</nav>

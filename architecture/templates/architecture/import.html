@@ -1,0 +1,53 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}Import links{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'architecture/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "architecture/_crumbs.html" with leaf="Import links" %}{% endblock %}
+{% block content %}
+<div class="pg-architecture">
+<div class="head"><div class="glyph">{% icon "upload" 30 %}</div><div><h1>Import links</h1><p>Upload a CSV, check the preview, then confirm. Every row is validated first; nothing is written unless the whole file is valid.</p></div>
+  <div class="actions"><a class="btn" href="{% url 'architecture:links_export' %}">{% icon "download" 17 %}Export current links</a></div></div>
+{% include "architecture/_tabs.html" with section="import" %}
+<section class="grid g-main">
+  <div class="stack">
+  {% if preview and preview.errors %}
+  <div class="ar-alert crit" role="alert">{% icon "x-circle" 16 %}<div><b>Nothing was imported.</b> Fix these rows and upload the file again{% if preview.errors|length >= 50 %} (first 50 problems shown){% endif %}:
+    <ul class="ar-errors">{% for line, msg in preview.errors %}<li>{% if line %}Line {{ line }}: {% endif %}{{ msg }}</li>{% endfor %}</ul></div></div>
+  {% elif preview %}
+  <div class="panel"><div class="panel-h"><h2>Preview</h2></div>
+    <p class="small">{{ preview.rows|length }} valid row{{ preview.rows|length|pluralize }}: <b>{{ preview.create_count }}</b> to create, <b>{{ preview.update_count }}</b> to update, <b>{{ preview.same_count }}</b> unchanged. Nothing has been written yet.</p>
+    <div class="table-wrap dense"><table><thead><tr><th>Line</th><th>Action</th><th>Device A</th><th>Port A</th><th>Device B</th><th>Port B</th><th>Medium</th><th class="num">Mbps</th><th>Kind</th></tr></thead>
+      <tbody>{% for r in preview.rows|slice:":200" %}<tr><td>{{ r.line }}</td><td><span class="chip {% if r.action == 'create' %}ok{% elif r.action == 'update' %}warn{% else %}mute{% endif %}">{{ r.action }}</span></td>
+        <td>{{ r.a.name }}</td><td class="mono">{{ r.a_port|default:"–" }}</td><td>{{ r.b.name }}</td><td class="mono">{{ r.b_port|default:"–" }}</td><td>{{ r.fields.medium }}</td><td class="num">{{ r.fields.speed_mbps|default_if_none:"–" }}</td><td>{{ r.fields.kind|default:"–" }}</td></tr>{% endfor %}</tbody></table></div>
+    {% if preview.rows|length > 200 %}<p class="t-mute small">Showing the first 200 rows of {{ preview.rows|length }}.</p>{% endif %}
+    {% if token %}<form method="post" class="ar-form-foot">{% csrf_token %}<input type="hidden" name="commit" value="1"><input type="hidden" name="token" value="{{ token }}">
+      <a class="btn" href="{% url 'architecture:links_import' %}">Cancel</a><button class="btn primary" type="submit">{% icon "check" 15 %}Import {{ preview.create_count|add:preview.update_count }} link{{ preview.create_count|add:preview.update_count|pluralize }}</button></form>{% endif %}
+  </div>
+  {% endif %}
+  <form method="post" enctype="multipart/form-data" class="panel ar-form" novalidate>{% csrf_token %}
+    <div class="panel-h"><h2>CSV file</h2></div>
+    {% for e in form.non_field_errors %}<p class="err">{{ e }}</p>{% endfor %}
+    <div class="form-grid">
+      <div class="field full"><label for="{{ form.file.id_for_label }}">{{ form.file.label }} <span class="req">*</span></label>{{ form.file }}{% for e in form.file.errors %}<span class="err">{{ e }}</span>{% endfor %}</div>
+      <div class="field full inline-check">{{ form.update_existing }}<label for="{{ form.update_existing.id_for_label }}">{{ form.update_existing.label }}</label></div>
+    </div>
+    <div class="ar-form-foot"><a class="btn" href="{% url 'architecture:links' %}">Cancel</a><button class="btn primary" type="submit">{% icon "search" 15 %}Check the file</button></div>
+  </form>
+  </div>
+  <div class="panel"><div class="panel-h"><h2>Format</h2></div>
+    <p class="small" style="margin-top:0">UTF-8 CSV, at most 5,000 rows. The first row names the columns; <code>a_device</code> and <code>b_device</code> are required.</p>
+    <pre class="ar-sample">a_device,a_port,b_device,b_port,medium,speed_mbps,kind,note
+dc1-spine-01,Eth1/1,dc1-leaf-01,Eth1/49,fibre,100000,uplink,
+dc1-leaf-01,Eth1/1,dc1-web-01,ens1f0,dac,25000,downlink,rack ARCH-WEB</pre>
+    <dl class="ar-kv" style="margin-top:12px">
+      <dt><code>a_device</code>, <code>b_device</code></dt><dd>Exact device names you can see. The order does not matter.</dd>
+      <dt><code>a_port</code>, <code>b_port</code></dt><dd>Free text up to 60 characters, e.g. <code>Eth1/49</code>. Optional.</dd>
+      <dt><code>medium</code></dt><dd>{{ mediums|join:", " }} (default fibre)</dd>
+      <dt><code>speed_mbps</code></dt><dd>Whole Mbps, e.g. 100000 for 100G. Optional.</dd>
+      <dt><code>kind</code></dt><dd>uplink, interconnect, downlink, wan or your own label (30 characters).</dd>
+      <dt><code>note</code></dt><dd>Up to 300 characters.</dd>
+    </dl>
+    <p class="small t-mute">You need permission to manage both devices' sites. A link that already exists is an error unless you tick the update box. Exports start any cell that begins with = + - @ with a quote so spreadsheets do not run it; the importer removes that quote again.</p>
+  </div>
+</section>
+</div>
+{% endblock %}

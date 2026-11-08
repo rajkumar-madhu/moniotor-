@@ -1,0 +1,1 @@
+{% load le %}{% if prom.state != "ok" %}<div class="ar-alert {% if prom.state == 'down' %}crit{% else %}warn{% endif %}" role="status" data-prom>{% icon "alert" 16 %}<span data-prom-text>{{ prom.message }}</span></div>{% endif %}

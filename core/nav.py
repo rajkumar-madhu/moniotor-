@@ -30,6 +30,7 @@ NAV = [
         {"label": "Wireless", "url": "network:wireless"}, {"label": "Physical Servers", "url": "network:physical_servers"},
         {"label": "Virtual Machines", "url": "network:virtual_machines"}, {"label": "All Devices", "url": "network:all"},
         {"label": "Discovery", "url": "network:discovery"},
+        {"label": "Architecture", "url": "architecture:overview"},
     ]},
     {"label": "Compute", "icon": "cpu", "children": [
         {"label": "Overview", "url": "compute:overview"},

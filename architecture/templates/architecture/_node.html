@@ -1,0 +1,17 @@
+<a class="nd-a{% if n.tile %} nd-tile{% endif %}" href="{{ n.href }}" data-dev="{{ n.id }}" aria-label="{{ n.name }}, {{ n.type }}, {{ n.state_label }}{% if n.weak %}, tier inferred{% endif %}"><g class="nd nd-{{ n.mode }} st-{{ n.state }}" transform="translate({{ n.x }} {{ n.y }})">
+  {% if n.tile %}<use class="nd-face" href="#{{ n.face }}" width="{{ n.w }}" height="{{ n.h }}"/>
+  <circle class="nd-dot" cx="{{ n.led_x }}" cy="{{ n.led_y }}" r="2.2"/>
+  {% elif n.chip %}<rect class="nd-bg" width="{{ n.w }}" height="{{ n.h }}" rx="8"/>
+  <text class="nd-name" x="{{ n.name_x }}" y="{{ n.name_y }}" style="font-size:{{ n.fs }}px">{{ n.label }}</text>
+  <circle class="nd-dot" cx="{{ n.led_x }}" cy="{{ n.led_y }}" r="4"/>
+  {% else %}<rect class="nd-hit" width="{{ n.w }}" height="{{ n.h }}"/>
+  {% if n.photo %}<rect class="nd-ph" width="{{ n.w }}" height="{{ n.fh }}" rx="6"/><image href="{{ n.photo.url }}" x="3" y="2" width="{{ n.w|add:-6 }}" height="{{ n.fh|add:-4 }}" preserveAspectRatio="xMidYMid meet" decoding="async"/>
+  {% else %}<use class="nd-face" href="#{{ n.face }}" width="{{ n.w }}" height="{{ n.fh }}"/>{% endif %}
+  <rect class="nd-ring" width="{{ n.w }}" height="{{ n.fh }}" rx="6"/>
+  <g class="nd-led" transform="translate({{ n.led_x }} {{ n.led_y }})"><circle class="nd-led-ring" r="6.4"/><circle class="nd-dot" r="3.8"/></g>
+  {% if n.weak %}<g class="nd-inf" transform="translate(12 12)"><circle r="7"/><text y="3.4" text-anchor="middle">?</text></g>{% endif %}
+  <rect class="nd-tag" x="{{ n.chip_x }}" y="{{ n.label_y }}" width="{{ n.chip_w }}" height="19" rx="9.5"/>
+  <text class="nd-name" x="{{ n.cx }}" y="{{ n.name_y }}" text-anchor="middle" style="font-size:{{ n.fs }}px">{{ n.label }}</text>
+  {% if n.show_model %}<text class="nd-model" x="{{ n.cx }}" y="{{ n.model_y }}" text-anchor="middle">{{ n.model }}</text>{% endif %}
+  {% endif %}
+</g></a>

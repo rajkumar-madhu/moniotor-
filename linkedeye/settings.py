@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     "onboarding",
     "k8s",
     "apm",
+    "architecture",
 ]
 
 MIDDLEWARE = [

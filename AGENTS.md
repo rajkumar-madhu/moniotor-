@@ -34,6 +34,7 @@ docker compose exec -e DJANGO_SUPERUSER_PASSWORD='your-secure-password' web \
 ```
 
 Details: **`docs/DEPLOYMENT.md`**.
+- Import Lesites FinSpot **Devices** sheet into network inventory: `manage.py import_lesites_devices_xlsx /path/to/file.xlsx --site-code fs-dr-le --environment dr` (use `--dry-run` first). App containers are read-only; mount the workbook on a one-off run, e.g. `docker-compose run --rm --no-deps -v /path/file.xlsx:/tmp/file.xlsx:ro web python manage.py import_lesites_devices_xlsx /tmp/file.xlsx …`.
 - `.venv/bin/python manage.py run_probes` starts the background probe and jobs worker; `--once` runs one pass.
 - `LINKEDEYE_DEBUG=true .venv/bin/python manage.py test` runs Django tests.
 - `python manage.py check` and `python manage.py makemigrations --check --dry-run` match key CI checks.
