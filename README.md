@@ -16,6 +16,7 @@ page says "Not connected" and names the setting; nothing is invented. Each modul
 | URL Checker | `/monitoring/url-checker/` | HTTP(S) checks: status, response time, expected text, TLS expiry, uptime, history, CSV |
 | Telnet / TCP, Uptime | `/monitoring/telnet/`, `/monitoring/uptime/` | TCP reachability with optional banner; one uptime table for URL, TCP and domains with SLA targets |
 | Network devices | `/network/…` | Device inventory per type, TCP reachability, interfaces via Prometheus snmp_exporter, discovery |
+| Data Center Architecture | `/network/architecture/` | The spine-leaf view drawn live from devices, links and racks (tiers inferred, overridable), link CSV import / export, LLDP suggestions; see docs/ARCHITECTURE_PAGE.md |
 | Domains | `/domains/…` | DNS, availability, SSL, uptime, performance, security grading (A–F) and exports |
 | Exporters, Logs & Events | `/monitoring/exporters/`, `/logs/`, `/logs/events/` | Exporter health scrapes, log ingest API (`POST /api/v1/logs/`, bearer token), unified event stream |
 | BOD / EOD | `/bod-eod/` | Market-day checklists over URL/TCP/domain checks, manual sign-offs, IST scheduler, holidays |
@@ -44,7 +45,7 @@ export LINKEDEYE_DEBUG=true
 ```bash
 .venv/bin/python manage.py seed_examples   # optional: example URLs and domains, tagged "example"
 # optional per module: seed_servicedesk, seed_cmdb, seed_network, seed_telemetry, seed_tcpcheck, seed_observe,
-# seed_bodeod, seed_automation, seed_administration, seed_domainmonitor
+# seed_bodeod, seed_automation, seed_administration, seed_domainmonitor, seed_architecture
 ```
 
 ```bash

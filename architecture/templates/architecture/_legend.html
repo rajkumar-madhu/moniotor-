@@ -1,0 +1,12 @@
+<div class="ar-legend-body">
+  <div><b>Device status</b><ul>
+    <li><i class="ar-sw dot-ok"></i>Up</li><li><i class="ar-sw dot-crit"></i>Down</li><li><i class="ar-sw dot-unknown"></i>Unknown</li><li><i class="ar-sw dot-off"></i>Monitoring disabled</li></ul></div>
+  <div><b>Links</b><ul>
+    <li><i class="ar-line ok"></i>Link (Fabric mode)</li><li><i class="ar-line crit"></i>An end is down</li><li><i class="ar-line unk"></i>Unknown (Health mode)</li><li><i class="ar-line dash"></i>Found by LLDP, not confirmed yet</li></ul>
+    <p class="small t-mute">“Fabric” draws links in one blue (red when an end is down), “Health” colours them by state (green, red, grey), “Utilisation” colours and thickens them by the busiest end. The state of a device shows only on the LED in the corner of its face and on the chip under its name.</p></div>
+  <div><b>Tiers</b><ul>
+    <li><i class="ar-sw tier-crit"></i>Firewalls</li><li><i class="ar-sw tier-purple"></i>Core / Border</li><li><i class="ar-sw tier-info"></i>Spine</li><li><i class="ar-sw tier-ok"></i>Leaf</li></ul></div>
+  <div><b>Server groups</b><ul>
+    <li><i class="ar-sw gc-orange"></i>Web</li><li><i class="ar-sw gc-green"></i>Application</li><li><i class="ar-sw gc-blue"></i>Database</li><li><i class="ar-sw gc-red"></i>Storage</li><li><i class="ar-sw gc-stone"></i>Other</li></ul>
+    <p class="small t-mute">One stroke per real link. A <b>?</b> on a device means its tier was inferred from the link graph or a default, not from its name or a placement.</p></div>
+</div>

@@ -1,0 +1,50 @@
+{% extends "core/base.html" %}{% load le static architecture_tags %}
+{% block title %}Architecture links{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'architecture/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "architecture/_crumbs.html" with leaf="Links" %}{% endblock %}
+{% block content %}
+<div class="pg-architecture">
+<div class="head">
+  <div class="glyph">{% icon "link" 30 %}</div>
+  <div><h1>Links</h1><p>{{ total }} link{{ total|pluralize }} between devices you can see. These are the lines on the architecture drawing.</p></div>
+  <div class="actions">
+    <a class="btn" href="{% url 'architecture:links_export' %}{% if f_site %}?site={{ f_site|urlencode }}{% endif %}">{% icon "download" 17 %}Export CSV</a>
+    {% if can_edit %}<a class="btn" href="{% url 'architecture:links_import' %}">{% icon "upload" 17 %}Import CSV</a><a class="btn" href="{% url 'architecture:suggest' %}">{% icon "search" 17 %}Find links</a>
+    <a class="btn primary" href="{% url 'architecture:link_create' %}">{% icon "plus" 17 %}Add link</a>{% endif %}
+  </div>
+</div>
+{% include "architecture/_tabs.html" with section="links" %}
+{% include "architecture/_prom.html" %}
+<form class="toolbar compact" method="get">
+  <label class="search">{% icon "search" 16 %}<input type="search" name="q" value="{{ q }}" placeholder="Search devices, ports, notes…" aria-label="Search links"></label>
+  <select name="site" data-autosubmit aria-label="Site"><option value="">All sites</option>{% for s in sites %}<option{% if f_site == s %} selected{% endif %}>{{ s }}</option>{% endfor %}</select>
+  <select name="medium" data-autosubmit aria-label="Medium"><option value="">Any medium</option>{% for v, l in mediums %}<option value="{{ v }}"{% if f_medium == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+  <select name="origin" data-autosubmit aria-label="Origin"><option value="">Any origin</option>{% for v, l in origins %}<option value="{{ v }}"{% if f_origin == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+  <label class="inline-check"><input type="checkbox" name="unconfirmed" value="1" data-autosubmit{% if f_unconf %} checked{% endif %}> Unconfirmed only</label>
+  <button class="btn" type="submit">{% icon "filter" 15 %}Filter</button>
+  {% if q or f_site or f_medium or f_origin or f_unconf %}<a class="btn icon" href="{% url 'architecture:links' %}" title="Clear filters" aria-label="Clear filters">{% icon "x" 16 %}</a>{% endif %}
+</form>
+<form method="post" action="{% url 'architecture:links_bulk' %}" class="panel ar-linkpanel" id="ar-bulk">{% csrf_token %}
+  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+  <div class="table-wrap"><table>
+    <thead><tr>{% if can_edit %}<th class="cb"><input type="checkbox" data-check-all aria-label="Select all links on this page"></th>{% endif %}
+      <th>Device A</th><th>Port A</th><th>Device B</th><th>Port B</th><th>Medium</th><th class="num">Speed</th><th>Kind</th><th>Origin</th><th>State</th><th class="num">Util</th><th><span class="sr">Actions</span></th></tr></thead>
+    <tbody>{% for l in rows %}<tr>
+      {% if can_edit %}<td class="cb">{% if l.can_edit %}<input type="checkbox" name="ids" value="{{ l.pk }}" aria-label="Select {{ l }}">{% endif %}</td>{% endif %}
+      <td><a href="{{ l.a_device.get_absolute_url }}">{{ l.a_device.name }}</a></td><td class="mono">{{ l.a_port|default:"–" }}</td>
+      <td><a href="{{ l.b_device.get_absolute_url }}">{{ l.b_device.name }}</a></td><td class="mono">{{ l.b_port|default:"–" }}</td>
+      <td>{{ l.get_medium_display }}</td><td class="num">{{ l.v.speed|speed }}{% if l.v.speed and not l.v.speed_set %}<span class="t-mute" title="From the interface"> *</span>{% endif %}</td><td>{{ l.kind|default:"–" }}</td>
+      <td>{{ l.get_origin_display }}{% if not l.confirmed %} <span class="chip warn">unconfirmed</span>{% endif %}</td>
+      <td>{% if l.v.state == "up" %}<span class="badge ok">Up</span>{% elif l.v.state == "down" %}<span class="badge crit">Down</span>{% else %}<span class="badge mute">Unknown</span>{% endif %}</td>
+      <td class="num">{% if l.v.util is None %}–{% else %}{{ l.v.util }}%{% endif %}</td>
+      <td class="row-actions">{% if l.can_edit %}<a class="btn icon" href="{% url 'architecture:link_edit' l.pk %}?next={{ request.get_full_path|urlencode }}" title="Edit" aria-label="Edit {{ l }}">{% icon "edit" 15 %}</a>{% endif %}</td>
+    </tr>{% empty %}<tr><td colspan="12" class="empty">No links{% if q or f_site or f_medium or f_origin or f_unconf %} match these filters{% else %} yet. {% if can_edit %}<a href="{% url 'architecture:link_create' %}">Add one</a>, <a href="{% url 'architecture:links_import' %}">import a CSV</a> or <a href="{% url 'architecture:suggest' %}">look for LLDP neighbours</a>{% endif %}{% endif %}.</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% if can_edit and rows %}<div class="ar-bulk"><span class="t-mute small">With the selected links:</span>
+    <button class="btn sm" type="submit" name="action" value="confirm">{% icon "check" 14 %}Confirm</button>
+    <button class="btn sm ar-danger" type="submit" name="action" value="delete" data-confirm-click="Delete the selected links?">{% icon "trash" 14 %}Delete</button></div>{% endif %}
+  {% include "core/_pager.html" %}
+</form>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{% static 'architecture/forms.js' %}" defer></script>{% endblock %}

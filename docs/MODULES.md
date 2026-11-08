@@ -95,6 +95,21 @@ that already describe the same machine.
   "MULTIPLE / SEE NODE INVENTORY") mean *no value*: `k8s.parsing.clean()` normalises them to empty and the
   pages show a dash. See **docs/IMPORT.md** for the workbook format and the discovery commands.
 
+## Data Center Architecture (`architecture`)
+
+Draws the spine-leaf view of the data centre (Internet / WAN, firewalls, core / border, spine, leaf, server groups) from
+`network.Device`, the new `architecture.Link` (physical cables between two devices) and `dcim` racks, live. Full description:
+**docs/ARCHITECTURE_PAGE.md**.
+
+* **Pages** `architecture:overview` (`/network/architecture/`), `architecture:live` (JSON), `architecture:links` (+ `links_export`,
+  `links_import`, `suggest` for LLDP, `link_create`, `link_edit`, `link_delete`, `links_bulk`), `architecture:placement_edit`,
+  `architecture:example_load`. Sidebar: **Network Devices › Architecture**.
+* **Code** `tiers.py` (the one tier / group inference function), `layout.py` (pure layout engine, no Django), `faces.py` (pure,
+  generated front-panel faces as SVG symbols, no Django, no images), `services.py`
+  (scoping, link state, page and live payloads), `csvio.py`, `lldp.py`, `example.py` (used by `manage.py seed_architecture`).
+* **Scoping** a Link has no site name: it is visible only when both devices are visible and editable only when both devices'
+  sites are operable, so it is deliberately **not** in `SITE_NAME_FIELDS`.
+
 ## Cross-module interfaces
 
 Modules may depend on each other only through these names, imported lazily inside functions
@@ -106,6 +121,7 @@ works if the other module is absent.
 | servicedesk | `servicedesk.services.open_incident(title, description="", priority="P3", site="", source="", fingerprint="", ci_name="") -> Ticket` (dedupes open incidents by fingerprint); `servicedesk.services.resolve_by_fingerprint(fingerprint, note="")`. Model `Ticket` (kind: incident/problem/change/request; number like INC-1287; status; priority P1-P4; site). |
 | cmdb | Model `ConfigurationItem` (name, ci_type, site, status, environment, owner, business_domain, attributes JSON). `cmdb.services.find_ci(name)`. |
 | network | Model `Device` (name, device_type: switch/router/firewall/load_balancer/wireless/physical_server/virtual_machine, vendor, model, mgmt_ip, site, status: up/down/unknown, last_seen, `image` FK to a stored photo). Photos: `network.images.store_image(bytes, source=...)` is the only way bytes enter `DeviceImage` (validated by `network.imaging.inspect_image`); `network.images.fetch_and_store(url)` downloads through `probes.checks.fetch_bytes`. Device card: `network.live.card_data(devices)` and the partial `network/_device_card.html` (see docs/NETWORK.md). |
+| architecture | Model `Link` (`a_device`, `b_device`, `a_port`, `b_port`, `medium`, `speed_mbps`, `kind`, `origin`; ends stored in canonical order) and `Placement`; `architecture.services.links_queryset(user, request)` (links whose both ends the user can see). |
 | tcpcheck | Model `TcpCheck` (name, host, port, site, last_status: online/down/unknown, last_checked_at, last_response_ms). |
 | automation | `automation.services.trigger_stackstorm(trigger, payload) -> Execution`. |
 | urlchecker / domainmonitor | Existing models `UrlCheck`, `UrlResult`, `Domain`, `DomainCheck` (read-only for other modules). |
