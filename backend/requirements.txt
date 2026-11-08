@@ -23,7 +23,7 @@ django-google-sso==10.0.0
 django-crispy-forms==2.7
 django-allauth==65.18.0
 pyyaml==6.0.3
-redfish==3.3.7
+redfish==3.4.2
 pymysql==1.2.0
 msal==1.37.0
 git+https://github.com/azure-samples/ms-identity-python-utilities@9b32cef36c6c0b73c1b3237fdd66128d89f90a62
