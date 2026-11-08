@@ -7,7 +7,7 @@
   <p class="nw-photo-compact-ref">
     {% if device.image_id %}{% icon "image" 14 %} Stored photo ({{ device.image.get_source_display|lower }}, {{ device.image.width }}×{{ device.image.height }}).
     {% elif device.product_image_url %}{% icon "image" 14 %} Linked picture. <span class="t-mute small">The browser loads it from the vendor’s site; edit the device to store a copy.</span>
-    {% else %}{% icon "image" 14 %} No photo: showing a {{ device|art_label|lower }} illustration.{% endif %}
+    {% else %}{% icon "image" 14 %} No photo: showing a {{ device|art_label|lower }} illustration.{% if can_operate and device.device_type != "virtual_machine" %} <a href="{% url 'network:photo_find' %}?device={{ device.pk }}">{% icon "search" 14 %} Add the real photo from a datasheet</a>{% endif %}{% endif %}
     {% if device.product_page_url %}<a href="{{ device.product_page_url }}" target="_blank" rel="noopener noreferrer">{% icon "search" 14 %} Product datasheet</a>{% endif %}
   </p>
 </div>

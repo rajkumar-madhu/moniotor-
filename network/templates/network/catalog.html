@@ -8,6 +8,7 @@
   <div class="glyph bg-info">{% icon "image" 30 %}</div>
   <div><h1>Product catalog</h1><p>Your own product photos by vendor and model. A device whose vendor and model match a row gets that photo automatically.</p></div>
   <div class="actions">
+    <a class="btn" href="{% url 'network:photos' %}">{% icon "search" 17 %}Devices missing a photo</a>
     <a class="btn" href="{% url 'network:catalog_export' %}">{% icon "download" 17 %}Export CSV</a>
     <a class="btn primary" href="{% url 'network:catalog_create' %}">{% icon "plus" 17 %}Add photo</a>
   </div>
@@ -78,6 +79,7 @@
         <td>{% if r.product_page_url %}<a href="{{ r.product_page_url }}" target="_blank" rel="noopener noreferrer">{% icon "external" 13 %} Open</a>{% else %}<span class="t-mute">–</span>{% endif %}</td>
         <td><div class="row-actions">
           {% if not r.image_id and r.product_image_url %}<form method="post" action="{% url 'network:catalog_store_copy' r.pk %}">{% csrf_token %}<button class="btn sm" type="submit" title="Download the picture once and keep a copy">{% icon "download" 14 %}Store a copy</button></form>{% endif %}
+          <a class="btn icon blue" href="{% url 'network:photo_find' %}?catalog={{ r.pk }}" title="Get photo from datasheet" aria-label="Get photo from datasheet for {{ r.vendor }} {{ r.model_key }}">{% icon "search" 15 %}</a>
           <a class="btn icon blue" href="{% url 'network:catalog_edit' r.pk %}" title="Edit" aria-label="Edit {{ r.vendor }} {{ r.model_key }}">{% icon "edit" 15 %}</a>
           <form method="post" action="{% url 'network:catalog_delete' r.pk %}" data-confirm="Remove the catalog row for {{ r.vendor }} {{ r.model_key|default:'(any model)' }}? Devices that already use its photo keep it.">{% csrf_token %}<button class="btn icon" type="submit" title="Delete" aria-label="Delete {{ r.vendor }} {{ r.model_key }}">{% icon "trash" 15 %}</button></form>
         </div></td>

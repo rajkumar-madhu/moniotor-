@@ -10,6 +10,7 @@
   <div class="actions">
     <a class="btn" href="{% url 'network:export' %}?{{ export_query }}">{% icon "download" 17 %}Export</a>
     {% if can_operate %}
+    <a class="btn" href="{% url 'network:photos' %}">{% icon "image" 17 %}Missing photos</a>
     <a class="btn ghost-primary" href="{% url 'network:discovery' %}">{% icon "radar" 17 %}Run Discovery</a>
     <a class="btn primary" href="{{ create_url }}">{% icon "plus" 17 %}Add Device</a>
     {% endif %}

@@ -4,6 +4,7 @@
   DevicePoll row, updates the device status and emits an event on up <-> down.
 * network.metrics – interface rates/states and uptime from Prometheus (snmp_exporter).
 * network.discovery – starts queued discovery runs, fails interrupted ones.
+* network.photo_candidates – deletes datasheet photo candidates nobody picked within their hour (every 15 minutes).
 Jobs are idempotent, bounded by timeouts and never raise."""
 import logging
 import time
@@ -33,6 +34,18 @@ def _tenant():
 
 def _timeout():
     return min(REACH_TIMEOUT, float(settings.PROBE_TIMEOUT))
+
+
+# ------------------------------------------------------------------ photo candidates
+def prune_photo_candidates():
+    """Delete datasheet / product page picture candidates nobody picked within their hour (registered every 15 minutes)."""
+    try:
+        from . import images
+        n = images.prune_candidates()
+        return f"removed {n} expired photo candidate(s)" if n else None
+    except Exception:  # noqa: BLE001 - jobs must not raise
+        log.exception("photo candidate prune failed")
+        return "error"
 
 
 # ------------------------------------------------------------------ reachability

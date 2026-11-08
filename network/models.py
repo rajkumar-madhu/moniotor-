@@ -2,6 +2,7 @@
 snmp_exporter) and subnet discovery runs."""
 import ipaddress
 import re
+from datetime import timedelta
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -71,7 +72,8 @@ class DeviceImage(models.Model):
     replicas and needs no media volume. Content-addressed: one row per (tenant, SHA-256). The bytes are validated by
     network.imaging before a row is written and are only ever served by network.image_views with a pinned type.
     Nothing here is bundled with LinkedEye; every image was uploaded or fetched by a user of this installation."""
-    SOURCES = [("upload", "Uploaded"), ("fetched", "Fetched from a URL"), ("catalog", "Product catalog")]
+    SOURCES = [("upload", "Uploaded"), ("fetched", "Fetched from a URL"), ("catalog", "Product catalog"),
+               ("datasheet", "From a datasheet")]
     MAX_BYTES = 2 * 1024 * 1024
     MAX_DIMENSION = 4096
     TYPES = ["image/png", "image/jpeg", "image/webp"]
@@ -89,11 +91,25 @@ class DeviceImage(models.Model):
     uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
                                     related_name="+")
     created_at = models.DateTimeField(default=timezone.now)
+    origin = models.CharField(max_length=80, blank=True, default="",
+                              help_text="Where in the source it was found, e.g. 'datasheet page 1' or 'og:image'.")
+    # A candidate is a picture found in a datasheet or product page that nobody has picked yet. It belongs to the user who
+    # searched (candidate_owner = their id, 0 for a real photo), is shown to nobody else, is never attached to a device and
+    # is deleted after CANDIDATE_TTL. The owner is part of the unique key so two people looking at the same datasheet
+    # each get their own rows.
+    is_candidate = models.BooleanField(default=False)
+    candidate_owner = models.PositiveIntegerField(default=0)
+
+    CANDIDATE_TTL = timedelta(hours=1)
+    MAX_CANDIDATES_PER_TENANT = 60
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [models.Index(fields=["tenant_key", "is_candidate", "created_at"], name="network_devimg_cand_idx")]
         constraints = [
-            models.UniqueConstraint(fields=["tenant_key", "sha256"], name="network_deviceimage_tenant_sha_unique"),
+            models.UniqueConstraint(fields=["tenant_key", "sha256", "candidate_owner"], name="network_deviceimage_tenant_sha_owner_unique"),
+            models.CheckConstraint(check=models.Q(is_candidate=False, candidate_owner=0) | models.Q(is_candidate=True, candidate_owner__gt=0),
+                                   name="network_deviceimage_candidate_owner_ok"),
             models.CheckConstraint(check=models.Q(content_type__in=["image/png", "image/jpeg", "image/webp"]),
                                    name="network_deviceimage_type_ok"),
             models.CheckConstraint(check=models.Q(byte_size__gte=1, byte_size__lte=2 * 1024 * 1024),
@@ -113,6 +129,20 @@ class DeviceImage(models.Model):
     def url(self):
         """Same-origin address of the bytes (login and per-device scoping apply there)."""
         return reverse("network:image", args=[self.sha256, self.ext])
+
+    @property
+    def candidate_url(self):
+        """Address of a candidate's bytes: only its owner gets them (see network.photo_views.candidate_image)."""
+        return reverse("network:photo_candidate", args=[self.pk])
+
+    @property
+    def long_side(self):
+        return max(self.width, self.height)
+
+    @property
+    def is_small(self):
+        """Under 300 px on the long side: shown at natural size, never blown up."""
+        return self.long_side < 300
 
 
 class NetworkProductImage(models.Model):

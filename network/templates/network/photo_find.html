@@ -1,0 +1,81 @@
+{% extends "core/base.html" %}{% load le static network_tags %}
+{% block title %}Get photo from datasheet{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'network/page.css' %}"><link rel="stylesheet" href="{% static 'network/device-card.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'network:all' %}">Network Devices</a>{% icon "chevron-right" 14 %}{% if ctx.kind == "device" %}<a href="{{ ctx.device.get_absolute_url }}">{{ ctx.device.name }}</a>{% elif ctx.kind == "catalog" %}<a href="{% url 'network:catalog' %}">Product catalog</a>{% else %}<a href="{% url 'network:photos' %}">Devices missing a photo</a>{% endif %}{% icon "chevron-right" 14 %}<span>Get photo from datasheet</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-network nw-photofind">
+<div class="head">
+  <div class="glyph bg-info">{% icon "image" 30 %}</div>
+  <div><h1>{{ ctx.title }}</h1>
+    <p>{% if ctx.kind == "device" %}{{ ctx.device.photo_label|default:"This device" }}{% if ctx.devices|length > 1 %} · {{ ctx.devices|length }} devices of this model{% endif %}{% elif ctx.kind == "group" %}{{ ctx.devices|length }} device{{ ctx.devices|length|pluralize }} without a photo{% else %}Catalog row{% endif %} · the real product photo, taken from the vendor’s datasheet.</p></div>
+  <div class="actions"><a class="btn" href="{{ ctx.back_url }}">{% icon "chevron-left" 16 %}Back</a></div>
+</div>
+
+{% if error %}
+<div class="nw-alert {% if blocked %}warn{% else %}crit{% endif %}" role="alert">{% icon "alert" 16 %}<span><b>{% if blocked %}This site will not hand the page to a program.{% else %}No photos found.{% endif %}</b> {{ error }}{% if blocked %} Open the vendor’s page in your own browser, save the datasheet PDF, then choose it below.{% endif %}</span></div>
+{% endif %}
+
+<section class="grid g-2 ph-steps">
+  <div class="panel">
+    <div class="panel-h"><h2>1. Get the datasheet</h2></div>
+    <div class="ph-pad">
+      <p class="hint">Vendors publish a datasheet PDF for every model, and its first pages carry the product photos. Search for yours, download the PDF in your own browser (some vendor sites refuse programs, so this always works), and give it to LinkedEye in step 2.</p>
+      <div class="ph-search"><a class="btn ghost-primary" href="{{ ctx.search_url }}" target="_blank" rel="noopener noreferrer">{% icon "search" 16 %}Search for the datasheet {% icon "external" 13 %}</a>
+        <span class="hint">Opens a web search for “{{ ctx.label }} datasheet” in a new tab. LinkedEye fetches nothing from it.</span></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-h"><h2>2. Give it to LinkedEye</h2></div>
+    <form method="post" action="{% url 'network:photo_find' %}" enctype="multipart/form-data" class="ph-pad ph-form" id="ph-find">{% csrf_token %}
+      {% for k, v in ctx.params.items %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+      <div class="field"><label for="pdf_file">Datasheet PDF from your computer</label>
+        <input type="file" id="pdf_file" name="pdf_file" accept="application/pdf,.pdf,image/png,image/jpeg,image/webp"><span class="hint">A PDF up to {{ max_pdf_mb }} MB (read in memory, never saved), or a PNG, JPEG or WebP picture.</span></div>
+      <p class="ph-or" aria-hidden="true">or</p>
+      <div class="field"><label for="source_url">Product page, datasheet or picture address</label>
+        <input type="url" class="in" id="source_url" name="source_url" value="{{ source_url }}" placeholder="https://…" autocomplete="off" maxlength="500"><span class="hint">LinkedEye reads this one address once, as “LinkedEye”, and the pictures on it. It never browses further or works around a site that says no.</span></div>
+      <div class="nw-form-foot"><button class="btn primary" type="submit">{% icon "search" 16 %}Find photos</button></div>
+    </form>
+  </div>
+</section>
+
+{% if candidates %}
+<section class="panel ph-results" aria-labelledby="ph-res-h">
+  <div class="panel-h"><h2 id="ph-res-h">3. Click the photo that shows the real device ({{ candidates|length }})</h2>
+    <span class="right t-mute small">Private to you · kept {{ ttl_minutes }} minutes · best match first</span></div>
+  <form method="post" action="{% url 'network:photo_apply' %}" class="ph-apply">{% csrf_token %}
+    {% for k, v in ctx.params.items %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+    {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+    {% if ctx.kind != "catalog" and ctx.can_catalog_name %}
+    <div class="ph-opts">
+      {% if can_admin %}
+      <label class="inline-check"><span class="switch"><input type="checkbox" name="catalog_save"><span></span></span>Use this photo for every {{ ctx.label }} device{% if ctx.devices|length > 1 %} ({{ ctx.devices|length }} now){% endif %}, and for new ones</label>
+      <span class="hint">Saves a product catalog row. {% if ctx.kind == "device" %}Other devices of this model that have no photo get it too.{% endif %}</span>
+      {% else %}
+      <span class="hint">{% if ctx.kind == "group" %}The photo is applied to all {{ ctx.devices|length }} devices of this model.{% else %}The photo is applied to this device only. Saving it to the product catalog for every {{ ctx.label }} device needs the admin role.{% endif %}</span>
+      {% endif %}
+    </div>
+    {% endif %}
+    <ul class="ph-grid" role="list">
+      {% for c in candidates %}
+      <li class="ph-cand">
+        <button type="submit" name="candidate" value="{{ c.pk }}" class="ph-pick" title="Use this photo{% if ctx.kind == 'device' %} for {{ ctx.device.name }}{% endif %}">
+          <span class="ph-frame"><img src="{{ c.candidate_url }}" alt="Candidate {{ forloop.counter }}: {{ c.width }} by {{ c.height }} pixels, {{ c.origin }}" width="{{ c.width }}" height="{{ c.height }}" decoding="async"></span>
+          <span class="ph-meta"><b>{{ c.width }} × {{ c.height }} px</b><span>{{ c.byte_size|filesizeformat }} · {{ c.origin|default:"picture" }}</span></span>
+          <span class="ph-use">{% icon "check" 14 %}Use this photo</span>
+        </button>
+      </li>
+      {% endfor %}
+    </ul>
+  </form>
+  <form method="post" action="{% url 'network:photo_discard' %}" class="ph-discard">{% csrf_token %}
+    {% for k, v in ctx.params.items %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+    <button class="btn sm" type="submit">{% icon "trash" 14 %}Discard these</button>
+    <span class="hint">None of them is stored on any device until you click one. Not the right ones? Try another datasheet above.</span>
+  </form>
+</section>
+{% endif %}
+
+<div class="nw-alert info" role="note">{% icon "info" 16 %}<span><b>How LinkedEye gets the photo.</b> From a PDF it extracts the embedded pictures on its first pages locally. From an address it fetches that single page and its pictures, identifying itself as LinkedEye and stopping if the site blocks it. LinkedEye ships no vendor photos or addresses; you are responsible for having the right to use the images you add.</span></div>
+</div>
+<script src="{% static 'network/photo-find.js' %}"></script>
+{% endblock %}

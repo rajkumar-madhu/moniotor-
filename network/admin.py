@@ -15,11 +15,11 @@ class InterfaceInline(admin.TabularInline):
 class DeviceImageAdmin(admin.ModelAdmin):
     """Read-only: photos enter through the device form or the Product catalog page, which validate the bytes. The
     stored bytes are never rendered here."""
-    list_display = ["sha256", "content_type", "width", "height", "byte_size", "source", "tenant_key", "created_at"]
-    list_filter = ["source", "content_type", "tenant_key"]
+    list_display = ["sha256", "content_type", "width", "height", "byte_size", "source", "is_candidate", "tenant_key", "created_at"]
+    list_filter = ["source", "is_candidate", "content_type", "tenant_key"]
     exclude = ["data"]
-    readonly_fields = ["tenant_key", "sha256", "content_type", "width", "height", "byte_size", "source", "source_url",
-                       "uploaded_by", "created_at"]
+    readonly_fields = ["tenant_key", "sha256", "content_type", "width", "height", "byte_size", "source", "source_url", "origin",
+                       "is_candidate", "candidate_owner", "uploaded_by", "created_at"]
 
     def has_add_permission(self, request):
         return False

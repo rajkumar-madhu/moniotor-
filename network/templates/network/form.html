@@ -42,6 +42,7 @@
         {% if device and device.image_id %}<div class="field nw-check"><label class="inline-check"><span class="switch">{{ form.clear_image }}<span></span></span>{{ form.clear_image.label }}</label></div>{% endif %}
       </div>
     </div>
+    <p class="nw-photo-datasheet">{% if device %}<a class="btn ghost-primary" href="{% url 'network:photo_find' %}?device={{ device.pk }}">{% icon "search" 16 %}Get photo from datasheet</a> <span class="hint">The real photo, taken from the vendor’s datasheet PDF or product page. Save any changes on this form first.</span>{% else %}<span class="hint">After you save the device, use <b>Get photo from datasheet</b> to pull its real photo out of the vendor’s datasheet.</span>{% endif %}</p>
     <p class="hint nw-photo-note">Photos are stored by LinkedEye and served only to signed-in users who can see this device; nothing is loaded from another site. LinkedEye does not bundle vendor photos{% if can_admin %}: <a href="{% url 'network:catalog' %}">add yours to the product catalog</a> and matching devices pick them up{% endif %}.</p>
     <details class="nw-legacy"><summary>Linked image URL (legacy)</summary>
       <div class="field">{{ form.product_image_url }}<span class="hint">{{ form.product_image_url.help_text }}</span>{% for e in form.product_image_url.errors %}<span class="err">{{ e }}</span>{% endfor %}</div>

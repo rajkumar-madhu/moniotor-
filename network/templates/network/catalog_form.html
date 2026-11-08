@@ -23,6 +23,7 @@
       <div class="nw-photo-now">
         <div class="dc dc-thumb"><div class="dc-photo {% if row and row.image_id %}has-photo{% else %}is-art{% endif %}"><span class="dc-zoom">{% if row and row.image_id %}<img src="{{ row.image.url }}" alt="Current photo" width="{{ row.image.width }}" height="{{ row.image.height }}">{% else %}{% icon "image" 26 %}{% endif %}</span></div></div>
         <p class="hint">{% if row and row.image_id %}Stored photo, {{ row.image.get_source_display|lower }}, {{ row.image.width }}×{{ row.image.height }} px. Upload or fetch another to replace it.{% else %}No stored photo yet.{% endif %}</p>
+        {% if row %}<p><a class="btn ghost-primary" href="{% url 'network:photo_find' %}?catalog={{ row.pk }}">{% icon "search" 16 %}Get photo from datasheet</a></p>{% endif %}
       </div>
       <div class="form-grid nw-grid nw-photo-fields">
         {% for f in form.visible_fields %}{% if f.name == "image_file" or f.name == "image_url" %}

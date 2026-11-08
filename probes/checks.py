@@ -43,6 +43,7 @@ USER_AGENT = "LinkedEye-Probe/1.0"
 ALWAYS_BLOCKED = [ipaddress.ip_network(n) for n in (
     "0.0.0.0/8", "169.254.0.0/16", "224.0.0.0/4", "240.0.0.0/4", "255.255.255.255/32",
     "::/128", "fe80::/10", "ff00::/8",
+    "::/96",   # deprecated IPv4-compatible IPv6 (::127.0.0.1): some stacks still map it to the embedded IPv4 address
 )]
 # RFC 5737 and RFC 3849. Recent CPython reports these as is_private (IANA special-purpose)
 # and not is_global; they are documentation space, not RFC 1918 private networks.
@@ -271,7 +272,8 @@ UNREACHABLE = ("Blocked by probe policy: the host name could not be resolved to 
                "(private, internal and unresolvable names are never fetched).")
 
 
-def fetch_bytes(url, max_bytes, timeout=None, accept="*/*", accepted_types=None, https_only=True, ports=(443,)):
+def fetch_bytes(url, max_bytes, timeout=None, accept="*/*", accepted_types=None, https_only=True, ports=(443,),
+                user_agent=None, type_limits=None):
     """Download one resource (GET) under the same SSRF policy as http_check. Meant for assets such as product photos.
 
     * https only (and only the listed ports) unless `https_only` is False; every redirect is re-validated, so a
@@ -283,6 +285,11 @@ def fetch_bytes(url, max_bytes, timeout=None, accept="*/*", accepted_types=None,
       so a peer that trickles bytes cannot hold the caller open;
     * `accepted_types`: when given, a response whose Content-Type is not in the set is refused. This is only an early
       filter; callers must still check the bytes themselves.
+    * `type_limits`: {content type: byte cap}. When given, a response whose Content-Type is not a key is refused and the
+      body cap is the one for its type (`max_bytes` is then only the default for callers that leave this out). It lets
+      one request accept a small web page, a larger PDF or a small image without reading a big page just to find out.
+    * `user_agent`: the product token sent (default: the probe agent). Callers say honestly who they are; nothing here
+      imitates a browser.
     Returns a FetchResult; failures are reported in `error`, never raised."""
     timeout = timeout or settings.PROBE_TIMEOUT
     res = FetchResult()
@@ -311,7 +318,7 @@ def fetch_bytes(url, max_bytes, timeout=None, accept="*/*", accepted_types=None,
             watchdog = _Deadline(remaining, lambda c=conn: getattr(c, "_probe_sock", None))
             redirect = None
             try:
-                conn.request("GET", path, headers={"User-Agent": USER_AGENT, "Accept": accept,
+                conn.request("GET", path, headers={"User-Agent": user_agent or USER_AGENT, "Accept": accept,
                                                    "Accept-Encoding": "identity", "Connection": "close"})
                 if watchdog.expired:
                     raise socket.timeout()
@@ -329,22 +336,27 @@ def fetch_bytes(url, max_bytes, timeout=None, accept="*/*", accepted_types=None,
                     if encoding not in ("", "identity"):
                         raise ValueError("compressed responses are not accepted")
                     res.content_type = (resp.getheader("Content-Type") or "").split(";")[0].strip().lower()
-                    if accepted_types is not None and res.content_type not in accepted_types:
+                    cap = max_bytes
+                    if type_limits is not None:
+                        if res.content_type not in type_limits:
+                            raise ValueError(f"the server sent {res.content_type[:40] or 'no content type'}, which is not an accepted file type")
+                        cap = type_limits[res.content_type]
+                    elif accepted_types is not None and res.content_type not in accepted_types:
                         raise ValueError(f"the server sent {res.content_type[:40] or 'no content type'}, which is not an accepted image type")
                     length = resp.getheader("Content-Length")
-                    if length and length.strip().isdigit() and int(length) > max_bytes:
-                        raise ValueError(f"the file is larger than the {max_bytes // 1024} KB limit")
+                    if length and length.strip().isdigit() and int(length) > cap:
+                        raise ValueError(f"the file is larger than the {cap // 1024} KB limit")
                     chunks, total = [], 0
                     while True:
-                        chunk = resp.read(min(65536, max_bytes + 1 - total))
+                        chunk = resp.read(min(65536, cap + 1 - total))
                         if watchdog.expired:
                             raise socket.timeout()
                         if not chunk:
                             break
                         chunks.append(chunk)
                         total += len(chunk)
-                        if total > max_bytes:
-                            raise ValueError(f"the file is larger than the {max_bytes // 1024} KB limit")
+                        if total > cap:
+                            raise ValueError(f"the file is larger than the {cap // 1024} KB limit")
                     res.body = b"".join(chunks)
             except Exception:
                 if watchdog.expired:  # whatever the shutdown surfaced as, report it as the timeout it is

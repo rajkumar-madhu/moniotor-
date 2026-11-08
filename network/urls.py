@@ -1,6 +1,6 @@
 from django.urls import path, re_path
 
-from . import image_views, views
+from . import image_views, photo_views, views
 
 app_name = "network"
 urlpatterns = [
@@ -31,6 +31,12 @@ urlpatterns = [
     path("network/catalog/<int:pk>/edit/", image_views.catalog_edit, name="catalog_edit"),
     path("network/catalog/<int:pk>/delete/", image_views.catalog_delete, name="catalog_delete"),
     path("network/catalog/<int:pk>/store-copy/", image_views.catalog_store_copy, name="catalog_store_copy"),
+    path("network/photos/", photo_views.missing, name="photos"),
+    path("network/photos/find/", photo_views.find, name="photo_find"),
+    path("network/photos/candidate/<int:pk>/", photo_views.candidate_image, name="photo_candidate"),
+    path("network/photos/apply/", photo_views.apply_photo, name="photo_apply"),
+    path("network/photos/apply-catalog/", photo_views.apply_catalog, name="photo_apply_catalog"),
+    path("network/photos/discard/", photo_views.discard, name="photo_discard"),
     path("network/discovery/", views.discovery_view, name="discovery"),
     path("network/discovery/<int:pk>/", views.discovery_run, name="discovery_run"),
     path("network/discovery/<int:pk>/approve/", views.discovery_approve, name="discovery_approve"),
