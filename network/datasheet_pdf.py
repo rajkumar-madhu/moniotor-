@@ -1,4 +1,4 @@
-"""Product photos out of a vendor datasheet PDF, without an imaging library.
+"""Product photos out of a vendor datasheet PDF, with an optional imaging library for print-colour pictures.
 
 The operator downloads the datasheet from the vendor in their own browser and gives the file to LinkedEye; this module
 finds the product pictures in its first pages and returns them as ranked candidates (PNG or JPEG bytes that
@@ -12,13 +12,19 @@ network.imaging accepts). The PDF is untrusted input:
 * any exception from the PDF parser means "no candidates" plus a message, never a failed request;
 * nothing is written to disk.
 
+Without Pillow (the default) the rules below apply. With the optional Pillow extra (requirements-images.txt, detected at
+runtime, see network.imaging_pillow) the pictures that would otherwise be skipped are converted instead: CMYK and YCCK JPEGs,
+CMYK / indexed / 16-bit Flate images become sRGB, a soft mask is composited onto white, and a picture over 2 MB or 4096 px is
+downscaled; the result is a clean re-encoded baseline JPEG or PNG. The PDF's own declared sizes are checked first and the
+converter has its own, larger, budget (40 megapixels).
+
 What is extracted: JPEG streams (DCTDecode) pass through as the original JPEG bytes. FlateDecode images in
 DeviceGray / DeviceRGB (also ICC-based and Cal colour spaces with 1 or 3 components) at 8 bits become a PNG that this
 module encodes itself with zlib; a soft mask the same size as the picture is merged as an alpha channel when it can be
 read without un-filtering. Everything else (JPEG 2000, CCITT, JBIG2, CMYK, indexed, 1-bit images and stencil masks) is
-skipped and counted. Pictures smaller than 200x120 px, banner/logo shaped ones (wider than 5:1 either way) and
-near-uniform ones are skipped. A picture whose bytes would exceed the 2 MB photo limit cannot be shrunk here (no
-imaging library), so it is skipped and the message says so.
+skipped and counted (CMYK, indexed, 16-bit and oversized ones are converted when Pillow is installed). Pictures smaller than 200x120 px, banner/logo shaped ones (wider than 7:1 either way) and
+near-uniform ones are skipped. Without Pillow a picture whose bytes would exceed the 2 MB photo limit cannot be shrunk, so it
+is skipped and the message says so.
 
 pypdf is a normal dependency (requirements.txt) but is imported lazily: without it extract() returns a message that says how
 to install it, and the rest of LinkedEye is unaffected."""
@@ -34,8 +40,10 @@ import zlib
 from collections import Counter
 from dataclasses import dataclass, field
 
+from . import imaging_pillow
 from .imaging import MAX_BYTES as MAX_IMAGE_BYTES
 from .imaging import MAX_DIMENSION, ImageError, inspect_image
+from .imaging_pillow import ConversionError
 
 MAX_PDF_BYTES = 25 * 1024 * 1024
 MAX_PAGES = 6
@@ -43,10 +51,22 @@ MAX_IMAGE_OBJECTS = 40
 MAX_FORM_DEPTH = 2
 MAX_DECODED_BYTES = 20 * 1024 * 1024
 MIN_WIDTH, MIN_HEIGHT = 200, 120
-MAX_ASPECT = 5.0
+MAX_ASPECT = 7.0                        # a straight-on 1U appliance photo is 5:1 or wider (one real 1U firewall photo measured 5.07:1); header strips are wider
 DEADLINE_SECONDS = 12.0
 MAX_CANDIDATES = 12
 IDEAL_ASPECT = 1.6                      # a product shot of a rack unit or an appliance is wider than tall
+
+MAX_CONVERSIONS = 10                    # pictures per PDF handed to Pillow (each can take a second and tens of MB)
+MAX_MASK_PIXELS = 16_000_000
+
+PRINT_COLOUR_HINT = ("These photos are in print (CMYK) colour. Install the optional image library "
+                     "(pip install -r requirements-images.txt) and LinkedEye will convert them, or save the photo from the PDF and upload it.")
+PRINT_COLOUR_HINT_OLD = ("These photos are in print (CMYK) colour. The installed image library (Pillow {version}) is older than the "
+                         "{minimum} that LinkedEye needs: upgrade it with pip install -U -r requirements-images.txt and LinkedEye will "
+                         "convert them, or save the photo from the PDF and upload it.")
+# reasons a plain skip that Pillow can turn into a candidate
+_FIXABLE = {"CMYK JPEG", "CMYK", "indexed colours", "1-bit or high-depth", "larger than 2 MB", "too large to read safely",
+            "needs conversion"}
 
 INSTALL_HINT = ("Reading PDF datasheets needs the pypdf package, which is not installed here. Install it with: "
                 "pip install \"pypdf>=6.4,<8\" (it is listed in requirements.txt) and restart LinkedEye.")
@@ -149,9 +169,9 @@ def _parms(xobj):
     return p if hasattr(p, "get") else {}
 
 
-def _components(xobj):
-    """(components, is_cmyk_or_unsupported_reason). Colour spaces: Device/Cal Gray and RGB and ICC-based with 1 or 3."""
-    cs = _resolve(xobj.get("/ColorSpace"))
+def _space(cs):
+    """Components of a colour space object: 1 or 3 for Gray / RGB (also Cal and ICC-based), "cmyk", "indexed", or a reason."""
+    cs = _resolve(cs)
     if cs is None:
         return None
     if isinstance(cs, (list, tuple)):
@@ -170,6 +190,11 @@ def _components(xobj):
     name = _name(cs)
     return {"/DeviceGray": 1, "/DeviceRGB": 3, "/CalGray": 1, "/CalRGB": 3, "/DeviceCMYK": "cmyk",
             "/Indexed": "indexed"}.get(name, "colour space")
+
+
+def _components(xobj):
+    """(components, is_cmyk_or_unsupported_reason). Colour spaces: Device/Cal Gray and RGB and ICC-based with 1 or 3."""
+    return _space(xobj.get("/ColorSpace"))
 
 
 def _default_decode(xobj, comps):
@@ -233,20 +258,21 @@ def _inflate(raw, expected):
     return out, d
 
 
-def _flate_samples(xobj, width, height, comps):
+def _flate_samples(xobj, width, height, comps, bpc=8):
     """(rows, idat) of a Flate image. `rows` are the inflated scanlines exactly as stored; `idat` is the original zlib
-    stream when those rows already carry PNG filter bytes (predictor 10-15), else None. Raises _Skip."""
+    stream when those rows already carry PNG filter bytes (predictor 10-15), else None. Raises _Skip. `bpc` is 8 or 16."""
     parms = _parms(xobj)
     pred = _num(parms.get("/Predictor", 1), 1) if parms else 1
+    per = comps * bpc // 8                  # bytes per pixel
     if pred == 1:
-        row = width * comps
+        row = width * per
         rows, _ = _inflate(_raw_stream(xobj), row * height)
         return rows, None, False
     if pred >= 10:
         if (_num(parms.get("/Colors", 1), 1) != comps or _num(parms.get("/Columns", 1), 1) != width
-                or _num(parms.get("/BitsPerComponent", 8), 8) != 8):
+                or _num(parms.get("/BitsPerComponent", 8), 8) != bpc):
             raise _Skip("unsupported encoding")
-        row = width * comps + 1
+        row = width * per + 1
         raw = _raw_stream(xobj)
         rows, d = _inflate(raw, row * height)
         if max(rows[::row]) > 4:
@@ -281,10 +307,20 @@ def _soft_mask(xobj, width, height):
         return None
 
 
-def _decode_image(xobj, notes):
-    """(content type, bytes, width, height) for one image XObject, or raises _Skip(reason)."""
+def _has_smask(xobj):
+    return _resolve(xobj.get("/SMask")) is not None
+
+
+def _decode_image(xobj, notes, stop=None, state=None):
+    """(content type, bytes, width, height) for one image XObject, or raises _Skip(reason). With Pillow available a picture the
+    plain reader cannot take (CMYK, indexed, 16-bit, soft mask, over the size limits) is converted instead of skipped."""
     width, height = _num(xobj.get("/Width")), _num(xobj.get("/Height"))
-    _check_size(width, height, 0)
+    px = state["pillow"] if state is not None else imaging_pillow.available()
+    side = imaging_pillow.MAX_INPUT_SIDE if px else MAX_DIMENSION
+    if width < 1 or height < 1:
+        raise _Skip("empty")
+    if width > side or height > side:
+        raise _Skip("too large to read safely")
     if width < MIN_WIDTH or height < MIN_HEIGHT:
         raise _Skip("too small")
     ratio = max(width / height, height / width)
@@ -292,6 +328,19 @@ def _decode_image(xobj, notes):
         raise _Skip("logo or banner shaped")
     if xobj.get("/ImageMask") in (True, "true"):
         raise _Skip("mask")
+    try:
+        return _decode_plain(xobj, notes, width, height, px)
+    except _Skip as e:
+        if not px or str(e) not in _FIXABLE:
+            raise
+    return _decode_with_pillow(xobj, notes, width, height, stop, state)
+
+
+def _decode_plain(xobj, notes, width, height, px):
+    """The reader that needs no imaging library (the original behaviour)."""
+    _check_size(width, height, 0)
+    if px and _has_smask(xobj):
+        raise _Skip("needs conversion")         # Pillow composites a soft mask onto white
     filters = _filters(xobj)
     if filters == ["/DCTDecode"] or filters == ["/DCT"]:
         data = _raw_stream(xobj)
@@ -351,6 +400,158 @@ def _decode_image(xobj, notes):
     if len(data) > MAX_IMAGE_BYTES:
         raise _Skip("larger than 2 MB")
     return "image/png", data, width, height
+
+
+# ------------------------------------------------------------------------------------------ the optional Pillow path
+def _lookup_bytes(obj, need):
+    """`need` bytes of an /Indexed lookup table (a string, or a small unfiltered or Flate stream), or _Skip."""
+    o = _resolve(obj)
+    if isinstance(o, (bytes, bytearray)):
+        data = bytes(o)
+    elif isinstance(o, str):
+        data = getattr(o, "original_bytes", None) or o.encode("latin-1", "ignore")
+    elif hasattr(o, "get") and getattr(o, "_data", None) is not None:
+        raw, f = _raw_stream(o), _filters(o)
+        if not f:
+            data = raw
+        elif f == ["/FlateDecode"]:
+            try:
+                data = zlib.decompressobj().decompress(raw, need + 1)
+            except zlib.error:
+                raise _Skip("damaged") from None
+        else:
+            raise _Skip("unsupported colour space")
+    else:
+        raise _Skip("unsupported colour space")
+    if len(data) < need:
+        raise _Skip("damaged")
+    return data[:need]
+
+
+_KIND = {1: "L", 3: "RGB", "cmyk": "CMYK"}
+_KIND_CHANNELS = {"L": 1, "RGB": 3, "CMYK": 4}
+
+
+def _colour_info(xobj):
+    """(kind, palette): kind is "L", "RGB", "CMYK" or "P"; palette is (base kind, lookup bytes) for "P". Raises _Skip."""
+    cs = _resolve(xobj.get("/ColorSpace"))
+    comps = _space(cs)
+    if comps in _KIND:
+        return _KIND[comps], None
+    if comps == "indexed" and isinstance(cs, (list, tuple)) and len(cs) >= 4:
+        base = _KIND.get(_space(cs[1]))
+        hival = _num(_resolve(cs[2]), -1)
+        if base is None or not 0 <= hival <= 255:
+            raise _Skip("unsupported colour space")
+        return "P", (base, _lookup_bytes(cs[3], (hival + 1) * _KIND_CHANNELS[base]))
+    raise _Skip("unsupported colour space")
+
+
+def _cmyk_decode(xobj):
+    """False for the default /Decode, True for [1 0 1 0 1 0 1 0] (inverted: the Adobe convention), None for anything else."""
+    d = _resolve(xobj.get("/Decode"))
+    if d is None:
+        return False
+    try:
+        vals = [float(_resolve(x)) for x in d]
+    except (TypeError, ValueError):
+        return None
+    return False if vals == [0.0, 1.0] * 4 else True if vals == [1.0, 0.0] * 4 else None
+
+
+def _pillow_mask(xobj, stop):
+    """The soft mask of a picture as an imaging_pillow.Mask (8-bit gray Flate, any size within budget), else None."""
+    sm = _resolve(xobj.get("/SMask"))
+    if sm is None or not hasattr(sm, "get") or "/Matte" in sm:
+        return None
+    try:
+        mw, mh = _num(sm.get("/Width")), _num(sm.get("/Height"))
+        if (mw < 1 or mh < 1 or mw > imaging_pillow.MAX_INPUT_SIDE or mh > imaging_pillow.MAX_INPUT_SIDE
+                or mw * mh > MAX_MASK_PIXELS or _num(sm.get("/BitsPerComponent", 8), 8) != 8):
+            return None
+        if _components(sm) != 1 or _filters(sm) != ["/FlateDecode"] or not _default_decode(sm, 1):
+            return None
+        rows, idat, filtered = _flate_samples(sm, mw, mh, 1)
+        pixels = _unfiltered(rows, mw, filtered)
+        if pixels is None:
+            png = png_from_idat(mw, mh, 1, idat or zlib.compress(rows, 6))
+            pixels = imaging_pillow.raw_from_png(png, mw, mh, 1, stop=stop)
+        return imaging_pillow.Mask(mw, mh, pixels)
+    except (_Skip, ConversionError):
+        return None
+
+
+def _decode_with_pillow(xobj, notes, width, height, stop, state):
+    if state is not None:
+        if state["converted"] >= MAX_CONVERSIONS:
+            raise _Skip("conversion limit")
+        state["converted"] += 1
+    mask = None
+    if _has_smask(xobj):
+        mask = _pillow_mask(xobj, stop)
+        if mask is None:
+            notes.add("transparency")
+    try:
+        out = _pillow_convert(xobj, width, height, mask, stop)
+    except ConversionError as e:
+        raise _Skip(str(e)) from None
+    if state is not None:
+        state["cmyk"] += out.cmyk
+        state["reduced"] += out.reduced
+    return out.content_type, out.data, out.width, out.height
+
+
+def _pillow_convert(xobj, width, height, mask, stop):
+    filters = _filters(xobj)
+    if filters == ["/DCTDecode"] or filters == ["/DCT"]:
+        data = _raw_stream(xobj)
+        if len(data) > imaging_pillow.MAX_INPUT_BYTES:
+            raise _Skip("too large to read safely")
+        comps = _components(xobj)
+        if comps == "indexed":
+            raise _Skip("indexed colours")
+        if len(data) < width * height * 0.006:
+            raise _Skip("near-uniform")
+        jc = _jpeg_components(data)
+        inverted = False
+        if comps == "cmyk" or jc == 4:
+            inverted = _cmyk_decode(xobj)
+            if inverted is None:
+                raise _Skip("unsupported encoding")
+        elif not _default_decode(xobj, jc or 3):
+            raise _Skip("unsupported encoding")
+        return imaging_pillow.convert_jpeg(data, decode_inverted=inverted, mask=mask, expect=(width, height), stop=stop)
+    if filters != ["/FlateDecode"] and filters != ["/Fl"]:
+        raise _Skip("unsupported encoding")
+    bpc = _num(xobj.get("/BitsPerComponent", 8), 8)
+    if bpc not in (8, 16):
+        raise _Skip("1-bit or high-depth")
+    kind, palette = _colour_info(xobj)
+    if kind == "P" and bpc != 8:
+        raise _Skip("1-bit or high-depth")
+    ch = _KIND_CHANNELS.get(kind, 1)
+    per = ch * bpc // 8
+    if width * height > imaging_pillow.MAX_INPUT_PIXELS or width * height * per > imaging_pillow.MAX_WORK_BYTES:
+        raise _Skip("too large to read safely")
+    inverted = False
+    if kind == "CMYK":
+        inverted = _cmyk_decode(xobj)
+        if inverted is None:
+            raise _Skip("unsupported encoding")
+    elif _resolve(xobj.get("/Decode")) is not None and (kind == "P" or not _default_decode(xobj, ch)):
+        raise _Skip("unsupported encoding")
+    rows, idat, filtered = _flate_samples(xobj, width, height, ch, bpc)
+    pixels = _unfiltered(rows, width * per, filtered)
+    if pixels is None:                              # real PNG filters: Pillow un-filters a PNG built around the same stream
+        if bpc != 8:
+            raise _Skip("unsupported encoding")
+        png = png_from_idat(width, height, 3 if ch in (3, 4) else 1, idat or zlib.compress(rows, 6), has_alpha=ch == 4)
+        pixels = imaging_pillow.raw_from_png(png, width, height, ch, stop=stop)
+    del rows
+    if bpc == 16:
+        pixels = pixels[0::2]                       # big-endian samples: the high byte is the 8-bit value
+    return imaging_pillow.convert_raw(width, height, pixels, kind=kind, palette=palette, decode_inverted=inverted,
+                                      mask=mask, stop=stop)
 
 
 # ------------------------------------------------------------------------------------------ where a picture is drawn
@@ -482,6 +683,8 @@ _REASON_TEXT = {
     "unsupported colour space": "in a colour space that is not supported", "larger than 2 MB": "larger than 2 MB",
     "too large to read safely": "too large to read safely", "damaged": "damaged", "empty": "empty",
     "expands past its declared size": "damaged", "not a clean JPEG": "damaged", "unreadable stream": "unreadable",
+    "took too long": "not converted in time", "busy": "not converted (the converter was busy)", "unavailable": "not converted",
+    "conversion limit": "not converted (limit reached)", "needs conversion": "not converted",
 }
 
 
@@ -517,7 +720,7 @@ def extract(pdf_bytes, *, deadline_seconds=DEADLINE_SECONDS, max_candidates=MAX_
         return res
     stop = time.monotonic() + deadline_seconds
     found, skipped, seen_ids, notes = [], Counter(), set(), set()
-    state = {"images": 0, "timeout": False}
+    state = {"images": 0, "timeout": False, "pillow": imaging_pillow.available(), "converted": 0, "cmyk": 0, "reduced": 0}
     try:
         try:
             reader = pypdf.PdfReader(io.BytesIO(pdf_bytes), strict=False)
@@ -536,6 +739,33 @@ def extract(pdf_bytes, *, deadline_seconds=DEADLINE_SECONDS, max_candidates=MAX_
         except Exception:  # noqa: BLE001 - every parser failure is "cannot read this file"
             res.message = "This PDF could not be read: it is damaged or uses a feature LinkedEye does not support."
             return res
+        # Where each scanned page draws its pictures. Some generators (dompdf, for one) put every picture of the document in
+        # ONE shared resource dictionary, so without this a picture drawn on page 2 would be credited to page 1 and could
+        # outrank the real page-1 photo; a picture a page does not draw is left to the page that does.
+        placements = {}
+        for page_no in range(min(total_pages, MAX_PAGES)):
+            if time.monotonic() > stop:
+                break
+            try:
+                placements[page_no] = _placements(reader, reader.pages[page_no], stop)
+            except Exception:  # noqa: BLE001 - positions are optional
+                placements[page_no] = {}
+        # A soft mask (or explicit mask) is part of the picture it belongs to, never a picture of its own, yet some generators
+        # list it in the page resources too: offering it would show a white silhouette as a "photo".
+        mask_ids = set()
+
+        def note_masks(xo, ident):
+            for key in ("/SMask", "/Mask"):
+                ref = xo.get(key)
+                mid = getattr(ref, "idnum", None)
+                if mid is not None:
+                    mask_ids.add(mid)
+            return len(mask_ids) < 1000
+        for page_no in range(min(total_pages, MAX_PAGES)):
+            try:
+                _walk_resources(reader.pages[page_no].get("/Resources"), 0, note_masks)
+            except Exception:  # noqa: BLE001
+                pass
         for page_no in range(min(total_pages, MAX_PAGES)):
             if time.monotonic() > stop:
                 state["timeout"] = True
@@ -550,12 +780,15 @@ def extract(pdf_bytes, *, deadline_seconds=DEADLINE_SECONDS, max_candidates=MAX_
                 continue
 
             media = _page_size(page)
-            where = _placements(reader, page, stop)
+            where = placements.get(page_no) or {}
+            elsewhere = {i for n, w in placements.items() if n != page_no for i in w} - set(where)
 
-            def visit(xo, ident, page_no=page_no, media=media, where=where):
+            def visit(xo, ident, page_no=page_no, media=media, where=where, elsewhere=elsewhere):
                 if time.monotonic() > stop:
                     state["timeout"] = True
                     return False
+                if ident is not None and (ident in elsewhere or ident in mask_ids):
+                    return True                     # drawn on another page (shared resources), or only the mask of a picture
                 if ident is not None:
                     if ident in seen_ids:
                         return True
@@ -564,7 +797,7 @@ def extract(pdf_bytes, *, deadline_seconds=DEADLINE_SECONDS, max_candidates=MAX_
                     return False
                 state["images"] += 1
                 try:
-                    ctype, data, w, h = _decode_image(xo, notes)
+                    ctype, data, w, h = _decode_image(xo, notes, stop, state)
                 except _Skip as e:
                     skipped[str(e)] += 1
                 except Exception:  # noqa: BLE001 - a broken image object must not stop the others
@@ -591,6 +824,7 @@ def extract(pdf_bytes, *, deadline_seconds=DEADLINE_SECONDS, max_candidates=MAX_
     res.candidates = unique[:max_candidates]
     summary = _summary(skipped)
     big = skipped.get("larger than 2 MB", 0)
+    cmyk_skipped = skipped.get("CMYK", 0) + skipped.get("CMYK JPEG", 0)
     if state["timeout"]:
         res.notes.append("Stopped early: the PDF took too long to read.")
     if res.candidates:
@@ -598,19 +832,37 @@ def extract(pdf_bytes, *, deadline_seconds=DEADLINE_SECONDS, max_candidates=MAX_
             res.notes.append(summary)
         if "transparency" in notes:
             res.notes.append("Some pictures had transparency that could not be kept; they may show a solid background.")
+        if state["cmyk"]:
+            res.notes.append(f"Converted {state['cmyk']} print-colour (CMYK) picture{'s' if state['cmyk'] != 1 else ''} to screen colour.")
+        if state["reduced"]:
+            res.notes.append(f"Reduced {state['reduced']} large picture{'s' if state['reduced'] != 1 else ''} to fit the photo limits "
+                             f"({MAX_IMAGE_BYTES // 1024 // 1024} MB, {MAX_DIMENSION} px).")
+        if cmyk_skipped and not state["pillow"]:
+            res.notes.append(_print_colour_hint())
     else:
         if total_pages == 0:
             res.message = "The PDF has no pages."
         else:
             res.message = ("No product pictures were found in the first pages of this PDF. " + summary).strip()
-            if skipped.get("CMYK", 0) + skipped.get("CMYK JPEG", 0):
-                # Print-oriented datasheets store their photos in CMYK, which cannot be converted without an imaging library.
-                res.message += (" Photos in print (CMYK) colour cannot be converted here: open the PDF in your viewer, save or "
-                                "screenshot the product photo as a PNG or JPEG and upload that picture instead.")
+            if cmyk_skipped and not state["pillow"]:
+                # Print-oriented datasheets store their photos in CMYK; the optional Pillow extra converts them.
+                res.message += " " + _print_colour_hint()
             if not state["images"]:
                 res.message = ("No pictures were found in the first pages of this PDF. If the product photo is drawn as "
                                "vector art or the PDF is a scan, use a product page address or upload the photo itself.")
     if big:
-        res.notes.append(f"{big} picture{'s are' if big != 1 else ' is'} larger than the 2 MB photo limit and cannot be "
-                         "shrunk here; save a smaller copy of that picture and upload it directly if you want it.")
+        what = f"{big} picture{'s are' if big != 1 else ' is'} larger than the {MAX_IMAGE_BYTES // 1024 // 1024} MB photo limit"
+        if state["pillow"]:
+            res.notes.append(f"{what} and could not be reduced to fit; save a smaller copy of that picture and upload it directly if you want it.")
+        else:
+            res.notes.append(f"{what} and cannot be shrunk here. Install the optional image library (pip install -r "
+                             "requirements-images.txt) and LinkedEye will shrink them, or save a smaller copy of that picture and "
+                             "upload it directly.")
     return res
+
+
+def _print_colour_hint():
+    status, version = imaging_pillow.status()
+    if status == "old":
+        return PRINT_COLOUR_HINT_OLD.format(version=version, minimum=".".join(map(str, imaging_pillow.MIN_VERSION)))
+    return PRINT_COLOUR_HINT

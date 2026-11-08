@@ -25,7 +25,7 @@ from core import jobs as core_jobs
 from core.models import AuditEvent, Membership, Site
 from probes import checks
 
-from . import datasheet, datasheet_page, datasheet_pdf, images, imaging, jobs, photos
+from . import datasheet, datasheet_page, datasheet_pdf, images, imaging, imaging_pillow, jobs, photos
 from .datasheet import DatasheetError
 from .imaging import inspect_image
 from .models import Device, DeviceImage, NetworkProductImage
@@ -38,6 +38,10 @@ except ImportError:                                           # pragma: no cover
     pypdf = None
 
 needs_pypdf = __import__("unittest").skipUnless(pypdf is not None, "pypdf is not installed")
+
+# The optional Pillow path (network/imaging_pillow.py) changes what is skipped. Tests that pin the behaviour of a
+# deployment WITHOUT it run with the converter switched off, so they mean the same thing whether or not Pillow is installed.
+without_pillow = mock.patch.object(imaging_pillow, "available", lambda: False)
 
 
 # ------------------------------------------------------------------------------------------ synthetic images
@@ -205,6 +209,7 @@ class PdfExtractTests(SimpleTestCase):
         res = datasheet_pdf.extract(d.build())
         self.assertEqual(decode_png(res.candidates[0].data), (w, h, 3, pix))
 
+    @without_pillow
     def test_a_soft_mask_becomes_the_alpha_channel(self):
         d = Doc()
         mask = d.image(300, 200, kind="flate", ch=1, content="device")
@@ -216,6 +221,7 @@ class PdfExtractTests(SimpleTestCase):
         self.assertEqual(pix[0::4], rgb[0::3])
         self.assertEqual(pix[3::4], alpha)
 
+    @without_pillow
     def test_logo_banner_tiny_flat_mask_and_one_bit_images_are_skipped(self):
         res = datasheet_pdf.extract(pdf_of([
             dict(w=1500, h=200, kind="flate", ch=3),                      # 7.5:1, a logo or banner
@@ -293,11 +299,12 @@ class PdfExtractTests(SimpleTestCase):
         res = datasheet_pdf.extract(d.build())
         self.assertEqual([(c.width, c.demoted) for c in res.candidates], [(1000, False), (640, False)])
 
+    @without_pillow
     def test_a_datasheet_with_only_cmyk_photos_says_what_to_do(self):
         res = datasheet_pdf.extract(pdf_of([dict(w=1800, h=490, kind="jpeg", ch=4), dict(w=800, h=600, kind="jpeg", ch=4)]))
         self.assertEqual(res.candidates, [])
         self.assertIn("2 CMYK (print colour)", res.message)
-        self.assertIn("save or screenshot the product photo", res.message)
+        self.assertIn(datasheet_pdf.PRINT_COLOUR_HINT, res.message)
         # the same reason counted once even when it arrives under two names
         self.assertEqual(datasheet_pdf._summary(__import__("collections").Counter({"CMYK": 3, "CMYK JPEG": 1})), "Skipped 4 CMYK (print colour).")
 
@@ -339,6 +346,7 @@ class PdfExtractTests(SimpleTestCase):
         d.page([loop])
         self.assertEqual(datasheet_pdf.extract(d.build()).candidates, [])
 
+    @without_pillow
     def test_a_huge_declared_size_is_refused_before_anything_is_allocated(self):
         for w, h in ((100000, 100000), (5000, 100), (4097, 4097), (4096, 4096)):
             d = Doc()
@@ -385,6 +393,7 @@ class PdfExtractTests(SimpleTestCase):
         self.assertIn(400 * 300 * 3 + 1, limits, "the bomb is inflated only up to its declared size")
         self.assertTrue(all(0 < n <= datasheet_pdf.MAX_DECODED_BYTES + 1 for n in limits), limits)
 
+    @without_pillow
     def test_a_picture_over_the_photo_limit_is_skipped_and_says_so(self):
         big = dict(w=900, h=800, kind="flate", ch=3, data=zlib.compress(os.urandom(900 * 800 * 3), 1))      # incompressible, ~2.1 MB
         res = datasheet_pdf.extract(pdf_of([big, dict(w=700, h=500, kind="jpeg")]))

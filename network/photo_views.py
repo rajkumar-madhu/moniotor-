@@ -23,7 +23,7 @@ from django.views.decorators.http import require_http_methods, require_POST, req
 from core.access import can, can_on, require
 from core.audit import audit
 
-from . import datasheet, datasheet_pdf, images, photos, services
+from . import datasheet, datasheet_pdf, images, imaging_pillow, photos, services
 from .datasheet import DatasheetError
 from .imaging import CONTENT_TYPES, ImageError
 from .models import Device, DeviceImage, NetworkProductImage
@@ -214,6 +214,7 @@ def _find(request):
     return render(request, "network/photo_find.html", {
         "ctx": ctx, "candidates": candidates, "error": error, "blocked": blocked, "next": request.GET.get("next", ""),
         "can_admin": can_on(request.user, "admin", None), "max_pdf_mb": MAX_UPLOAD // 1024 // 1024,
+        "images_ready": imaging_pillow.available(),
         "ttl_minutes": int(DeviceImage.CANDIDATE_TTL.total_seconds() // 60),
         "source_url": (request.POST.get("source_url") or ctx.prefill) if request.method == "POST" else ctx.prefill,
     }, status=400 if error else 200)
