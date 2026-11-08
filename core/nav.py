@@ -14,6 +14,7 @@ NAV = [
     ]},
     {"label": "Monitoring", "icon": "gauge", "children": [
         {"label": "Heatmap", "url": "cmdb:heatmap"},
+        {"label": "Fleet", "url": "telemetry:fleet"},
         {"label": "Infrastructure", "url": "telemetry:infrastructure"},
         {"label": "Discovery", "url": "telemetry:discovery"},
         {"label": "Nagios Status", "url": "telemetry:nagios"},
