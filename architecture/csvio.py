@@ -7,9 +7,9 @@ from django.db import IntegrityError, transaction
 from django.http import HttpResponse
 
 from . import services
-from .forms import CONTROL_RE, duplicate_of
+from .forms import CONTROL_RE
 from .models import Link, Medium, Origin
-from .ports import MAX_PORT, clean_port
+from .ports import MAX_PORT, clean_port, port_key
 
 COLUMNS = ["a_device", "a_port", "b_device", "b_port", "medium", "speed_mbps", "kind", "note"]
 REQUIRED = ["a_device", "b_device"]
@@ -103,6 +103,33 @@ def _rows(reader, err):
             return
 
 
+def _existing_links(tenant, data, header, find):
+    """{(a id, b id): [Link]} for the device pairs the file names, in a handful of queries (not one per row)."""
+    ids = set()
+    for _line, raw in data:
+        for col in REQUIRED:
+            dev = find(unquote((raw.get(header[col]) or "").strip()))
+            if dev is not None:
+                ids.add(dev.pk)
+    idset, ids = set(ids), sorted(ids)
+    idx = {}
+    for i in range(0, len(ids), 500):
+        for l in Link.objects.filter(tenant_key=tenant, a_device_id__in=ids[i:i + 500]).order_by():
+            if l.b_device_id in idset:
+                idx.setdefault((l.a_device_id, l.b_device_id), []).append(l)
+    return idx
+
+
+def _existing(idx, a_id, a_port, b_id, b_port):
+    """The stored link between the same two devices on the same ports (spelling-independent), or None."""
+    a, ap, b, bp = Link.order_ends(a_id, a_port, b_id, b_port)
+    want = (port_key(ap), port_key(bp))
+    for l in idx.get((a, b), ()):
+        if (port_key(l.a_port), port_key(l.b_port)) == want:
+            return l
+    return None
+
+
 def validate(text, user, request=None, update_existing=False):
     """Check every row against the devices the user may manage. Nothing is written."""
     plan = Plan()
@@ -146,7 +173,9 @@ def validate(text, user, request=None, update_existing=False):
 
     mediums = set(Medium.values)
     seen = set()
-    for line, raw in _rows(reader, err):
+    data = list(_rows(reader, err))                     # bounded by MAX_BYTES
+    existing_idx = _existing_links(tenant, data, header, find)
+    for line, raw in data:
         if None in raw:     # more cells than headers
             err(line, "The row has more cells than the header.")
             continue
@@ -212,7 +241,7 @@ def validate(text, user, request=None, update_existing=False):
             err(line, f"{a.name} {ports[0]} ↔ {b.name} {ports[1]} appears more than once in the file.")
             continue
         seen.add(ident)
-        existing = duplicate_of(a.pk, ports[0], b.pk, ports[1], tenant)
+        existing = _existing(existing_idx, a.pk, ports[0], b.pk, ports[1])
         fields = {"medium": medium, "speed_mbps": speed, "kind": kind, "note": note}
         if existing is None:
             action = "create"

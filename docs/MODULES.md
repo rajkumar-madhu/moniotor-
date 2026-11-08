@@ -104,7 +104,8 @@ Draws the spine-leaf view of the data centre (Internet / WAN, firewalls, core / 
 * **Pages** `architecture:overview` (`/network/architecture/`), `architecture:live` (JSON), `architecture:links` (+ `links_export`,
   `links_import`, `suggest` for LLDP, `link_create`, `link_edit`, `link_delete`, `links_bulk`), `architecture:placement_edit`,
   `architecture:example_load`. Sidebar: **Network Devices › Architecture**.
-* **Code** `tiers.py` (the one tier / group inference function), `layout.py` (pure layout engine, no Django), `services.py`
+* **Code** `tiers.py` (the one tier / group inference function), `layout.py` (pure layout engine, no Django), `faces.py` (pure,
+  generated front-panel faces as SVG symbols, no Django, no images), `services.py`
   (scoping, link state, page and live payloads), `csvio.py`, `lldp.py`, `example.py` (used by `manage.py seed_architecture`).
 * **Scoping** a Link has no site name: it is visible only when both devices are visible and editable only when both devices'
   sites are operable, so it is deliberately **not** in `SITE_NAME_FIELDS`.

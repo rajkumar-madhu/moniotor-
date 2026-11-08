@@ -3,7 +3,8 @@
  *   click a link            -> the side panel shows both endpoints, state, utilisation and an edit link
  *   Live                    -> /network/architecture/live/ is polled every 30 s, only while the tab is visible, with
  *                              back-off after errors; dots, link colours and the KPI strip are patched in place
- *   Download SVG            -> a standalone copy with the theme colours resolved (photos are embedded)
+ *   Presentation mode       -> the drawing alone, filling the screen (Esc leaves); ?present=1 opens it that way
+ *   Download SVG            -> a standalone copy with a title, the theme colours resolved (faces and photos are embedded)
  * Everything the server sent is written with textContent / setAttribute; no markup is ever built from it. */
 (function () {
   'use strict';
@@ -197,7 +198,39 @@
   });
   const close = document.getElementById('ar-side-close');
   if (close) close.addEventListener('click', closeLink);
-  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { closeLink(); hideTip(); } });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    const wasOpen = side && !side.hidden;
+    closeLink(); hideTip();
+    if (!wasOpen && page && page.classList.contains('ar-present')) setPresent(false);
+  });
+
+  // ---------------------------------------------------------------- presentation mode
+  const page = document.getElementById('ar-page');
+  const presentBtn = document.getElementById('ar-present');
+  function setPresent(on) {
+    if (!page) return;
+    page.classList.toggle('ar-present', on);
+    if (presentBtn) {
+      presentBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      const t = presentBtn.querySelector('span');
+      if (t) t.textContent = on ? 'Exit presentation' : 'Presentation mode';
+    }
+    try {
+      const u = new URL(location.href);
+      if (on) u.searchParams.set('present', '1'); else u.searchParams.delete('present');
+      history.replaceState(null, '', u.toString());
+    } catch (err) { /* ignore */ }
+    if (on && presentBtn) presentBtn.focus({ preventScroll: true });
+  }
+  const fitBtn = document.getElementById('ar-fit');
+  if (fitBtn) fitBtn.addEventListener('click', function () {
+    const wide = page.classList.toggle('ar-wide');
+    fitBtn.setAttribute('aria-pressed', wide ? 'true' : 'false');
+    const t = fitBtn.querySelector('span');
+    if (t) t.textContent = wide ? 'Fit to screen' : 'Fill width';
+  });
+  if (presentBtn) presentBtn.addEventListener('click', function (e) { e.preventDefault(); setPresent(!page.classList.contains('ar-present')); });
 
   // ---------------------------------------------------------------- live
   const label = { up: 'Up', down: 'Down', unknown: 'Unknown', disabled: 'Monitoring disabled' };
@@ -245,6 +278,13 @@
     const s = j.summary || {};
     kpi('links', String(s.links)); kpi('links_up', String(s.links_up)); kpi('links_down', String(s.links_down));
     kpi('links_unknown', String(s.links_unknown)); kpi('devices_down', String(s.devices_down));
+    kpi('devices', String(s.devices)); kpi('devices_up', String(s.devices_up)); kpi('devices_unknown', String(s.devices_unknown));
+    document.querySelectorAll('[data-kpi-chip="devices_down"]').forEach(function (n) { n.classList.toggle('zero', !s.devices_down); });
+    document.querySelectorAll('[data-kpi-chip="links_down"]').forEach(function (n) { n.classList.toggle('zero', !s.links_down); });
+    const now = new Date();
+    document.querySelectorAll('[data-updated]').forEach(function (n) {
+      n.textContent = [now.getHours(), now.getMinutes(), now.getSeconds()].map(function (v) { return String(v).padStart(2, '0'); }).join(':');
+    });
     const tile = document.querySelector('[data-kpi-tile="devices_down"]');
     if (tile) { tile.classList.toggle('s-crit', s.devices_down > 0); tile.classList.toggle('s-ok', !s.devices_down); }
     if (s.over) { kpi('over', s.over.ratio + ' : 1'); }
@@ -278,6 +318,8 @@
       live = !live;
       toggle.classList.toggle('on', live);
       toggle.setAttribute('aria-checked', live ? 'true' : 'false');
+      const ind = document.getElementById('ar-live-ind');
+      if (ind) { ind.classList.toggle('on', live); const l = ind.querySelector('.lbl'); if (l) l.textContent = live ? 'Live' : 'Paused'; }
       const u = new URL(location.href);
       if (live) u.searchParams.delete('live'); else u.searchParams.set('live', '0');
       try { history.replaceState(null, '', u.toString()); } catch (err) { /* ignore */ }
@@ -302,14 +344,38 @@
       const d = dst[i];
       if (!d) return;
       const cs = getComputedStyle(s);
-      if (cs.display === 'none' || s.classList.contains('lk-hit')) { drop.push(d); return; }
+      const inDefs = !!s.closest('defs');
+      if (!inDefs && (cs.display === 'none' || s.classList.contains('lk-hit'))) { drop.push(d); return; }
       d.setAttribute('style', PROPS.map(function (p) { return p + ':' + cs.getPropertyValue(p); }).join(';'));
     });
     drop.forEach(function (d) { if (d.parentNode) d.parentNode.removeChild(d); });
-    const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    bg.setAttribute('width', '100%'); bg.setAttribute('height', '100%');
+    // a title block above the drawing, so the file stands on its own
+    const NS = 'http://www.w3.org/2000/svg';
+    const vb = (svg.getAttribute('viewBox') || '0 0 1200 800').split(/\s+/).map(Number);
+    const HEAD = 70;
+    clone.setAttribute('viewBox', [vb[0], vb[1] - HEAD, vb[2], vb[3] + HEAD].join(' '));
+    clone.setAttribute('width', String(vb[2])); clone.setAttribute('height', String(vb[3] + HEAD));
+    clone.removeAttribute('class');
+    const bg = document.createElementNS(NS, 'rect');
+    bg.setAttribute('x', String(vb[0])); bg.setAttribute('y', String(vb[1] - HEAD));
+    bg.setAttribute('width', String(vb[2])); bg.setAttribute('height', String(vb[3] + HEAD));
     bg.setAttribute('fill', getComputedStyle(svg.parentElement).backgroundColor || '#ffffff');
-    clone.insertBefore(bg, clone.querySelector('desc').nextSibling);
+    const cs0 = getComputedStyle(svg);
+    const ink = getComputedStyle(document.body).color, muted = cs0.getPropertyValue('--muted').trim() || ink;
+    const font = cs0.fontFamily;
+    function text(x, y, size, weight, fill, str) {
+      const t = document.createElementNS(NS, 'text');
+      t.setAttribute('x', x); t.setAttribute('y', y);
+      t.setAttribute('style', 'font-family:' + font + ';font-size:' + size + 'px;font-weight:' + weight + ';fill:' + fill);
+      t.textContent = str;
+      return t;
+    }
+    const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+    const head = document.createElementNS(NS, 'g');
+    head.appendChild(text(vb[0] + 28, vb[1] - 36, 28, 700, ink, svg.dataset.title || 'Data Center Architecture'));
+    head.appendChild(text(vb[0] + 28, vb[1] - 14, 14, 400, muted, (svg.dataset.site || '') + ' · generated ' + stamp));
+    clone.insertBefore(head, clone.querySelector('desc').nextSibling);
+    clone.insertBefore(bg, head);
     const jobs = [];
     clone.querySelectorAll('image').forEach(function (im) {
       const href = im.getAttribute('href');

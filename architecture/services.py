@@ -3,10 +3,8 @@
 One query per model builds the whole page (devices with their photo row, placements, rack items, links, interfaces,
 racks' items and feeds); nothing here runs a query per device or per link.
 """
-import re
 import unicodedata
 from dataclasses import dataclass, field
-from functools import lru_cache
 
 from django.conf import settings
 from django.core.cache import cache
@@ -17,6 +15,7 @@ from django.utils import timezone
 from core import prometheus
 from core.access import can, scope_by_site, visible_sites
 
+from . import faces
 from . import layout as lay
 from . import tiers as tr
 from .models import Link, Origin, Placement
@@ -128,19 +127,6 @@ def dev_state(device):
 
 
 STATE_LABELS = {"up": "Up", "down": "Down", "unknown": "Unknown", "disabled": "Monitoring disabled"}
-
-
-@lru_cache(maxsize=16)
-def _art_inner(kind):
-    from django.utils.safestring import mark_safe
-    from network.art import illustration
-    # constant markup drawn by network.art (never user data), so it is safe to mark as such
-    return mark_safe(re.sub(r"^<svg[^>]*>|</svg>$", "", str(illustration(kind))))
-
-
-def art_inner(device):
-    from network.art import art_kind
-    return _art_inner(art_kind(device))
 
 
 def _fresh(ts, now):
@@ -391,10 +377,12 @@ def kpis(fb):
     counts = {s: 0 for s in STATES}
     for l in fb.links:
         counts[l["state"]] += 1
-    down = sum(1 for d in fb.devices if dev_state(d) == "down")
+    states = [dev_state(d) for d in fb.devices]
+    down, up = states.count("down"), states.count("up")
     over = oversubscription(fb)
     return {"devices": len(fb.devices), "tiers": by_tier, "links": len(fb.links), "links_up": counts["up"],
-            "links_down": counts["down"], "links_unknown": counts["unknown"], "devices_down": down,
+            "links_down": counts["down"], "links_unknown": counts["unknown"], "devices_down": down, "devices_up": up,
+            "devices_unknown": len(states) - up - down,
             "unclassified": by_tier[tr.OTHER], "hidden": len(fb.hidden), "over": over}
 
 
@@ -435,23 +423,36 @@ def _group_label_colour(fb):
     return out
 
 
+def server_unit(d):
+    """(face kind, rack units) of a server drawn in a cabinet."""
+    from network.art import art_kind
+    kind = art_kind(d)
+    if d.device_type == "virtual_machine":
+        return "vm", 1
+    kind = "storage" if kind == "storage" else "server"
+    return kind, faces.rack_units(kind, d.model)
+
+
 def diagram(fb, expand=frozenset(), width=1200.0):
-    """Run the layout and return (layout result, nodes by id with their drawing data)."""
+    """Run the layout and return the layout result. Unclassified devices are not drawn in it: the page lists them in a
+    slim strip under the drawing."""
     nodes, groups = [], []
     for d in fb.devices:
         p = fb.placed[d.pk]
+        if p.tier == tr.OTHER:
+            continue
         pl = fb.placements.get(d.pk)
         nodes.append(lay.LNode(str(d.pk), p.tier, d.name, group=p.group_key if p.tier == tr.SERVER else "",
-                               order=pl.sort_order if pl else 0))
+                               order=pl.sort_order if pl else 0, unit=server_unit(d)[1] if p.tier == tr.SERVER else 1))
     for gk, (label, colour) in _group_label_colour(fb).items():
         racks = fb.racks.get(gk, [])
         groups.append(lay.LGroup(gk, label, colour, footer=0 if not racks else (len(racks) if len(racks) <= 4 else 4)))
     edges = [lay.LEdge(l["key"], str(l["a"]), str(l["b"])) for l in fb.links]
-    res = lay.layout(nodes, edges, groups, lay.Options(width=width, expand=frozenset(expand)))
-    return res
+    return lay.layout(nodes, edges, groups, lay.Options(width=width, expand=frozenset(expand)))
 
 
-FONT = {"full": 12, "medium": 11, "small": 10, "tile-full": 11, "tile-small": 10}
+FACE_DETAIL_LIMIT = 60          # more drawn faces than this and they lose their port detail and text
+FONT = {"full": 12.5, "medium": 11.5, "small": 10.5}
 
 
 def _tail(text, n):
@@ -472,8 +473,15 @@ def _tail(text, n):
     return "…" + kept.lstrip()
 
 
-def node_view(d, fb, pos):
+def face_detail(res):
+    """"full" or "simple": a drawing with many faces leaves out the port grids and the text on them."""
+    drawn = sum(1 for p in res.nodes.values() if p.mode not in ("chip", "hidden"))
+    return "simple" if drawn > FACE_DETAIL_LIMIT else "full"
+
+
+def node_view(d, fb, pos, fset):
     """Everything the template needs to draw one device, geometry included (numbers only, no markup)."""
+    from network.art import art_kind
     p = fb.placed[d.pk]
     img = d.image if d.image_id else None
     state = dev_state(d)
@@ -481,19 +489,34 @@ def node_view(d, fb, pos):
     model = model or d.get_device_type_display()
     mode = pos.mode
     chip = mode in ("chip", "tile-chip")
-    fs = FONT.get(mode, 10)
-    name_y = 5 + pos.photo_h + fs + 4
-    chars = int((pos.w - 26) / 5.6) if chip else pos.chars
+    tile = mode in ("face1", "face2")
+    fs = FONT.get(mode, 10.5)
+    if chip:
+        chars = int((pos.w - 26) / 5.6)
+    else:
+        chars = max(6, int((pos.w - 18) / (fs * 0.58)))
+    label = _tail(d.name, chars) if chip else _clip(d.name, chars)
+    face = ""
+    if not chip and (tile or not img):
+        if tile:
+            kind, unit = server_unit(d)
+            face = fset.use(kind, d.vendor, d.model, unit=unit)
+        else:
+            face = fset.use(faces.face_kind(d.device_type, art_kind(d)), d.vendor, d.model)
+    label_y = pos.fh + 8
+    chip_w = round(min(pos.w, max(34, _cells_len(label) * fs * 0.6 + 22)), 1)
     return {
-        "id": d.pk, "name": d.name, "label": _tail(d.name, chars) if chip else _clip(d.name, chars),
-        "model": _clip(model, pos.chars + 2), "x": pos.x, "y": pos.y, "w": pos.w, "h": pos.h, "mode": mode, "chip": chip,
-        "pw": round(pos.w - 10, 1), "ph": pos.photo_h, "cx": round(pos.w / 2, 1), "fs": fs, "name_y": round(name_y, 1),
-        "model_y": round(name_y + 12, 1), "show_model": mode in ("full", "medium", "tile-full"),
-        "dot_x": 11 if chip else round(pos.w - 10, 1), "dot_y": round(pos.h / 2, 1) if chip else 10,
+        "id": d.pk, "name": d.name, "label": label, "model": _clip(model, chars + 6), "x": pos.x, "y": pos.y, "w": pos.w,
+        "h": pos.h, "fh": pos.fh, "mode": mode, "chip": chip, "tile": tile, "cx": round(pos.w / 2, 1), "fs": fs,
+        "label_y": round(label_y, 1), "name_y": round(pos.h / 2 + 4.2, 1) if chip else round(label_y + 13.2, 1), "model_y": round(label_y + 26.5, 1),
+        "chip_x": round((pos.w - chip_w) / 2, 1), "chip_w": chip_w,
+        "show_model": mode in ("full", "medium"),
+        "led_x": (round(pos.w - 9, 1) if not (chip or tile) else (round(pos.w - 4.5, 1) if tile else 11)),
+        "led_y": 9 if not (chip or tile) else round(pos.h / 2, 1),
         "name_x": 21 if chip else round(pos.w / 2, 1),
         "state": state, "state_label": STATE_LABELS[state], "href": d.get_absolute_url(), "type": d.get_device_type_display(),
         "photo": {"url": img.url, "w": img.width, "h": img.height} if img else None,
-        "art": None if img else art_inner(d), "weak": p.weak, "reason": p.reason, "tier": p.tier,
+        "face": face, "weak": p.weak, "reason": p.reason, "tier": p.tier,
     }
 
 
@@ -539,7 +562,7 @@ def live_payload(fb):
                              "oper_b": l["oper_b"], "rate_a": l["rate_a"], "rate_b": l["rate_b"]} for l in fb.links},
         "summary": {"devices_down": k["devices_down"], "links_up": k["links_up"], "links_down": k["links_down"],
                     "links_unknown": k["links_unknown"], "links": k["links"], "devices": k["devices"],
-                    "over": k["over"]},
+                    "devices_up": k["devices_up"], "devices_unknown": k["devices_unknown"], "over": k["over"]},
     }
 
 

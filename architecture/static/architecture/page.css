@@ -68,21 +68,88 @@
 .pg-architecture .ar-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .pg-architecture .ar-chips .chip { font-size: 11.5px; padding: 1px 6px; }
 
-/* the drawing */
+/* hardware and cabling tokens. The drawing shows real, dark equipment in both themes; only the link blue, the chassis
+   edge and the rack frame change with the theme so they keep their contrast on the paper and on the charcoal. */
+.pg-architecture {
+  --ar-link: #6b90ff; --ar-link-soft: rgba(107, 144, 255, .55);
+  --ar-chassis: #2a303a; --ar-edge: #6a7483; --ar-ear: #1b2027; --ar-sheen: rgba(255, 255, 255, .1);
+  --ar-panel: #0d1116; --ar-port: #cfd4dc; --ar-port-in: #1f242c; --ar-cage: #909aa7; --ar-cage-in: #151a20;
+  --ar-mark: #f1f4f8; --ar-model: #a3acb8; --ar-led: #3ddc97; --ar-led2: #f5a524;
+  --ar-fw: #d7332f; --ar-fw-ink: #ffe6e3; --ar-rt-body: #2552cc; --ar-rt: #4f7df5; --ar-lb: #17a077;
+  --ar-unit: #dde1e7; --ar-unit-edge: #818a97; --ar-bay: #0d1116; --ar-lcd: #3d7bf0; --ar-vent: #0d1116;
+  --ar-rack: #1a1f26; --ar-rack-edge: #5a6573; --ar-rack-in: #080a0d; --ar-rack-cap: #2a313b; --ar-tick: #5d6876;
+}
+html[data-theme="light"] .pg-architecture {
+  --ar-link: #1f55d6; --ar-link-soft: rgba(31, 85, 214, .5);
+  --ar-chassis: #262c35; --ar-edge: #0b0d11; --ar-rack: #14181e; --ar-rack-edge: #0f1216; --ar-rack-cap: #232a33;
+  --ar-unit-edge: #6d7682;
+}
+
+/* the diagram card: header strip */
 .pg-architecture .ar-stage { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
 .pg-architecture .ar-stage.with-side { grid-template-columns: minmax(0, 1fr) 320px; }
-.pg-architecture .ar-diagram { padding: 12px; }
-.pg-architecture .ar-canvas { overflow: auto; border-radius: 10px; background: var(--panel); }
+.pg-architecture .ar-diagram { padding: 14px 16px 16px; }
+.pg-architecture .ar-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 22px; padding: 2px 4px 14px; margin-bottom: 10px;
+  border-bottom: 1px solid var(--line-soft); }
+.pg-architecture .ar-strip-id { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1 1 340px; }
+.pg-architecture .ar-strip-mark { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 13px; flex: none;
+  background: var(--primary-soft); color: var(--brand); }
+.pg-architecture .ar-strip h2 { margin: 0; font: 600 26px/1.1 var(--serif); letter-spacing: -.01em; }
+.pg-architecture .ar-strip p { margin: 3px 0 0; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.pg-architecture .ar-strip .ar-site { color: var(--ink); font-weight: 600; }
+.pg-architecture .ar-strip-status { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; font-size: 12.5px; }
+.pg-architecture .ar-st-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--panel-2); color: var(--ink-2); white-space: nowrap; }
+.pg-architecture .ar-st-chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--stone); }
+.pg-architecture .ar-st-chip.ok { border-color: var(--ok-line); color: var(--ok-ink); }
+.pg-architecture .ar-st-chip.ok i { background: var(--ok); }
+.pg-architecture .ar-st-chip.crit { border-color: var(--crit-line); background: var(--crit-bg); color: var(--crit-ink); }
+.pg-architecture .ar-st-chip.crit i { background: var(--crit); }
+.pg-architecture .ar-st-chip.crit.zero { background: var(--panel-2); border-color: var(--line); color: var(--muted); }
+.pg-architecture .ar-st-chip.warn { border-color: var(--warn-line); background: var(--warn-bg); color: var(--warn-ink); }
+.pg-architecture .ar-st-sep { width: 1px; height: 18px; background: var(--line); margin: 0 4px; }
+.pg-architecture .ar-live-ind { display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+.pg-architecture .ar-live-ind .ar-pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--stone); }
+.pg-architecture .ar-live-ind.on { color: var(--ok-ink); }
+.pg-architecture .ar-live-ind.on .ar-pulse { background: var(--ok); animation: ar-pulse 2.2s ease-in-out infinite; }
+.pg-architecture .ar-live-ind time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.pg-architecture .ar-strip-actions { display: flex; gap: 8px; margin-left: auto; }
+.pg-architecture .ar-canvas { overflow: auto; border-radius: 12px; background: var(--panel); }
+.pg-architecture .ar-svg:focus, .pg-architecture .ar-canvas:focus { outline: none; }
 .pg-architecture .ar-svg { display: block; width: 100%; min-width: 780px; height: auto; font-family: var(--font); }
 .pg-architecture .ar-notes { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--ink-2); }
 .pg-architecture .ar-notes li { display: flex; gap: 6px; align-items: flex-start; }
 .pg-architecture .ar-notes-line { margin: 0 0 8px; font-size: 12.5px; }
 .pg-architecture .ar-foot { margin: 8px 2px 0; color: var(--muted); font-size: 12.5px; }
 
-/* bands: one tint per tier */
-.pg-architecture .band-bg { fill: var(--mute-bg); stroke: var(--mute-line); stroke-width: 1.2; }
+/* unclassified devices: one slim strip under the drawing */
+.pg-architecture .ar-unclass { margin-top: 10px; border: 1px dashed var(--warn-line); border-radius: 10px; background: var(--warn-tint, var(--warn-bg)); padding: 0 12px; }
+.pg-architecture .ar-unclass > summary { display: flex; align-items: center; gap: 8px; padding: 8px 0; cursor: pointer; font-size: 13px; color: var(--warn-ink); list-style: none; }
+.pg-architecture .ar-unclass > summary::-webkit-details-marker { display: none; }
+.pg-architecture .ar-unclass > summary::after { content: "Show"; margin-left: auto; font-size: 12px; text-decoration: underline; }
+.pg-architecture .ar-unclass[open] > summary::after { content: "Hide"; }
+.pg-architecture .ar-unclass p { margin: 0 0 8px; }
+.pg-architecture .ar-unclass ul { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.pg-architecture .ar-unclass li { display: flex; align-items: center; gap: 8px; }
+
+/* presentation mode: the drawing alone, filling the screen (Esc leaves) */
+.pg-architecture.ar-present { position: fixed; inset: 0; z-index: 90; overflow: auto; padding: 14px 22px 18px; background: var(--bg); gap: 0; }
+.pg-architecture.ar-present > :not(.ar-stage),
+.pg-architecture.ar-present .ar-notes, .pg-architecture.ar-present .ar-notes-line, .pg-architecture.ar-present .ar-foot,
+.pg-architecture.ar-present .ar-unclass { display: none; }
+.pg-architecture.ar-present .ar-diagram { border: 0; box-shadow: none; background: transparent; padding: 0; }
+.pg-architecture.ar-present .ar-canvas { overflow: hidden; background: transparent; }
+.pg-architecture.ar-present .ar-svg { min-width: 0; width: 100%; height: calc(100vh - 118px); }
+.pg-architecture.ar-present .ar-strip { margin-bottom: 4px; padding-bottom: 10px; }
+.pg-architecture .ar-only-present { display: none; }
+.pg-architecture.ar-present .ar-only-present { display: inline-flex; }
+.pg-architecture.ar-present.ar-wide .ar-svg { height: auto; }
+.pg-architecture.ar-present.ar-wide .ar-canvas { overflow: visible; }
+
+/* bands: one tint per tier, a solid label pill on the top-left edge */
+.pg-architecture .band-bg { fill: var(--mute-bg); stroke: var(--mute-line); stroke-width: 1.4; }
 .pg-architecture .band-tag rect { fill: var(--mute-ink); }
-.pg-architecture .band-tag text { fill: var(--on-solid); font-size: 13.5px; font-weight: 700; }
+.pg-architecture .band-tag text { fill: var(--on-solid); font-size: 15px; font-weight: 700; }
 .pg-architecture .tone-crit .band-bg { fill: var(--crit-bg); stroke: var(--crit-line); }
 .pg-architecture .tone-crit .band-tag rect { fill: var(--crit); }
 .pg-architecture .tone-purple .band-bg { fill: var(--purple-bg); stroke: var(--purple-line); }
@@ -93,35 +160,76 @@
 .pg-architecture .tone-ok .band-tag rect { fill: var(--ok); }
 .pg-architecture .tone-warn .band-bg { fill: var(--warn-bg); stroke: var(--warn-line); }
 .pg-architecture .band-wan .band-bg, .pg-architecture .band-wan .band-tag { display: none; }
-.pg-architecture .band-open text { fill: var(--primary); font-size: 12px; text-decoration: underline; }
-.pg-architecture .cloud path { fill: var(--panel); stroke: var(--info); stroke-width: 2.4; stroke-linejoin: round; }
-.pg-architecture .cloud text { fill: var(--ink); font-size: 17px; font-weight: 700; }
+.pg-architecture .band-open text { fill: var(--primary); font-size: 12.5px; text-decoration: underline; }
+.pg-architecture .cloud path { fill: var(--panel); stroke: var(--ar-link); stroke-width: 3; stroke-linejoin: round; }
+.pg-architecture .cloud text { fill: var(--ink); font-size: 19px; font-weight: 700; }
 
-/* device nodes */
+/* device nodes: the face is the hardware; only the LED and the label chip carry the state */
 .pg-architecture .nd-a { cursor: pointer; }
 .pg-architecture .nd-a:focus { outline: none; }
+.pg-architecture .nd-hit { fill: transparent; }
 .pg-architecture .nd-bg { fill: var(--panel); stroke: var(--line); stroke-width: 1.2; }
 .pg-architecture .nd-ph { fill: var(--panel-2); }
-.pg-architecture .nd-name { fill: var(--ink); font-weight: 600; }
-.pg-architecture .nd-model { fill: var(--muted); font-size: 9.5px; }
-.pg-architecture .nd-dot { stroke: var(--panel); stroke-width: 1.5; fill: var(--stone); }
+.pg-architecture .nd-ring { fill: none; stroke: transparent; stroke-width: 2.6; }
+.pg-architecture .nd-a:hover .nd-ring { stroke: var(--primary); }
+.pg-architecture .nd-a.is-hl .nd-ring { stroke: var(--primary); stroke-opacity: .5; stroke-width: 2; }
+.pg-architecture .nd-a:focus-visible .nd-ring, .pg-architecture .nd-a:focus-visible.is-hl .nd-ring { stroke: var(--primary); stroke-opacity: 1; stroke-width: 3.6; }
+.pg-architecture .nd-led-ring { fill: var(--ar-panel); stroke: var(--ar-edge); stroke-width: 1; }
+.pg-architecture .nd-dot { fill: var(--stone); }
+.pg-architecture .nd-tile .nd-dot { stroke: var(--ar-rack-in); stroke-width: .8; }
+.pg-architecture .nd-chip .nd-dot { stroke: var(--panel); stroke-width: 1.4; }
 .pg-architecture .st-up .nd-dot { fill: var(--ok); }
 .pg-architecture .st-down .nd-dot { fill: var(--crit); }
-.pg-architecture .st-down.nd .nd-bg { stroke: var(--crit); stroke-width: 1.8; }
 .pg-architecture .st-unknown .nd-dot { fill: var(--stone); }
-.pg-architecture .st-disabled .nd-dot { fill: var(--panel); stroke: var(--stone-2); stroke-width: 1.8; }
+.pg-architecture .st-disabled .nd-dot { fill: var(--ar-panel); stroke: var(--stone); stroke-width: 1.4; }
+.pg-architecture .nd-tag { fill: var(--panel); stroke: var(--line); stroke-width: 1.2; }
+.pg-architecture .st-up .nd-tag { stroke: var(--ok); }
+.pg-architecture .st-down .nd-tag { fill: var(--crit); stroke: var(--crit); }
+.pg-architecture .st-disabled .nd-tag { stroke-dasharray: 3 2.5; }
+.pg-architecture .nd-name { fill: var(--ink); font-weight: 700; }
+.pg-architecture .st-down .nd-tag ~ .nd-name { fill: var(--on-solid); }
+.pg-architecture .nd-model { fill: var(--muted); font-size: 10px; }
+.pg-architecture .nd-chip.st-down .nd-bg { stroke: var(--crit); stroke-width: 1.8; }
 .pg-architecture .nd-a:hover .nd-bg, .pg-architecture .nd-a.is-hl .nd-bg { stroke: var(--primary); }
-.pg-architecture .nd-a:focus-visible .nd-bg { stroke: var(--primary); stroke-width: 3; }
-.pg-architecture .nd-chip .nd-name { font-weight: 600; }
-.pg-architecture .nd-inf circle { fill: var(--warn-bg); stroke: var(--warn); stroke-width: 1.2; }
-.pg-architecture .nd-inf text { fill: var(--warn-ink); font-size: 9px; font-weight: 700; }
-.pg-architecture .arch-art .a-body { fill: var(--panel-3); stroke: var(--ink-2); stroke-width: 1.6; }
-.pg-architecture .arch-art .a-dim { fill: var(--line); stroke: none; }
-.pg-architecture .arch-art .a-line, .pg-architecture .arch-art .a-ring { fill: none; stroke: var(--ink-2); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.pg-architecture .arch-art .a-led { fill: var(--muted); }
-.pg-architecture .arch-art .a-led.a-on, .pg-architecture .arch-art .a-bolt { fill: var(--brand); }
+.pg-architecture .nd-inf circle { fill: var(--warn-bg); stroke: var(--warn); stroke-width: 1.3; }
+.pg-architecture .nd-inf text { fill: var(--warn-ink); font-size: 10px; font-weight: 700; }
 
-/* server group cards: one colour per group */
+/* generated faces. These rules are not under .pg-architecture on purpose: the faces are <symbol>s drawn through <use>, and a
+   selector cannot reach across the use boundary to an ancestor. The fc- prefix keeps them to this drawing; the colours are
+   custom properties, which do inherit into the used instance. */
+.fc-body { fill: var(--ar-chassis); stroke: var(--ar-edge); stroke-width: 1; }
+.fc-body-r { fill: var(--ar-rt-body); }
+.fc-sheen { fill: var(--ar-sheen); }
+.fc-ear { fill: var(--ar-ear); }
+.fc-screw { fill: var(--ar-panel); }
+.fc-panel { fill: var(--ar-panel); }
+.fc-port { fill: var(--ar-port); }
+.fc-port-in { fill: var(--ar-port-in); }
+.fc-cage { fill: var(--ar-cage); }
+.fc-cage-in { fill: var(--ar-cage-in); }
+.fc-mark { fill: var(--ar-mark); font-family: var(--font); font-weight: 700; letter-spacing: .06em; }
+.fc-model { fill: var(--ar-model); font-family: var(--font); }
+.fc-model-dark { fill: var(--muted); font-family: var(--font); font-weight: 600; }
+.fc-led { fill: var(--ar-led); }
+.fc-led2 { fill: var(--ar-led2); }
+.fc-plate-fw { fill: var(--ar-fw); stroke: var(--ar-panel); stroke-width: 1; }
+.fc-brick { fill: none; stroke: var(--ar-fw-ink); stroke-width: 1.4; stroke-linecap: round; }
+.fc-plate-rt { fill: var(--ar-rt); }
+.fc-ring { fill: none; stroke: var(--ar-mark); stroke-width: 1.4; opacity: .85; }
+.fc-arrow { fill: none; stroke: var(--ar-mark); stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; }
+.fc-plate-lb { fill: var(--ar-lb); stroke: var(--ar-panel); stroke-width: 1; }
+.fc-bay { fill: var(--ar-bay); }
+.fc-bay-led { fill: var(--ar-led); }
+.fc-lcd { fill: var(--ar-lcd); opacity: .92; }
+.fc-button { fill: var(--ar-panel); stroke: var(--ar-port); stroke-width: .9; }
+.fc-vent { fill: none; stroke: var(--ar-vent); stroke-width: 2.4; stroke-linecap: round; }
+.fc-ap { fill: var(--ar-unit); stroke: var(--ar-unit-edge); stroke-width: 1; }
+.fc-ap-top { fill: var(--ar-port); }
+.fc-wave { fill: none; stroke: var(--ar-link); stroke-width: 2.6; stroke-linecap: round; }
+.fc-u { fill: var(--ar-unit); stroke: var(--ar-unit-edge); stroke-width: .8; }
+.fc-virt { stroke-dasharray: 2.6 1.6; }
+
+/* server group cards: one colour per group, a rack cabinet, a solid name pill under it */
 .pg-architecture .gc-orange { --gc: var(--warn); --gc-bg: var(--warn-bg); --gc-line: var(--warn-line); }
 .pg-architecture .gc-green { --gc: var(--ok); --gc-bg: var(--ok-bg); --gc-line: var(--ok-line); }
 .pg-architecture .gc-blue { --gc: var(--info); --gc-bg: var(--info-bg); --gc-line: var(--info-line); }
@@ -131,35 +239,51 @@
 .pg-architecture .gc-stone { --gc: var(--stone); --gc-bg: var(--mute-bg); --gc-line: var(--mute-line); }
 .pg-architecture .card-bg { fill: var(--gc-bg); stroke: var(--gc-line); stroke-width: 1.4; }
 .pg-architecture .card-pill { fill: var(--gc); }
-.pg-architecture .card-title { fill: var(--on-solid); font-size: 14px; font-weight: 700; }
-.pg-architecture .card-count { fill: var(--ink-2); font-size: 11.5px; }
-.pg-architecture .rack-line { fill: var(--ink-2); font-size: 10.5px; }
+.pg-architecture .card-title { fill: var(--on-solid); font-size: 15px; font-weight: 700; }
+.pg-architecture .card-count { fill: var(--ink-2); font-size: 12px; }
+.pg-architecture .rack-line { fill: var(--ink-2); font-size: 11px; }
 .pg-architecture a.rack-line text, .pg-architecture a.rack-line { fill: var(--ink-2); text-decoration: underline; }
-.pg-architecture .tile-more rect { fill: var(--panel); stroke: var(--gc); stroke-dasharray: 4 3; }
-.pg-architecture .tile-more text { fill: var(--ink); font-size: 11px; font-weight: 600; }
+.pg-architecture .rk-frame { fill: var(--ar-rack); stroke: var(--ar-rack-edge); stroke-width: 1.4; }
+.pg-architecture .rk-cap { fill: var(--ar-rack-cap); }
+.pg-architecture .rk-gland { fill: var(--gc); opacity: .9; }
+.pg-architecture .rk-in { fill: var(--ar-rack-in); }
+.pg-architecture .rk-blank { fill: var(--ar-rack-cap); opacity: .55; }
+.pg-architecture .rk-tick { fill: none; stroke: var(--ar-tick); stroke-width: 1; }
+.pg-architecture .rk-trunk { fill: none; stroke: var(--gc); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.pg-architecture .rk-foot { fill: var(--ar-rack-edge); }
+.pg-architecture .tile-more rect { fill: var(--ar-rack-in); stroke: var(--gc); stroke-dasharray: 3 2; }
+.pg-architecture .tile-more text { fill: var(--ar-mark); font-size: 8.4px; font-weight: 700; }
+.pg-architecture .tile-more { cursor: pointer; }
 .pg-architecture .agg path { fill: var(--info-bg); stroke: var(--info-line); }
+.pg-architecture .agg-grp path { fill: var(--gc); fill-opacity: .13; stroke: var(--gc); stroke-opacity: .5; }
+.pg-architecture .agg-grp text { font-size: 12px; }
 .pg-architecture .agg text { fill: var(--ink); font-size: 13px; font-weight: 700; paint-order: stroke; stroke: var(--panel); stroke-width: 4px; }
 
-/* links: healthy ones take the fabric / health / utilisation colour, a down end is always red, unknown always muted */
-.pg-architecture .lk { --lc: var(--info); }
+/* links: straight lines in one strong blue; a down end is always red, unknown always muted */
+.pg-architecture .lk { --lc: var(--ar-link); }
 .pg-architecture .lk.gc-orange, .pg-architecture .lk.gc-green, .pg-architecture .lk.gc-blue, .pg-architecture .lk.gc-red,
 .pg-architecture .lk.gc-purple, .pg-architecture .lk.gc-teal, .pg-architecture .lk.gc-stone { --lc: var(--gc); }
 .pg-architecture .lc-health .lk { --lc: var(--ok); }
-.pg-architecture .lc-util .lk { --lc: var(--info); }
+.pg-architecture .lc-util .lk { --lc: var(--ar-link); }
 .pg-architecture .lc-util .lk.ut-ok { --lc: var(--ok); }
 .pg-architecture .lc-util .lk.ut-warn { --lc: var(--warn); }
 .pg-architecture .lc-util .lk.ut-crit { --lc: var(--crit); }
-.pg-architecture .lk-line { fill: none; stroke: var(--lc); stroke-width: var(--lw, 1.7); stroke-linecap: round; }
-.pg-architecture .lk.st-down .lk-line { stroke: var(--crit); stroke-width: max(var(--lw, 1.7), 2.4px); }
+.pg-architecture .lk-line { fill: none; stroke: var(--lc); stroke-width: var(--lw, 1.8); stroke-linecap: round; stroke-linejoin: round; stroke-opacity: .8; }
+.pg-architecture .lk-bundle .lk-line { stroke-width: max(var(--lw, 1.6px), 2.1px); stroke-opacity: .95; }
+.pg-architecture .ar-dense .lk-line { stroke-width: 1.2px; stroke-opacity: .55; }
+.pg-architecture .ar-dense .lk-bundle .lk-line { stroke-width: 1.3px; stroke-opacity: .6; }
+.pg-architecture .lk.st-down .lk-line { stroke: var(--crit); stroke-width: max(var(--lw, 1.6px), 2.4px); stroke-opacity: 1; }
 .pg-architecture .lk.st-unknown .lk-line { stroke: var(--stone); }
+.pg-architecture .lc-fabric .lk.st-unknown .lk-line, .pg-architecture .lc-fabric .lk.st-up .lk-line { stroke: var(--lc); }
+.pg-architecture .lc-fabric .lk.st-down .lk-line { stroke: var(--crit); }
 .pg-architecture .lk.unconf .lk-line { stroke-dasharray: 7 5; }
-.pg-architecture .lk-sym .lk-line { stroke: var(--line); stroke-width: 1.6; stroke-dasharray: 3 5; }
+.pg-architecture .lk-sym .lk-line { stroke: var(--ar-link); stroke-width: 1.8; stroke-opacity: .6; stroke-dasharray: none; }
 .pg-architecture .lk-hit { fill: none; stroke: transparent; stroke-width: 12; pointer-events: stroke; cursor: pointer; }
-.pg-architecture .lk.is-sel .lk-line { stroke-width: 3.6; }
+.pg-architecture .lk.is-sel .lk-line { stroke-width: 3.6; stroke-opacity: 1; }
 .pg-architecture .lk.lazy { display: none; }
 .pg-architecture .has-hl .lk.lazy.is-hl { display: inline; }
 .pg-architecture .has-hl .lk:not(.is-hl):not(.is-sel) { opacity: .1; }
-.pg-architecture .has-hl .lk.is-hl .lk-line { stroke-width: max(var(--lw, 1.7), 2.6px); }
+.pg-architecture .has-hl .lk.is-hl .lk-line { stroke-width: max(var(--lw, 1.6px), 2.8px); stroke-opacity: 1; }
 .pg-architecture .has-hl .nd-a:not(.is-hl) { opacity: .3; }
 
 /* tooltip and side panel */

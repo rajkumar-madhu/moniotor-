@@ -3,7 +3,7 @@
 {% block page_css %}<link rel="stylesheet" href="{% static 'architecture/page.css' %}">{% endblock %}
 {% block crumbs %}{% include "architecture/_crumbs.html" with leaf="Data Center Architecture" %}{% endblock %}
 {% block content %}
-<div class="pg-architecture">
+<div class="pg-architecture{% if f.present and not empty and f.view == 'diagram' %} ar-present{% endif %}" id="ar-page">
 <div class="head">
   <div class="glyph">{% icon "network" 30 %}</div>
   <div><h1>Data Center Architecture</h1><p>The fabric as it is wired: tiers, links and server groups drawn from your devices, links and racks{% if f.site %} at {{ f.site }}{% endif %}.</p></div>
@@ -18,6 +18,7 @@
 <form class="toolbar compact ar-toolbar" method="get" aria-label="Filter the drawing">
   <input type="hidden" name="view" value="{% if f.view != 'diagram' %}{{ f.view }}{% endif %}">
   {% if f.lc != "fabric" %}<input type="hidden" name="lc" value="{{ f.lc }}">{% endif %}
+  {% if f.present %}<input type="hidden" name="present" value="1">{% endif %}
   {% if not f.live %}<input type="hidden" name="live" value="0">{% endif %}
   <select name="site" data-autosubmit aria-label="Site"><option value="">All sites</option>{% for s in sites %}<option{% if f.site == s %} selected{% endif %}>{{ s }}</option>{% endfor %}</select>
   <select name="env" data-autosubmit aria-label="Environment"><option value="">All environments</option>{% for v, l in envs %}<option value="{{ v }}"{% if f.env == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>

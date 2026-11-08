@@ -61,12 +61,38 @@ To override: open a device in **List view → Change placement** (or `/network/a
 
 ## The drawing
 
-* Tiers are horizontal bands, top to bottom; devices inside a tier are ordered by the barycentre of their neighbours
+* **Bands.** Tiers are horizontal bands, top to bottom (Internet / WAN cloud and routers, Firewalls, Core / Border, Spine, Leaf,
+  server groups), each softly tinted with a solid label pill on its top-left edge (spine blue, leaf green, firewalls red,
+  core purple). The page card starts with a header strip: the title, the site, and the live summary (devices up / down /
+  unknown, links up / down, when it was last refreshed).
+* **Devices are photo-first.** A device is a large face (about 170 x 64 on the page; routers a little smaller) with its name
+  and model under it. The face is the stored photo (`network.DeviceImage`) when the device has one, otherwise a generated
+  front panel from `architecture/faces.py`: a switch with its port grid (RJ45 / SFP / QSFP guessed from the model string:
+  `9336C` = 36 QSFP, `93180YC` = 48 SFP + 6 QSFP, `9500-48Y4C`, `6300M 48`, otherwise 24 + 4), vendor name and model as plain
+  text, LEDs; a firewall with a brick-wall plate; a router with a plate of converging arrows; servers, storage arrays,
+  load balancers, access points. They are original vector drawings (no logos, no raster), built once per distinct
+  vendor / model as an SVG `<symbol>` and drawn with `<use>`, so 48 ports are one path, not 48 elements per device. Drawings
+  of more than about 60 faces use a simplified face (no text, no port detail). Only the **LED** on the face and the **label
+  chip** under it carry the device state (green up, red down, grey unknown, hollow = monitoring disabled).
+* **Links are straight.** Every link is a straight line in one strong blue (Fabric mode) from under the upper device to the
+  top edge of the lower one. Each link has its own attachment point along the edge, spread evenly and ordered by the position
+  of the other end, so a 4 x 4 spine-leaf mesh reads as a lattice. Only a link over a neighbour inside one tier is an arc. A
+  big drawing (more than 120 strokes) draws them thinner and fainter.
+* **Server groups are rack cabinets.** Each group is a tinted card holding a black cabinet with the group's servers as 1U / 2U
+  faces (a storage array and models such as PowerEdge R7xx / DL380 are 2U), the cables as one stroke per real link in the
+  group colour running from the leaf straight down into the cabinet's top, a solid name pill under it, a count line
+  (servers, up, down) and the racks (linked to the DCIM rack page, with U used and power). When the number of leaves equals the
+  number of cabled groups, **leaf i sits directly above group i** and its bundle is vertical; otherwise the groups are spread
+  evenly under the leaf row. A closed group shows up to about 14 units and a "+N more" strip; opening it draws every server,
+  in several cabinets side by side.
+* **Unclassified devices** are not drawn as a band: they are listed in a slim collapsed strip under the diagram ("2 unclassified
+  devices: set a placement") with a link to each placement form.
+* **Presentation mode** (the button in the strip, or `?present=1`) hides the page chrome (title, tabs, filters, KPI cards) and
+  makes the drawing fill the screen, fitted to its height (*Fill width* scrolls instead); Esc leaves. It is meant for
+  screenshots and wall displays; the live refresh keeps running.
+* Ordering: devices inside a tier are ordered by the barycentre of their neighbours
   (four sweeps, ties by name) to cut crossings; the drawing never depends on the order the database returns rows in, and
-  a placement's sort order only decides between devices whose neighbours give no better position. Spine–leaf is drawn as a full mesh of curves, each link on its own
-  attachment slot. Server groups are rounded cards with the group's colour, device count, up / down counts, tiles for the
-  servers, and the racks (linked to the DCIM rack page, with U used and power); between a leaf and a group the real links are
-  drawn as parallel strokes, **one stroke per link** (the count is the real link count).
+  a placement's sort order only decides between devices whose neighbours give no better position.
 * **Colours.** Device dot: green up, red down, grey unknown, hollow ring "monitoring disabled" (from `Device.status` and
   `enabled`). Link: both ends up (or both ports reporting up) = healthy; an end down, or a port oper-down = red; otherwise
   grey (unknown); dashed = found by LLDP, not confirmed. The *Fabric / Health / Utilisation* switch (`?lc=`) chooses how
@@ -86,19 +112,23 @@ To override: open a device in **List view → Change placement** (or `/network/a
   page still renders and link states come from device status only.
 * **Accessibility.** Every node is a link with an `aria-label` (name, type, state), the SVG has `<title>` and `<desc>`, focus
   shows a ring, and the **List view** tab shows the same tiers as tables. At phone width the SVG scrolls inside its own box.
-* **Download SVG** saves a standalone file with the theme colours resolved and the photos embedded.
+* **Download SVG** saves a standalone file with a title block, the theme colours resolved, and the faces and photos embedded.
 * Filters: `?site=`, `?env=`; state is kept in the URL (`view`, `lc`, `live`, `expand`).
 
 ## Limits
 
 * A tier of more than **24 devices** is drawn as compact chips (a note says so; nothing is dropped) and *Open* draws it at
   full size (`?expand=leaf`). More than **300** links between two tiers are drawn only for the hovered device, with a ribbon
-  showing the count for the rest. A server group shows at most five rows of tiles with a "+N more" tile (`?expand=<group>`; an opened group of more than 30 servers takes a full-width row);
+  showing the count for the rest (the ribbon fills only the gap between the two bands). When a leaf row feeds more than **60** server strokes,
+  each group's strokes become one tinted ribbon in the group colour with its link count, and the strokes show on hover. A closed server group shows at most 14 rack units with a "+N more" strip (`?expand=<group>` draws every server, 24 units per cabinet, cabinets side by side on a row of their own);
   more than 16 links in one leaf-to-group bundle are counted but not all drawn. Server-to-server links are counted, not drawn.
 * The layout is computed per request: under 200 ms for 8 spines × 32 leaves and under 1 s for 16 × 48 (tests assert it).
   The page runs one query per model (devices, placements, rack items and their racks' items / feeds, links, interfaces).
-* More than four server groups wrap into rows; bundles to a lower row pass behind the cards above it.
+* Up to six server groups share a row; the cabled groups stay on the first row (under the leaves) and the rest wrap below.
 * The cloud and the lines from it to the WAN routers are symbolic.
+* `?expand=` takes at most 40 names. A fabric of a few thousand devices and several thousand links still renders (about 6 MB of
+  page and 1.4 s for 2,400 devices and 6,600 links) but is far beyond what a drawing can show: filter by site or environment.
+* The CSV import checks a file with one query per 500 devices it names, not one per row, so a 5,000 row file validates quickly.
 
 ## Links: list, forms, CSV
 

@@ -135,7 +135,7 @@ class PageTests(Base):
         html = self.get(self.viewer).content.decode()
         self.assertIn(img.url, html)
         self.assertNotIn("vendor.example", html)
-        self.assertIn('class="arch-art"', html)         # the other devices fall back to illustrations
+        self.assertIn('class="nd-face" href="#fc-f-switch-', html)        # the other devices draw their generated face
 
     def test_login_required(self):
         self.client.logout()
@@ -193,7 +193,7 @@ class LiveTests(Base):
         self.assertEqual(set(j["links"][str(self.l1.pk)]), {"state", "util", "tone", "oper_a", "oper_b", "rate_a", "rate_b"})
         self.assertEqual(j["links"][str(self.l1.pk)]["state"], "up")
         self.assertEqual(j["links"][str(self.l2.pk)]["state"], "unknown")
-        self.assertEqual(set(j["summary"]), {"devices_down", "links_up", "links_down", "links_unknown", "links", "devices", "over"})
+        self.assertEqual(set(j["summary"]), {"devices_down", "devices_up", "devices_unknown", "links_up", "links_down", "links_unknown", "links", "devices", "over"})
         self.assertEqual(j["prometheus"]["state"], "off")
 
     def test_scoped_to_the_user(self):

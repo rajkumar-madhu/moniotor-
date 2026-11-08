@@ -9,18 +9,20 @@ from django.db.models import Q
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.safestring import mark_safe
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_http_methods, require_POST
 
 from core.access import can, require
 from core.audit import audit
 
-from . import csvio, example, lldp, services
+from . import csvio, example, faces, layout, lldp, services
 from . import tiers as tr
 from .forms import ImportForm, LinkForm, PlacementForm, duplicate_of
 from .models import Link, Medium, Origin, Placement
 
 IMPORT_TTL = 15 * 60
+DENSE_PATHS = 120                 # more strokes than this are drawn thinner and fainter
 MAX_BULK = 500
 
 
@@ -62,13 +64,15 @@ def _query(request, drop=(), **set_):
 
 def _filters(request):
     g = request.GET
-    expand = frozenset(x.strip()[:80] for x in g.get("expand", "").split(",") if x.strip())
+    # at most 40 opened tiers / groups: every link on the page repeats this list in its query string
+    expand = frozenset([x.strip()[:80] for x in g.get("expand", "")[:4000].split(",") if x.strip()][:40])
     return {
         "site": services.clean_site(request.user, g.get("site")),
         "env": g.get("env") if g.get("env") in ("prod", "uat", "dr", "dev") else "",
         "view": g.get("view") if g.get("view") in ("diagram", "list") else "diagram",
         "lc": g.get("lc") if g.get("lc") in ("fabric", "health", "util") else "fabric",
         "live": g.get("live") != "0",
+        "present": g.get("present") == "1",
         "expand": expand,
     }
 
@@ -118,15 +122,43 @@ def _group_card(card, fb, nodes):
     more = None
     if card.more:
         x, y, w, h = card.more
-        more = {"x": x, "y": y, "w": w, "h": h, "cx": round(x + w / 2, 1), "cy": round(y + h / 2 + 4, 1)}
+        more = {"x": x, "y": y, "w": w, "h": h, "cx": round(x + w / 2, 1), "cy": round(y + h / 2 + 3.4, 1)}
+    tiles = [nodes[t[0]] for t in card.tiles]
+    cabs = []
+    for cab in card.cabs:
+        inside = [t for t in card.tiles if cab.x <= t[1] < cab.x + cab.w and cab.body_y <= t[2] < cab.body_y + cab.body_h]
+        tx = round(cab.x + cab.w - 9.5, 1)
+        trunk = ""
+        mids = [round(t[2] + t[4] / 2, 1) for t in inside]
+        if card.more and cab.x <= card.more[0] < cab.x + cab.w and cab.body_y <= card.more[1] < cab.body_y + cab.body_h:
+            mids.append(round(card.more[1] + card.more[3] / 2, 1))
+        if mids:
+            trunk = f"M{tx} {round(cab.body_y + 2, 1)}V{max(mids)}" + "".join(f"M{round(cab.x + layout.CAB_PAD_X + layout.UNIT_W, 1)} {m}H{tx}" for m in mids)
+        sh = layout.SLOT_H[1]
+        end = cab.body_y + layout.CAB_PAD_Y
+        for t in inside:
+            end = max(end, t[2] + (layout.SLOT_H[2] if t[5] == "face2" else sh))
+        if card.more and cab.x <= card.more[0] < cab.x + cab.w and cab.body_y <= card.more[1] < cab.body_y + cab.body_h:
+            end = max(end, card.more[1] + sh)
+        room = cab.body_y + cab.body_h - layout.CAB_PAD_Y
+        blanks = "".join(f"M{round(cab.x + layout.CAB_PAD_X, 1)} {round(end + i * sh + 1, 1)}h{layout.UNIT_W}v{round(sh - 2, 1)}h-{layout.UNIT_W}z"
+                         for i in range(int((room - end + 0.5) // sh)))
+        units = int((cab.body_h - 2 * layout.CAB_PAD_Y) // sh)
+        ticks = "".join(f"M{round(cab.x + 3.5, 1)} {round(cab.body_y + layout.CAB_PAD_Y + (i + .5) * sh, 1)}h2.5M{round(cab.x + cab.w - 6, 1)} {round(cab.body_y + layout.CAB_PAD_Y + (i + .5) * sh, 1)}h2.5"
+                        for i in range(units))
+        cabs.append({"x": cab.x, "y": cab.y, "w": cab.w, "h": cab.h, "body_y": cab.body_y, "body_h": cab.body_h,
+                     "blanks": blanks, "in_x": round(cab.x + 4.5, 1), "in_w": round(cab.w - 9, 1), "trunk": trunk, "ticks": ticks,
+                     "cap_h": layout.CAB_TOP, "foot_y": round(cab.y + cab.h - 3, 1), "foot2_x": round(cab.x + cab.w - 24, 1),
+                     "gland_x": round(cab.x + cab.w / 2 - 32, 1), "cx": round(cab.x + cab.w / 2, 1)})
+    pill_w = round(min(card.w - 24, services._cells_len(card.label) * 7.6 + 30), 1)
     return {
         "key": card.key, "label": card.label, "colour": card.colour, "x": card.x, "y": card.y, "w": card.w, "h": card.h,
-        "count": len(members), "up": states.count("up"), "down": states.count("down"),
+        "cx": round(card.x + card.w / 2, 1), "count": len(members), "up": states.count("up"), "down": states.count("down"),
         "unknown": states.count("unknown") + states.count("disabled"),
-        "tiles": [nodes[t[0]] for t in card.tiles], "hidden": card.hidden, "more": more, "foot_y": card.foot_y,
-        "racks": lines,
-        "label_fit": services._clip(card.label, int((card.w - 24 - 26) / 7.6)),
-        "pill_w": round(min(card.w - 24, services._cells_len(card.label) * 7.6 + 26), 1),
+        "tiles": tiles, "hidden": card.hidden, "more": more, "foot_y": card.foot_y, "cabs": cabs,
+        "racks": lines, "pill_y": card.pill_y, "text_y": round(card.pill_y + 18.6, 1), "count_y": card.count_y,
+        "label_fit": services._clip(card.label, int((card.w - 24 - 30) / 7.6)), "pill_w": pill_w,
+        "pill_x": round(card.x + card.w / 2 - pill_w / 2, 1),
         "count_text": f"{len(members)} server{'s' if len(members) != 1 else ''} · {states.count('up')} up · {states.count('down')} down",
     }
 
@@ -148,23 +180,28 @@ def overview(request):
     if f["view"] == "list":
         return render(request, "architecture/overview.html", {**base, "tables": _tables(request, fb)})
     res = services.diagram(fb, f["expand"])
-    nodes = {str(d.pk): services.node_view(d, fb, res.nodes[str(d.pk)]) for d in fb.devices}
+    fset = faces.FaceSet(services.face_detail(res))
+    nodes = {str(d.pk): services.node_view(d, fb, res.nodes[str(d.pk)], fset) for d in fb.devices if str(d.pk) in res.nodes}
     links = {l["key"]: l for l in fb.links}
     group_colour = {c.key: c.colour for c in res.cards}
-    tile_ids = {t[0] for c in res.cards for t in c.tiles}
     loose = [n for i, n in nodes.items() if res.nodes[i].tier != "server" and res.nodes[i].mode != "hidden"]
     paths = [{"key": p.key, "d": p.d, "kind": p.kind, "lazy": p.lazy, "cls": _path_class(p, links, group_colour),
               "hit": p.kind != "sym" and not p.lazy, "lw": (round(1.6 + 2.6 * (links[p.key]["util"] or 0) / 100, 2)
                                                               if p.key in links and links[p.key]["util"] is not None else "")}
              for p in res.paths]
+    card_views = [_group_card(c, fb, nodes) for c in res.cards]
+    unclassified = [{"d": d, "edit": reverse("architecture:placement_edit", args=[d.pk]) if services.can_manage_device(request.user, d) else "",
+                     "state": services.dev_state(d)} for d in fb.devices if fb.placed[d.pk].tier == tr.OTHER]
     base.update({
-        "res": res, "bands": [{"b": b, "tone": TIER_TONE[b.tier], "tag": f"{b.label} · {b.count}", "tag_w": round(len(b.label) * 7.4 + 54, 1), "expand_q": _query(request, ["expand"], expand=",".join(sorted(f["expand"] | {b.tier}))).urlencode()}
+        "res": res, "bands": [{"b": b, "tone": TIER_TONE[b.tier], "tag": f"{b.label} · {b.count}", "tag_w": round(len(b.label) * 7.6 + 56, 1), "expand_q": _query(request, ["expand"], expand=",".join(sorted(f["expand"] | {b.tier}))).urlencode()}
                               for b in res.bands],
-        "nodes": loose, "cards": [_group_card(c, fb, nodes) for c in res.cards], "paths": paths, "aggs": res.aggregates,
+        "nodes": loose, "cards": card_views, "paths": paths, "aggs": res.aggregates, "face_defs": mark_safe(fset.defs()), "dense": len(res.paths) > DENSE_PATHS,
         "notes": res.notes, "cloud": res.cloud, "data": services.page_data(fb), "ignored": res.ignored,
         "expand_group_q": {c.key: _query(request, ["expand"], expand=",".join(sorted(f["expand"] | {c.key}))).urlencode() for c in res.cards},
-        "collapse_q": _query(request, ["expand"]).urlencode(), "tile_count": len(tile_ids),
-        "conf": {"liveUrl": reverse("architecture:live"), "query": _query(request, ["view", "lc", "live", "expand"]).urlencode(),
+        "collapse_q": _query(request, ["expand"]).urlencode(), "unclassified": unclassified[:40], "unclassified_total": len(unclassified), "unclassified_more": max(0, len(unclassified) - 40),
+        "q_present": _query(request, ["present"], present="" if f["present"] else "1").urlencode(),
+        "site_label": f["site"] or "All sites", "generated": fb.now,
+        "conf": {"liveUrl": reverse("architecture:live"), "query": _query(request, ["view", "lc", "live", "expand", "present"]).urlencode(),
                  "live": f["live"], "interval": 30},
     })
     return render(request, "architecture/overview.html", base)
