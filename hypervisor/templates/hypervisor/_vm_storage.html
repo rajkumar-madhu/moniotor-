@@ -1,0 +1,24 @@
+{% load le static %}
+<div class="hv" id="hv-root" data-hv-kind="vm">
+{% include "hypervisor/_vm_banner.html" %}
+<section class="panel">
+  <div class="panel-h"><h2>Virtual disks</h2><span class="right hv-src"><i class="hv-dot {{ hv.status.code }}" aria-hidden="true"></i>vCenter API · synced <span data-hv="synced_ago">{{ hv.status.synced_ago }}</span>{% if hv.disk_total %} · {{ hv.disk_total }} provisioned{% endif %}</span></div>
+  {% if hv.disks %}
+  <div class="table-wrap"><table class="hv-table wide"><thead><tr><th>Disk</th><th>Type</th><th class="num">Capacity</th><th>Datastore</th><th>File</th></tr></thead><tbody>
+    {% for d in hv.disks %}<tr><td>{{ d.label|default:d.id }}</td><td>{{ d.type|default:"–" }}</td><td class="num">{{ d.size|default:"–" }}</td><td>{{ d.datastore|default:"–" }}</td><td class="mono hv-wrap">{{ d.file|default:"–" }}</td></tr>{% endfor %}
+  </tbody></table></div>
+  {% else %}<div class="nw-empty sm">{% icon "hdd" 24 %}<p>{% if hv.detail_known %}vCenter reports no virtual disks for this VM.{% else %}Disk details are read on the next sync pass (details are fetched a batch of VMs at a time).{% endif %}</p></div>{% endif %}
+</section>
+<section class="panel">
+  <div class="panel-h"><h2>Datastores used</h2><a class="right view-all" href="{% url 'hypervisor:datastores' %}">All datastores {% icon "arrow-right" 14 %}</a></div>
+  {% if hv.datastores %}
+  <div class="table-wrap"><table class="hv-table wide"><thead><tr><th>Datastore</th><th>Type</th><th class="num">Capacity</th><th>Used</th><th class="num">Free</th><th>Status</th></tr></thead><tbody>
+    {% for ds in hv.datastores %}{% if ds.known %}<tr><td>{{ ds.name }}</td><td>{{ ds.type|default:"–" }}</td><td class="num">{{ ds.capacity|default:"–" }}</td>
+      <td>{% if ds.used_pct is not None %}<div class="hv-meter"><div class="hv-bar" aria-hidden="true"><i class="{{ ds.tone }}" style="width:{{ ds.used_pct }}%"></i></div><span>{{ ds.used }} ({{ ds.used_pct }}%)</span></div>{% else %}–{% endif %}</td>
+      <td class="num">{{ ds.free|default:"–" }}</td><td><span class="chip {{ ds.tone }}">{{ ds.status }}</span></td></tr>
+    {% else %}<tr><td>{{ ds.name }}</td><td colspan="5" class="t-mute">Not in the datastore list yet</td></tr>{% endif %}{% endfor %}
+  </tbody></table></div>
+  {% else %}<div class="nw-empty sm">{% icon "hdd" 24 %}<p>vCenter has not reported a datastore for this VM yet.</p></div>{% endif %}
+</section>
+</div>
+<script src="{% static 'hypervisor/live.js' %}" defer></script>

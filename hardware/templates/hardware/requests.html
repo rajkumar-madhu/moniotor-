@@ -1,0 +1,30 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}Control requests{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'hardware/page.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'hardware:endpoints' %}">BMC endpoints</a>{% icon "chevron-right" 14 %}<span>Control requests</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-hw">
+<div class="head"><div class="glyph">{% icon "clipboard" 30 %}</div><div><h1>Control requests</h1><p>Power and firmware requests are <b>records</b>. Approving one records the decision and shows the manual step; LinkedEye never sends anything to a BMC.</p></div></div>
+<nav class="tabs hw-states" aria-label="State"><a href="?state=pending" class="{% if state == 'pending' %}on{% endif %}">Pending</a><a href="?state=approved" class="{% if state == 'approved' %}on{% endif %}">Approved</a><a href="?state=rejected" class="{% if state == 'rejected' %}on{% endif %}">Rejected</a><a href="?state=expired" class="{% if state == 'expired' %}on{% endif %}">Expired</a><a href="?state=all" class="{% if state == 'all' %}on{% endif %}">All</a></nav>
+<section class="panel">
+  {% if rows %}
+  <div class="table-wrap"><table><thead><tr><th>Requested</th><th>Server</th><th>Action</th><th>Reason</th><th>By</th><th>State</th><th>Decision</th></tr></thead>
+    <tbody>{% for row in rows %}{% with r=row.r %}<tr>
+      <td class="hw-time">{{ r.requested_at|date:"Y-m-d H:i" }}</td>
+      <td><a href="{% url 'network:detail' r.endpoint.device_id %}?tab=hardware">{{ r.endpoint.device.name }}</a></td>
+      <td>{{ r.action_label }}</td><td class="hw-msg">{{ r.reason }}</td><td>{{ r.requested_by_name|default:"–" }}</td>
+      <td><span class="chip {% if r.state == 'approved' %}ok{% elif r.state == 'rejected' %}crit{% elif r.state == 'pending' %}warn{% else %}mute{% endif %}">{{ r.get_state_display }}</span></td>
+      <td>
+        {% if row.can_decide %}
+        <form method="post" action="{% url 'hardware:request_decide' r.pk %}" class="hw-decide">{% csrf_token %}
+          <label class="sr" for="note-{{ r.pk }}">Note</label><input id="note-{{ r.pk }}" name="note" maxlength="300" placeholder="Note (optional)">
+          <button class="btn sm primary" name="decision" value="approve" type="submit">Approve</button><button class="btn sm" name="decision" value="reject" type="submit">Reject</button></form>
+        {% elif r.state == 'approved' or r.state == 'rejected' %}<span class="small">{{ r.decided_by_name }} · {{ r.decided_at|date:"Y-m-d H:i" }}{% if r.decision_note %}<br>{{ r.decision_note }}{% endif %}</span>
+        {% else %}<span class="t-mute small">–</span>{% endif %}
+        {% if r.state == 'approved' %}<div class="hw-manual small t-mute">{% icon "info" 14 %}<span>{{ row.steps }}</span></div>{% endif %}
+      </td></tr>{% endwith %}{% endfor %}</tbody></table></div>
+  {% include "core/_pager.html" %}
+  {% else %}<div class="hw-empty">{% icon "clipboard" 30 %}<h2>No requests</h2><p>Nothing in this state. Requests are made from the Hardware tab of a server.</p></div>{% endif %}
+</section>
+</div>
+{% endblock %}

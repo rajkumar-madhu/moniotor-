@@ -4,6 +4,7 @@
   {% if can_operate %}<a class="right" href="{% url 'network:edit' device.pk %}#id_prometheus_instance">Set instance</a>{% endif %}</div>
 {% endif %}
 
+{% if hv %}{% include "hypervisor/_vm_overview.html" %}{% else %}
 <section class="panel nw-vm-main" id="vm-info">
   <div class="panel-h"><h2>VM Information</h2>{% if can_operate %}<a class="right view-all" href="{% url 'network:edit' device.pk %}">Edit {% icon "arrow-right" 14 %}</a>{% endif %}</div>
   <div class="table-wrap dense"><table class="nw-kv"><tbody>
@@ -21,8 +22,10 @@
     <button type="button" class="nw-vm-action" disabled title="Hypervisor control is read-only">{% icon ic 18 %}<span>{{ label }}</span></button>
     {% endfor %}
   </div>
-  <p class="nw-note">Power, console, snapshot, and migrate require a vCenter or hypervisor connector. Inventory and guest metrics above still work without it.</p>
+  <p class="nw-note">Power, console, snapshot, and migrate require a vCenter or hypervisor connector. Inventory and guest metrics above still work without it.{% if can_admin %} <a href="{% url 'hypervisor:sources' %}">Connect a vCenter</a>{% endif %}</p>
 </section>
+
+{% endif %}
 
 <section class="panel">
   <div class="panel-h"><h2>Recent Alerts</h2><a class="right view-all" href="?tab=events">View All {% icon "arrow-right" 14 %}</a></div>

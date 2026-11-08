@@ -1,6 +1,6 @@
 {% extends "core/base.html" %}{% load le static network_tags %}
 {% block title %}{{ device.name }}{% endblock %}
-{% block page_css %}<link rel="stylesheet" href="{% static 'network/page.css' %}"><link rel="stylesheet" href="{% static 'network/device-card.css' %}">{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'network/page.css' %}"><link rel="stylesheet" href="{% static 'network/device-card.css' %}">{% if hv %}<link rel="stylesheet" href="{% static 'hypervisor/page.css' %}">{% endif %}{% endblock %}
 {% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'network:all' %}">Network Devices</a>{% icon "chevron-right" 14 %}<a href="{{ device.type_list_url }}">{{ device.type_plural }}</a>{% if device.vendor %}{% icon "chevron-right" 14 %}<a href="{{ device.type_list_url }}?vendor={{ device.vendor|urlencode }}">{{ device.vendor }}</a>{% endif %}{% icon "chevron-right" 14 %}<span>{% if is_vm %}VM details{% else %}{{ device.name }}{% endif %}</span></nav>{% endblock %}
 {% block content %}
 <div class="pg-network nw-detail{% if is_vm %} nw-vm{% endif %}">
@@ -83,8 +83,10 @@
 
 {% if device.last_error and device.status != "up" %}<div class="nw-alert {% if device.status == 'down' %}crit{% else %}mute{% endif %}">{% icon "alert" 16 %}<span><b>Last check:</b> {{ device.last_error }}{% if device.last_checked_at %} ({{ device.last_checked_at|ago }}){% endif %}</span></div>{% endif %}
 
+{% if is_vm and hv and tab == "interfaces" %}{% include "hypervisor/_vm_network.html" %}{% elif is_vm and hv and tab == "events" %}{% include "hypervisor/_vm_events.html" %}{% endif %}
 {% if is_vm and tab == "overview" %}{% include "network/_tab_overview_vm.html" %}
 {% elif is_vm and tab == "performance" %}{% include "network/_tab_performance_vm.html" %}
+{% elif is_vm and hv and hv.template %}{% include hv.template %}
 {% elif is_vm and vm_stub %}{% include "network/_tab_vm_stub.html" %}
 {% elif tab == "overview" %}{% include "network/_tab_overview.html" %}
 {% elif tab == "interfaces" %}{% include "network/_tab_interfaces.html" %}

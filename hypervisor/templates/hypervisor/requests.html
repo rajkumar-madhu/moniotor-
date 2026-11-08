@@ -1,0 +1,34 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}VM requests{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'hypervisor/page.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'hypervisor:datastores' %}">Hypervisor</a>{% icon "chevron-right" 14 %}<span>VM requests</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-hypervisor">
+<div class="head">
+  <div class="glyph">{% icon "clipboard" 30 %}</div>
+  <div><h1>VM requests</h1><p>Power, snapshot and settings actions asked for on a VM. Approving records the decision and shows the manual step: LinkedEye sends nothing to vCenter.</p></div>
+  <div class="actions"><a class="btn" href="{% url 'hypervisor:requests_export' %}">{% icon "download" 17 %}CSV</a></div>
+</div>
+<section class="panel">
+  <div class="panel-h"><span class="seg" role="group" aria-label="State">{% for key, label, n in states %}<a href="?state={{ key }}" class="{% if state == key %}on{% endif %}"{% if state == key %} aria-current="true"{% endif %}>{{ label }}{% if n is not None %} <small>{{ n }}</small>{% endif %}</a>{% endfor %}</span></div>
+  {% if page.paginator.count %}
+  <div class="table-wrap"><table class="hv-table wide">
+    <thead><tr><th>Requested</th><th>VM</th><th>Action</th><th>Reason</th><th>State</th><th>Decision</th></tr></thead>
+    <tbody>{% for r in page %}<tr>
+      <td>{{ r.requested_at|date:"d M H:i" }}<div class="t-mute small">{{ r.requested_by_name|default:"unknown" }}</div></td>
+      <td>{% if r.vm.device_id %}<a href="{% url 'network:detail' r.vm.device_id %}?tab=overview">{{ r.vm_name }}</a>{% else %}{{ r.vm_name }}{% endif %}<div class="t-mute small">{{ r.vm.source.name }}</div></td>
+      <td><b>{{ r.action_label }}</b>{% if r.detail %}<div class="t-mute small">{{ r.detail }}</div>{% endif %}</td>
+      <td>{{ r.reason|default:"–" }}</td>
+      <td><span class="chip {% if r.state == 'approved' %}ok{% elif r.state == 'rejected' %}crit{% elif r.state == 'pending' %}warn{% else %}mute{% endif %}">{{ r.get_state_display }}</span></td>
+      <td>{% if r.can_decide %}
+        <form method="post" action="{% url 'hypervisor:request_decide' r.pk %}" class="hv-decide">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input name="note" maxlength="300" placeholder="Note (optional)" aria-label="Decision note">
+          <button class="btn sm primary" type="submit" name="decision" value="approve">Approve</button><button class="btn sm" type="submit" name="decision" value="reject">Reject</button></form>
+        {% elif r.state == "pending" %}<span class="t-mute small">waiting for a site admin</span>
+        {% else %}{% if r.decided_by_name %}<span class="small">{{ r.decided_by_name }}, {{ r.decided_at|date:"d M H:i" }}</span>{% endif %}{% if r.decision_note %}<div class="t-mute small">{{ r.decision_note }}</div>{% endif %}
+          {% if r.manual_step %}<details class="hv-step"><summary>Manual step</summary><p>{{ r.manual_step }}</p><p class="t-mute small">LinkedEye did not send this to vCenter.</p></details>{% endif %}{% endif %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% include "core/_pager.html" %}
+  {% else %}<div class="hv-hero">{% icon "clipboard" 34 %}<h2>No requests</h2><p>Use the VM actions on a virtual machine's Overview tab to record a request.</p></div>{% endif %}
+</section>
+</div>
+{% endblock %}

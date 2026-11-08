@@ -1,0 +1,19 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}Hardware inventory: {{ device.name }}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'hardware/page.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{{ tab_url }}">{{ device.name }}</a>{% icon "chevron-right" 14 %}<span>Hardware inventory</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-hw">
+<div class="head"><div class="glyph">{% icon "list" 30 %}</div><div><h1>Hardware inventory</h1><p>{{ device.name }}: processors, memory, drives, network interfaces and power supplies as the {{ endpoint.bmc_name }} reports them{% if inventory_at %} · read {{ inventory_at|ago }}{% endif %}{% if example %} · <span class="chip warn">example data</span>{% endif %}</p></div>
+  <div class="actions"><a class="btn" href="{{ tab_url }}">{% icon "chevron-left" 16 %}Back to the Hardware tab</a></div></div>
+{% for s in sections %}
+<section class="panel">
+  <div class="panel-h"><h2>{{ s.title }}</h2><span class="right small t-mute">{{ s.rows|length }}</span></div>
+  {% if s.rows %}
+  <div class="table-wrap dense"><table><thead><tr>{% for c in s.columns %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+    <tbody>{% for r in s.rows %}<tr>{% for cell in r.cells %}<td>{% if cell %}{{ cell }}{% else %}<span class="t-mute">–</span>{% endif %}</td>{% endfor %}<td><span class="chip {% if r.status == 'ok' %}ok{% elif r.status == 'warning' %}warn{% elif r.status == 'critical' %}crit{% else %}mute{% endif %}">{{ r.health }}</span></td></tr>{% endfor %}</tbody></table></div>
+  {% else %}<p class="t-mute small hw-pad">Not reported by this BMC{% if not inventory_at %} (the inventory has not been read yet){% endif %}.</p>{% endif %}
+</section>
+{% endfor %}
+</div>
+{% endblock %}

@@ -59,6 +59,8 @@ INSTALLED_APPS = [
     "onboarding",
     "k8s",
     "apm",
+    "hardware",
+    "hypervisor",
     "architecture",
 ]
 
@@ -251,3 +253,15 @@ AGENT_TURNS_PER_MINUTE = int(env("AGENT_TURNS_PER_MINUTE", "20"))   # questions 
 # job also caps the rows kept per source).
 APM_RETENTION_DAYS = int(env("APM_RETENTION_DAYS", "30"))
 APM_LOG_RETENTION_DAYS = int(env("APM_LOG_RETENTION_DAYS", "7"))
+# Server hardware (hardware app, Redfish iDRAC / iLO, read-only): days of sensor readings (older than a day are thinned to one
+# per 10 minutes) and of BMC log entries kept, and how many BMCs one poll pass reads at the same time.
+HARDWARE_READING_RETENTION_DAYS = int(env("HARDWARE_READING_RETENTION_DAYS", "7"))
+HARDWARE_EVENT_RETENTION_DAYS = int(env("HARDWARE_EVENT_RETENTION_DAYS", "90"))
+HARDWARE_POLL_WORKERS = int(env("HARDWARE_POLL_WORKERS", "4"))
+# Hypervisor (hypervisor app, vCenter, read-only): days of observed / provider VM events kept, days a VM, host or datastore that
+# vCenter no longer lists is kept before it is deleted, days a control request may wait for a decision, and whether the sync may
+# overwrite compute.VMPlacement values an operator typed by hand (default: it never does).
+HYPERVISOR_EVENT_RETENTION_DAYS = int(env("HYPERVISOR_EVENT_RETENTION_DAYS", "30"))
+HYPERVISOR_MISSING_DAYS = int(env("HYPERVISOR_MISSING_DAYS", "30"))
+HYPERVISOR_REQUEST_TTL_DAYS = int(env("HYPERVISOR_REQUEST_TTL_DAYS", "7"))
+HYPERVISOR_OVERWRITE_PLACEMENT = env("HYPERVISOR_OVERWRITE_PLACEMENT", "false").lower() in ("1", "true", "yes", "on")

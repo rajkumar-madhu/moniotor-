@@ -1,0 +1,6 @@
+{% load le %}
+{% if rows %}
+<div class="table-wrap dense"><table class="hv-table"><thead><tr><th>Time</th><th>Type</th><th>Message</th></tr></thead><tbody>
+  {% for e in rows %}<tr><td>{{ e.ts }}</td><td><span class="chip {% if e.severity == 'warning' %}warn{% elif e.severity == 'error' %}crit{% endif %}">{% if e.severity == "warning" %}Warning{% elif e.severity == "error" %}Error{% else %}Info{% endif %}</span></td><td>{{ e.message }}</td></tr>{% endfor %}
+</tbody></table></div>
+{% else %}<div class="nw-empty sm">{% icon "clock" 24 %}<p>No events recorded yet. State changes seen by the sync (power, tools, host moves) appear here{% if not hv.source.use_provider %}; vCenter's own event history needs the pyvmomi option on the source{% endif %}.</p></div>{% endif %}

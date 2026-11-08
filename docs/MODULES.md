@@ -133,6 +133,55 @@ Redis). Full description, API and setup: **docs/APM.md**.
   imported lazily.
 * **Seed** `manage.py seed_apm [--remove] [--rotate-token]`: synthetic, idempotent, no events.
 
+## Server hardware (`hardware`)
+
+Dell iDRAC / HPE iLO over Redfish, **read-only** (no write call is ever made to a BMC). Full description, setup and honest limits:
+**docs/HARDWARE.md**.
+
+* **Pages** the **Hardware (iDRAC/iLO)** tab of a physical server (`network:detail?tab=hardware`, wired lazily from `network.views.detail`
+  through `hardware.tab.context`), `hardware:live` (JSON the tab patches itself from), `hardware:refresh`, `hardware:vendor`,
+  `hardware:inventory`, `hardware:events`, `hardware:export` (CSV), `hardware:alerts`, `hardware:request_new`, `hardware:requests`,
+  `hardware:request_decide`, and the endpoints admin `hardware:endpoints`, `endpoint_new`, `endpoint_edit`, `endpoint_test`,
+  `endpoint_pin`, `endpoint_toggle`, `endpoint_delete`. Sidebar group **Server Hardware**.
+* **Client** `hardware/redfish.py`: standard library only, GET only, SSRF policy through `probes.checks.resolve_allowed`, certificate
+  verify / pin / skip, 1 MB cap, deadline, no redirects. `hardware/collector.py` walks the tree, `hardware/parsers.py` turns it into
+  bounded plain values. A test fails if a write method or verb appears.
+* **Site scoping** `BmcEndpoint` belongs to a `network.Device` and has no site of its own, so it is deliberately NOT in
+  `SITE_NAME_FIELDS` (a rename follows through the device); everything else is scoped through `endpoint__device__site`.
+* **Events** `core.events.emit("hardware", ...)` once per transition of overall health or connection, fingerprint `hardware:<endpoint id>`,
+  attached to the server device.
+* **Cross-app** the credential vault (`core.secrets`, row in `onboarding.Credential`, referenced by id), `network.Device`, `probes.checks`.
+* **Jobs** `hardware.poll` (30 s), `hardware.retention` (1 h). No new dependency.
+* **Seed** `manage.py seed_hardware [--vendor dell|hpe] [--site NAME] [--remove]`: synthetic example server, never polled, no events.
+
+## Hypervisor (`hypervisor`)
+
+vCenter, **read-only** (no write call is ever made to a vCenter or ESXi host). Fills the stub tabs of a virtual machine's device page
+(Overview, Storage, Network, Snapshots, Guest OS, Alerts) from the vSphere Automation REST API. Full description, setup and honest limits:
+**docs/HYPERVISOR.md**.
+
+* **Pages** the VM tabs of `network:detail` (wired lazily from `network.views.detail` through `hypervisor.vmview.vm_context`),
+  `hypervisor:vm_live` (JSON they patch themselves from), `hypervisor:vm_request`, `hypervisor:datastores` (+ `datastores_live`,
+  `datastores_export`), `hypervisor:unmatched` (+ `match_create`, `match_link`, `match_ignore`, `match_unignore`, `match_unlink`),
+  `hypervisor:requests` (+ `request_decide`, `requests_export`) and the sources admin `hypervisor:sources`, `source_new`, `source_edit`,
+  `source_rotate`, `source_toggle`, `source_delete`, `source_test`, `source_pin`, `source_sync`. Sidebar group **Hypervisor**.
+* **Client** `hypervisor/vsphere.py`: standard library only, GET only plus the one documented session POST / DELETE, SSRF policy through
+  `probes.checks.resolve_allowed`, certificate verify / pin / skip, 1 MB cap, deadline, no redirects. `hypervisor/parsers.py` turns the
+  answers into bounded plain values. A test fails if another method appears. Snapshots, creation date and event history come from an
+  OPTIONAL provider (`hypervisor/pyvmomi_provider.py`, `requirements-vsphere.txt`, imported lazily).
+* **Site scoping** `VCenterSource.site` is a site *name* and is listed in `SITE_NAME_FIELDS`. Hosts, datastores, VM records, snapshots,
+  events and control requests carry no site: they belong to one source and are scoped through `source__site` (a matched VM must also be
+  visible through its device's site). A test keeps it that way.
+* **Matching** `hypervisor/matching.py`: UUID, then name / guest host name / IP; matched, ambiguous or unmatched, never merged silently.
+* **Events** `core.events.emit("hypervisor", ...)` once per transition (VM powered off, tools not running, datastore at 90 % / 95 %,
+  snapshot older than 7 days, vCenter unreachable), fingerprints `hypervisor:vm:<id>:<kind>`, `hypervisor:datastore:<id>`,
+  `hypervisor:source:<id>`, attached to the VM's device when it has one.
+* **Cross-app** the credential vault (`core.secrets`, row in `onboarding.Credential`, referenced by id), `network.Device`,
+  `compute.VMPlacement` / `compute.Cluster` (filled from the sync; values an operator typed by hand are never overwritten),
+  `probes.checks`.
+* **Jobs** `hypervisor.sync` (60 s, picks due sources), `hypervisor.retention` (6 h). Optional dependency: `pyvmomi`.
+* **Seed** `manage.py seed_hypervisor [--remove]`: synthetic example VM, never synced, no events.
+
 ## Data Center Architecture (`architecture`)
 
 Draws the spine-leaf view of the data centre (Internet / WAN, firewalls, core / border, spine, leaf, server groups) from
