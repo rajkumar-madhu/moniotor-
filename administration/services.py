@@ -925,6 +925,9 @@ SITE_NAME_FIELDS = [
     ("k8s", "SecretRef", "site", "Kubernetes secret references"),
     ("k8s", "ToolInstance", "site", "Kubernetes monitoring and CI/CD tools"),
     ("k8s", "InventoryIssue", "site", "Kubernetes inventory issues"),
+    # APM: a Source holds the site name. Its adapter cells, runs, history, processes, logs and retry requests carry no site
+    # of their own (they belong to one source and are scoped through source__site), so a rename follows by itself.
+    ("apm", "Source", "site", "APM sources"),
 ]
 
 

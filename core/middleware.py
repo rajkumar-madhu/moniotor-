@@ -6,7 +6,9 @@ PUBLIC_PREFIXES = ("/welcome/", "/accounts/login/", "/accounts/verify-otp/", "/a
                    # machine-to-machine endpoints; they authenticate with their own bearer token
                    "/api/v1/alertmanager/", "/api/v1/logs/",
                    # Prometheus http_sd (onboarding.sd): bearer token from the credential vault
-                   "/api/sd/")
+                   "/api/sd/",
+                   # APM push and commands API (apm.api): per-source bearer token; a browser session never authenticates it
+                   "/api/apm/")
 
 
 class LoginRequiredMiddleware:

@@ -1,0 +1,22 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}Token for {{ source.name }}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'apm/page.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'apm:index' %}">APM</a>{% icon "chevron-right" 14 %}<a href="{% url 'apm:sources' %}">Sources</a>{% icon "chevron-right" 14 %}<span>{{ source.name }}</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-apm">
+<div class="head"><div class="glyph">{% icon "key" 30 %}</div>
+  <div><h1>{% if created %}Source created{% else %}New token{% endif %}: {{ source.name }}</h1><p>Copy the token now. It is shown once and only a salted hash is stored.</p></div></div>
+<section class="panel">
+  <h2 class="apm-h2">Ingest token</h2>
+  <pre class="apm-code apm-token" id="apm-token">{{ token }}</pre>
+  <div class="apm-actions"><button type="button" class="btn primary" id="apm-copy-token">{% icon "clipboard" 16 %}Copy token</button><a class="btn" href="{% url 'apm:source_edit' source.pk %}">Done</a></div>
+  <p class="small t-mute" id="apm-copy-note" role="status"></p>
+</section>
+<section class="panel">
+  <h2 class="apm-h2">Environment for the producer host</h2>
+  <pre class="apm-code">{{ setup }}</pre>
+  <p class="small t-mute">Then follow <code>docs/APM.md</code>: copy <code>linkedeye_apm.py</code> next to the scripts and add the lines after the existing Redis write.</p>
+</section>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{% static 'apm/token.js' %}"></script>{% endblock %}

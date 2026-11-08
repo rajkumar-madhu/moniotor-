@@ -1,0 +1,135 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}APM{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'apm/page.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<span>APM</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-apm" id="apm">
+<div class="head">
+  <div class="glyph">{% icon "heartbeat" 30 %}</div>
+  <div><h1>APM</h1><p>{% if source %}Adapter status, process health and execution logs for <b>{{ source.name }}</b>{% if source.site != "All Sites" %} · {{ source.site }}{% endif %}{% if source.is_example %} <span class="chip warn">example data</span>{% endif %}{% else %}Adapter status matrix, process status and execution logs from your cron toolkit{% endif %}</p></div>
+  <div class="actions">
+    {% if sources|length > 1 %}
+    <form method="get" class="apm-pick"><label for="apm-source">Source</label>
+      <select name="source" id="apm-source" data-autosubmit>{% for s in sources %}<option value="{{ s.pk }}"{% if source and s.pk == source.pk %} selected{% endif %}>{{ s.name }}</option>{% endfor %}</select></form>
+    {% endif %}
+    {% if can_admin %}<a class="btn" href="{% url 'apm:sources' %}">{% icon "settings" 16 %}Sources</a>{% endif %}
+  </div>
+</div>
+
+{% if not source %}
+<section class="panel apm-hero">
+  {% icon "heartbeat" 34 %}
+  <h2>No APM source yet</h2>
+  <p>An APM source is one monitored deployment. Your cron scripts (<code>adapterStatus.py</code>, <code>processStatus.py</code>) push their results to LinkedEye over HTTPS, or LinkedEye can read their Redis keys. Add a source to get a token and the setup snippet.</p>
+  <div class="actions">
+    {% if can_admin %}<a class="btn primary" href="{% url 'apm:source_new' %}">{% icon "plus" 16 %}Add a source</a>{% else %}<span class="t-mute">Ask an administrator to add a source.</span>{% endif %}
+  </div>
+  <pre class="apm-code" aria-label="Setup snippet">{{ setup }}
+# then, after the existing Redis write in adapterStatus.py:
+import linkedeye_apm
+linkedeye_apm.push_matrix(data, script="adapterStatus.py")</pre>
+  <p class="t-mute small">Just exploring? An administrator can load synthetic example data with <code>python manage.py seed_apm</code>.</p>
+</section>
+{% else %}
+
+<div class="apm-banner" id="apm-banner" role="status" hidden></div>
+
+<section class="panel apm-strip" id="apm-strip" aria-label="Summary">
+  <div class="apm-k apm-overall" id="apm-overall" data-state="nodata">
+    <span class="apm-k-label">Overall Status</span>
+    <div class="apm-k-main">
+      <span class="apm-ostate"><span class="i-healthy">{% icon "check-circle" 30 %}</span><span class="i-degraded">{% icon "alert" 30 %}</span><span class="i-down">{% icon "x-circle" 30 %}</span><span class="i-stale">{% icon "clock" 30 %}</span><span class="i-nodata">{% icon "help" 30 %}</span></span>
+      <b data-k="overall">-</b>
+    </div>
+    <small data-k="overall_sub"></small>
+  </div>
+  <div class="apm-k"><span class="apm-k-label">Total Adapters</span><div class="apm-k-main"><span class="tile s-info">{% icon "grid" 24 %}</span><b data-k="total">-</b></div><small data-k="total_sub"></small></div>
+  <div class="apm-k"><span class="apm-k-label">Success</span><div class="apm-k-main"><span class="tile s-ok">{% icon "check-circle" 24 %}</span><b data-k="success">-</b></div><small class="t-ok" data-k="success_sub"></small></div>
+  <div class="apm-k"><span class="apm-k-label">Failure</span><div class="apm-k-main"><span class="tile s-crit">{% icon "x-circle" 24 %}</span><b data-k="failure">-</b></div><small class="t-crit" data-k="failure_sub"></small></div>
+  <div class="apm-k"><span class="apm-k-label">Avg Response Time</span><div class="apm-k-main"><span class="tile s-purple">{% icon "gauge" 24 %}</span><b data-k="avg">-</b></div><small>Last 5 min</small></div>
+  <div class="apm-k"><span class="apm-k-label">Last Executed</span><div class="apm-k-main"><b class="apm-date" data-k="last">-</b></div><small data-k="last_sub"></small></div>
+  <div class="apm-k"><span class="apm-k-label">Duration</span><div class="apm-k-main"><span class="tile s-info">{% icon "clock" 24 %}</span><b data-k="duration">-</b></div><small>Execution time</small></div>
+  <div class="apm-k apm-auto">
+    <span class="apm-k-label" id="apm-auto-label">Auto Refresh</span>
+    <div class="apm-auto-row">
+      <button type="button" class="apm-switch" id="apm-auto" role="switch" aria-checked="true" aria-labelledby="apm-auto-label"><span class="on">ON</span><span class="off">OFF</span></button>
+      <select id="apm-interval" aria-label="Refresh interval"><option value="10">10 sec</option><option value="30">30 sec</option><option value="60">60 sec</option></select>
+    </div>
+    <small class="t-mute" id="apm-auto-note"></small>
+  </div>
+</section>
+
+<nav class="tabs apm-ex" id="apm-ex" aria-label="Exchanges"></nav>
+
+<div class="apm-layout">
+  <section class="panel apm-matrix" aria-labelledby="apm-matrix-h">
+    <div class="panel-h"><h2 id="apm-matrix-h">Adapter Status Matrix</h2>
+      <div class="right apm-tools">
+        <select id="apm-f-client" aria-label="Client"><option value="">All Clients</option></select>
+        <label class="search">{% icon "search" 16 %}<input type="search" id="apm-f-q" placeholder="Search" aria-label="Search adapters" maxlength="60"></label>
+        <label class="apm-filter">{% icon "filter" 15 %}<select id="apm-f-status" aria-label="Status filter"><option value="">All statuses</option><option value="failure">Failed</option><option value="warning">Warning</option><option value="success">Success</option><option value="nodata">No data</option></select></label>
+        <a class="btn" id="apm-export" href="{% url 'apm:export' %}?source={{ source.pk }}">{% icon "download" 16 %}Export</a>
+      </div>
+    </div>
+    <div class="apm-scroll" id="apm-matrix-scroll" tabindex="0" aria-label="Adapter status matrix"><table class="apm-table" id="apm-matrix"><thead></thead><tbody></tbody></table></div>
+    <div class="apm-legend" aria-label="Legend"><span><i class="sw ok"></i>Success</span><span><i class="sw crit"></i>Failure</span><span><i class="sw warn"></i>Warning</span><span><i class="sw mute"></i>No data</span><span><i class="sw stale"></i>Stale</span><span class="apm-count t-mute" id="apm-count"></span></div>
+  </section>
+
+  <aside class="panel apm-detail" id="apm-detail" aria-label="Adapter detail">
+    <p class="apm-d-empty" id="apm-d-empty">Select an adapter in the matrix to see its details, failure summary, history and logs.</p>
+    <div id="apm-d" hidden>
+      <div class="apm-d-head" id="apm-d-head" data-state="nodata">
+        <span class="apm-d-ic"><span class="i-failure">{% icon "x-circle" 24 %}</span><span class="i-success">{% icon "check-circle" 24 %}</span><span class="i-warning">{% icon "alert" 24 %}</span><span class="i-nodata">{% icon "help" 24 %}</span><span class="i-stale">{% icon "clock" 24 %}</span></span>
+        <h2 id="apm-d-title">-</h2><span class="apm-pill" id="apm-d-status"></span>
+      </div>
+      <nav class="tabs apm-tabs" id="apm-d-tabs" role="tablist" aria-label="Adapter detail sections">
+        <button type="button" role="tab" data-tab="details" class="on">Adapter Details</button>
+        <button type="button" role="tab" data-tab="failure">Failure Details</button>
+        <button type="button" role="tab" data-tab="history">History</button>
+        <button type="button" role="tab" data-tab="logs">Logs</button>
+        <button type="button" role="tab" data-tab="evidence">Evidence</button>
+      </nav>
+      <div class="apm-d-body" id="apm-d-body" role="tabpanel"></div>
+      <div class="apm-d-foot"><h3 class="apm-h3">Quick Actions</h3>
+      <div class="apm-actions">
+        <button type="button" class="btn primary" id="apm-a-retry">{% icon "refresh" 16 %}Retry Now</button>
+        <button type="button" class="btn" id="apm-a-script">{% icon "code" 16 %}View Script</button>
+        <button type="button" class="btn" id="apm-a-logs">{% icon "file-search" 16 %}View Logs</button>
+        <a class="btn" id="apm-a-export" href="#">{% icon "download" 16 %}Export</a>
+        <button type="button" class="btn" id="apm-a-copy">{% icon "clipboard" 16 %}Copy Evidence</button>
+        <button type="button" class="btn" id="apm-a-rca">{% icon "bot" 16 %}Generate RCA</button>
+      </div>
+      <div class="apm-note" id="apm-d-note" role="status" hidden></div>
+      </div>
+    </div>
+  </aside>
+
+  <section class="panel apm-proc" aria-labelledby="apm-proc-h">
+    <div class="panel-h"><h2 id="apm-proc-h">Process Status</h2><div class="right"><span class="t-mute small" id="apm-proc-note"></span></div></div>
+    <div class="table-wrap apm-pscroll"><table class="apm-table apm-ptable" id="apm-proc">
+      <thead><tr><th class="first">Process Name</th><th>Host</th><th class="num">PID</th><th>Status</th><th class="num">CPU %</th><th class="num">Memory %</th><th>Uptime</th><th>Last Heartbeat</th><th>Last Execution</th><th>Next Execution</th><th class="num">Response Time</th><th class="num">Exit Code</th><th>Remarks</th></tr></thead>
+      <tbody></tbody></table></div>
+  </section>
+
+  <section class="panel apm-logs" aria-labelledby="apm-logs-h">
+    <div class="panel-h"><h2 id="apm-logs-h">Execution Logs</h2>
+      <div class="right apm-tools">
+        <label class="apm-show">Show <select id="apm-logs-n" aria-label="Number of log lines"></select></label>
+        <button type="button" class="btn" id="apm-l-pause" aria-pressed="false">{% icon "pause" 15 %}<span>Pause</span></button>
+        <button type="button" class="btn" id="apm-l-clear" title="Clears this view only. The stored logs are not deleted.">{% icon "trash" 15 %}Clear view</button>
+      </div>
+    </div>
+    <div class="apm-lscroll" id="apm-lscroll" tabindex="0" aria-label="Execution logs"><table class="apm-table apm-ltable" id="apm-log"><thead><tr><th>Time</th><th>Level</th><th>Process</th><th>Message</th></tr></thead><tbody></tbody></table></div>
+    <p class="apm-lnote t-mute small" id="apm-l-note"></p>
+  </section>
+</div>
+
+<p class="apm-foot t-mute small" id="apm-foot"></p>
+
+{{ snap|json_script:"apm-data" }}
+{{ config|json_script:"apm-config" }}
+<noscript><p class="apm-banner show">This page needs JavaScript to draw the matrix and patch it live.</p></noscript>
+{% endif %}
+</div>
+{% endblock %}
+{% block scripts %}{% if source %}<script src="{% static 'apm/apm.js' %}"></script>{% endif %}{% endblock %}

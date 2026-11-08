@@ -1,0 +1,39 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}APM sources{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'apm/page.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'apm:index' %}">APM</a>{% icon "chevron-right" 14 %}<span>Sources</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-apm">
+<div class="head">
+  <div class="glyph">{% icon "plug" 30 %}</div>
+  <div><h1>APM sources</h1><p>Each source is one deployment whose cron toolkit pushes to LinkedEye (or whose Redis keys LinkedEye reads)</p></div>
+  <div class="actions"><a class="btn primary" href="{% url 'apm:source_new' %}">{% icon "plus" 17 %}Add a source</a></div>
+</div>
+<section class="panel">
+  {% if rows %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Name</th><th>Site</th><th>State</th><th>Last data</th><th class="num">Interval</th><th>Token</th><th>Redis</th><th><span class="sr">Actions</span></th></tr></thead>
+    <tbody>{% for r in rows %}{% with s=r.s %}
+      <tr class="{% if not s.enabled %}off{% endif %}">
+        <td><a href="{% url 'apm:source_edit' s.pk %}">{{ s.name }}</a>{% if s.is_example %} <span class="chip warn">example</span>{% endif %}{% if s.description and not s.is_example %}<div class="t-mute small">{{ s.description }}</div>{% endif %}</td>
+        <td>{{ s.site }}</td>
+        <td>{% if not s.enabled %}<span class="chip mute">Disabled</span>{% elif r.silent %}<span class="chip crit">Silent</span>{% elif r.stale %}<span class="chip warn">Stale</span>{% elif s.last_data_at %}<span class="chip ok">Reporting</span>{% else %}<span class="chip mute">Waiting for data</span>{% endif %}</td>
+        <td>{% if s.last_data_at %}{{ s.last_data_at|timesince }} ago{% else %}never{% endif %}</td>
+        <td class="num">{{ s.expected_interval_s }} s</td>
+        <td><code>{{ s.token_prefix|default:"-" }}…</code></td>
+        <td>{% with st=r.redis %}<span class="chip {{ st.0 }}">{{ st.1 }}</span>{% endwith %}</td>
+        <td><div class="row-actions">
+          <a class="btn icon" href="{% url 'apm:index' %}?source={{ s.pk }}" title="Open dashboard" aria-label="Open the dashboard for {{ s.name }}">{% icon "eye" 15 %}</a>
+          {% if r.can_manage %}<a class="btn icon" href="{% url 'apm:source_edit' s.pk %}" title="Edit" aria-label="Edit {{ s.name }}">{% icon "edit" 15 %}</a>
+          <form method="post" action="{% url 'apm:source_toggle' s.pk %}">{% csrf_token %}<button class="btn icon" type="submit" title="{% if s.enabled %}Disable{% else %}Enable{% endif %}" aria-label="{% if s.enabled %}Disable{% else %}Enable{% endif %} {{ s.name }}">{% if s.enabled %}{% icon "pause" 15 %}{% else %}{% icon "play" 15 %}{% endif %}</button></form>{% endif %}
+        </div></td>
+      </tr>{% endwith %}{% endfor %}</tbody>
+  </table></div>
+  {% else %}
+  <div class="apm-hero">{% icon "plug" 34 %}<h2>No sources yet</h2><p>Add a source to get an ingest token. The token is shown once.</p>
+    <div class="actions"><a class="btn primary" href="{% url 'apm:source_new' %}">{% icon "plus" 16 %}Add a source</a></div></div>
+  {% endif %}
+</section>
+{% if not redis_ok %}<p class="apm-callout">{% icon "info" 16 %}<span>Reading Redis from LinkedEye is optional and needs the <code>redis</code> Python package: install <code>requirements-apm.txt</code> and restart. Pushing from the cron scripts needs nothing extra.</span></p>{% endif %}
+</div>
+{% endblock %}

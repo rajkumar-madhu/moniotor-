@@ -69,6 +69,11 @@ NAV = [
         {"label": "Power", "url": "dcim:power"},
         {"label": "Cooling", "url": "dcim:cooling"},
     ]},
+    # Application performance: the adapter status matrix, process status and execution logs pushed by the customer's cron toolkit
+    {"label": "APM", "icon": "heartbeat", "children": [
+        {"label": "Dashboard", "url": "apm:index"},
+        {"label": "Sources", "url": "apm:sources"},
+    ]},
     {"label": "Domains", "icon": "browser", "children": [
         {"label": "Overview", "url": "domains:overview"},
         {"label": "Domain List", "url": "domains:list"},

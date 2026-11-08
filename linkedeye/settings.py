@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     "compute",
     "onboarding",
     "k8s",
+    "apm",
     "architecture",
 ]
 
@@ -230,3 +231,7 @@ AGENT_MODEL = env("AGENT_MODEL", "gpt-4o-mini")
 AGENT_EMBEDDING_MODEL = env("AGENT_EMBEDDING_MODEL", "text-embedding-3-small")
 AGENT_TIMEOUT = float(env("AGENT_TIMEOUT", "30"))
 AGENT_RETENTION_DAYS = int(env("AGENT_RETENTION_DAYS", "90"))
+# APM (apm app): days of adapter runs and status-change history kept, and days of execution logs kept (the retention
+# job also caps the rows kept per source).
+APM_RETENTION_DAYS = int(env("APM_RETENTION_DAYS", "30"))
+APM_LOG_RETENTION_DAYS = int(env("APM_LOG_RETENTION_DAYS", "7"))
