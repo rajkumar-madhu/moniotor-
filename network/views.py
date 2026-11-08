@@ -490,7 +490,7 @@ def detail(request, pk):
         "fabric_url": reverse("network:fabric") + (f"?{urlencode({'site': device.site})}" if device.site else ""),
         "fabric_layer": fabric.fabric_layer(device),
         "fabric_layer_label": fabric.fabric_layer_label(fabric.fabric_layer(device)),
-        "card": None,
+        "card": None, "if_indexes": {i.if_index for i in interfaces},
         "vm_metrics": None, "vm_meta": {}, "vm_info_rows": [],
         "vm_actions": vm_metrics.VM_ACTIONS, "vm_power": "", "vm_stub": None,
     }
@@ -533,6 +533,9 @@ def detail(request, pk):
     if hardware_tab and tab == "hardware":
         from hardware.tab import context as hardware_context
         ctx.update(hardware_context(request, device))
+    if tab == "neighbours" and not is_vm:
+        from .portviews import device_links
+        ctx["doc_links"] = device_links(request, device, interfaces)
     if tab == "configuration":
         from core.models import AuditEvent
         ctx["audit_rows"] = AuditEvent.objects.filter(object_type="network.device", object_id=str(device.pk))[:25]

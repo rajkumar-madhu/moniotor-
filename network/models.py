@@ -309,6 +309,12 @@ class Interface(models.Model):
     errors_per_s = models.FloatField(null=True, blank=True, help_text="ifInErrors + ifOutErrors, per second over 5 min")
     discards_per_s = models.FloatField(null=True, blank=True, help_text="ifInDiscards + ifOutDiscards, per second over 5 min")
     flaps_24h = models.PositiveIntegerField(null=True, blank=True, help_text="ifOperStatus changes in the last 24 hours")
+    # Inventory facts for the per-port page. Empty / None means "the device did not report it" (never a guess).
+    mtu = models.PositiveIntegerField(null=True, blank=True, help_text="ifMtu")
+    mac = models.CharField(max_length=17, blank=True, help_text="ifPhysAddress as aa:bb:cc:dd:ee:ff")
+    duplex = models.CharField(max_length=4, blank=True, help_text="dot3StatsDuplexStatus: full or half")
+    last_change_at = models.DateTimeField(null=True, blank=True,
+                                          help_text="When ifOperStatus last changed (ifLastChange against sysUpTime)")
     updated_at = models.DateTimeField(default=timezone.now)
 
     # if_type display names (network.metrics) that are not a port on the chassis
