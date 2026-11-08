@@ -1,0 +1,23 @@
+{% extends "onboarding/_step_base.html" %}{% load le %}
+{% block step %}
+<div class="panel">
+  <div class="panel-h"><h2>Register and confirm</h2><small>Join service discovery, then wait for the first samples</small></div>
+  <p>Activation creates or links the CMDB record, the network device or compute server, the exporter row and service-discovery membership — idempotently, so a host that is already known links to the existing records instead of creating new ones.</p>
+  {% if not sd_configured %}<p class="t-warn">{% icon "alert" 15 %} No service-discovery token has been generated yet. <a href="{% url 'onboarding:sd_page' %}">Generate one</a> and paste the scrape_config into Prometheus once.</p>{% endif %}
+  {% if can_manage %}<form method="post" action="{% url 'onboarding:step' run.pk 'confirm' %}" class="ob-foot">{% csrf_token %}
+    <button class="btn primary" type="submit" name="action" value="activate">{% icon "check-circle" 16 %}Activate {{ summary.total }} target{{ summary.total|pluralize }}</button>
+    <button class="btn" type="submit" name="action" value="next">Continue{% icon "chevron-right" 16 %}</button>
+    {% if run.status == 'failed' %}<button class="btn" type="submit" name="action" value="reopen">{% icon "refresh" 16 %}Reopen run</button>
+    {% else %}<button class="btn" type="submit" name="action" value="fail">{% icon "x-circle" 16 %}Mark failed</button>{% endif %}
+  </form>{% endif %}
+</div>
+<div class="panel">
+  <div class="panel-h"><h2>Prometheus scrape_config</h2><small>Paste once; targets then appear on the next discovery cycle</small></div>
+  <pre class="log">{{ scrape_config }}</pre>
+  <p class="hint">The token is shown only when it is generated or rotated — a stored secret is never rendered. <a href="{% url 'onboarding:sd_page' %}">Service discovery page</a></p>
+</div>
+<div class="panel">
+  <div class="panel-h"><h2>Targets</h2></div>
+  {% include "onboarding/_targets.html" %}
+</div>
+{% endblock %}

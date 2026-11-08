@@ -1,0 +1,5 @@
+{% load le %}{% if not vault_ok %}<div class="panel ob-warn" role="alert">
+  <div class="panel-h"><h2>{% icon "lock" 18 %} The credential vault is not usable</h2></div>
+  <p>{{ vault_reason }}</p>
+  <p class="hint">Credentials are never stored unencrypted. The rest of the wizard still works; the credentials step will refuse to save a secret until the key is set.</p>
+</div>{% endif %}

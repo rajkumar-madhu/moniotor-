@@ -1,0 +1,10 @@
+{% load le %}<ol class="ob-rail" aria-label="Onboarding steps">
+  {% for slug, title, hint, state in rail %}
+  <li class="ob-rail-step s-{{ state }}">
+    {% if can_manage %}<a href="{% url 'onboarding:step' run.pk slug %}">{% else %}<span>{% endif %}
+      <i class="ob-dot" aria-hidden="true">{% if state == 'done' %}{% icon "check" 13 %}{% else %}{{ forloop.counter }}{% endif %}</i>
+      <b>{{ title }}</b><small>{{ hint }}</small>
+    {% if can_manage %}</a>{% else %}</span>{% endif %}
+  </li>
+  {% endfor %}
+</ol>

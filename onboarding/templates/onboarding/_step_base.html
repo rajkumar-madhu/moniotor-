@@ -1,0 +1,46 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}{{ step_title }} · Onboarding #{{ run.pk }}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'onboarding/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "onboarding/_crumbs.html" with here=step_title %}{% endblock %}
+{% block content %}
+<div class="pg-ob">
+<div class="head">
+  <div class="glyph">{% icon "radar" 44 %}</div>
+  <div><h1>{{ step_title }}</h1>
+    <p>Run #{{ run.pk }} · {{ run.get_kind_display }} · {{ run.site|default:"no site yet" }}{% if run.client %} · {{ run.client.name }}{% endif %} · <span class="badge {{ run.tone }}">{{ run.get_status_display }}</span></p></div>
+  <div class="actions">
+    <a class="btn" href="{% url 'onboarding:log' run.pk %}">{% icon "list" 17 %}Run log</a>
+    <a class="btn" href="{% url 'onboarding:index' %}">{% icon "chevron-left" 17 %}All runs</a>
+  </div>
+</div>
+
+{% include "onboarding/_rail.html" %}
+
+{% if not can_manage %}<div class="panel ob-warn" role="alert"><p>{% icon "lock" 16 %} You can follow this run, but only an admin for <b>{{ run.site|default:"this site" }}</b> may change it.</p></div>{% endif %}
+
+<section class="grid g-main">
+  <div class="stack">{% block step %}{% endblock %}</div>
+  <div class="stack">
+    <div class="panel">
+      <div class="panel-h"><h2>This run</h2></div>
+      <dl class="kv">
+        <dt>Targets</dt><dd>{{ summary.total }}</dd>
+        <dt>Ready to scrape</dt><dd>{{ summary.scraping }}</dd>
+        <dt>Live</dt><dd>{{ summary.live }}</dd>
+        <dt>Problems</dt><dd>{% if summary.failed %}<span class="t-crit">{{ summary.failed }}</span>{% else %}0{% endif %}</dd>
+        <dt>Environment</dt><dd>{{ run.environment }}</dd>
+        <dt>Started</dt><dd>{{ run.created_at|short_dt }}</dd>
+        <dt>By</dt><dd>{{ run.created_by.get_username|default:"—" }}</dd>
+      </dl>
+      <p class="hint">Closing the browser does not lose anything: the run is stored and resumes on this step.</p>
+    </div>
+    <div class="panel">
+      <div class="panel-h"><h2>Latest steps</h2><div class="right"><a class="view-all" href="{% url 'onboarding:log' run.pk %}">Full log</a></div></div>
+      <ul class="ob-feed">{% for e in recent_log %}
+        <li><span class="badge {{ e.tone }}">{{ e.get_status_display }}</span><span class="ob-feed-txt">{{ e.step }} · {{ e.detail|truncatechars:80 }}</span><small>{{ e.created_at|short_dt }}</small></li>
+      {% empty %}<li class="empty">Nothing yet.</li>{% endfor %}</ul>
+    </div>
+  </div>
+</section>
+</div>
+{% endblock %}

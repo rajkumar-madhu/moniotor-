@@ -1,0 +1,43 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}New onboarding run{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'onboarding/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "onboarding/_crumbs.html" with here="New run" %}{% endblock %}
+{% block content %}
+<div class="pg-ob">
+<div class="head">
+  <div class="glyph">{% icon "plus" 44 %}</div>
+  <div><h1>New onboarding run</h1><p>Pick what you are onboarding and the site it belongs to. Everything after this is resumable.</p></div>
+  <div class="actions"><a class="btn" href="{% url 'onboarding:index' %}">{% icon "chevron-left" 17 %}All runs</a></div>
+</div>
+{% include "onboarding/_vault_warning.html" %}
+<section class="grid g-main">
+  <form class="panel" method="post" action="{% url 'onboarding:new' %}">{% csrf_token %}
+    <div class="panel-h"><h2>Scope</h2></div>
+    {% for e in form.non_field_errors %}<p class="err">{{ e }}</p>{% endfor %}
+    <div class="form-grid">
+      {% include "administration/_field.html" with f=form.kind %}
+      {% include "administration/_field.html" with f=form.site %}
+      {% include "administration/_field.html" with f=form.client %}
+      {% include "administration/_field.html" with f=form.environment %}
+      {% include "administration/_field.html" with f=form.notes full=1 %}
+      <div class="field full ob-foot">
+        <a class="btn" href="{% url 'onboarding:index' %}">Cancel</a>
+        <button class="btn primary" type="submit"{% if not sites %} disabled{% endif %}>{% icon "plus" 16 %}Start the run</button>
+      </div>
+    </div>
+  </form>
+  <div class="panel">
+    <div class="panel-h"><h2>What happens next</h2></div>
+    <ol class="ob-steps">
+      <li><b>Targets</b> — hosts by name or IP, a pasted list, or a CSV.</li>
+      <li><b>Credentials</b> — SSH, SNMP or HTTP secrets, stored encrypted and never shown again.</li>
+      <li><b>Verify</b> — DNS, port, exporter and host facts, probed only when you press the button.</li>
+      <li><b>Enable collection</b> — the install command, or an install over SSH you tick explicitly.</li>
+      <li><b>Logs</b> — the promtail or vector configuration, pre-filled.</li>
+      <li><b>Confirm</b> — join service discovery and wait for the first samples.</li>
+      <li><b>Done</b> — links straight to metrics, logs, CMDB and alerts for each host.</li>
+    </ol>
+  </div>
+</section>
+</div>
+{% endblock %}

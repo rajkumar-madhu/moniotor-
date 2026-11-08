@@ -1,0 +1,23 @@
+{% extends "onboarding/_step_base.html" %}{% load le %}
+{% block step %}
+{% if can_manage %}
+<form class="panel" method="post" action="{% url 'onboarding:step' run.pk 'targets' %}" enctype="multipart/form-data">{% csrf_token %}
+  <div class="panel-h"><h2>Add targets</h2><small>One host, a pasted list, or a CSV</small></div>
+  {% for e in form.non_field_errors %}<p class="err">{{ e }}</p>{% endfor %}
+  <div class="form-grid">
+    {% include "administration/_field.html" with f=form.hosts full=1 %}
+    {% include "administration/_field.html" with f=form.target_type %}
+    {% include "administration/_field.html" with f=form.port %}
+    {% include "administration/_field.html" with f=form.csv_file full=1 %}
+    <div class="field full ob-foot">
+      <button class="btn primary" type="submit" name="action" value="add">{% icon "plus" 16 %}Add targets</button>
+      <button class="btn" type="submit" name="action" value="next">Continue{% icon "chevron-right" 16 %}</button>
+    </div>
+  </div>
+</form>
+{% endif %}
+<div class="panel">
+  <div class="panel-h"><h2>Targets on this run</h2><small>{{ summary.total }} total — re-adding a host updates it instead of duplicating it</small></div>
+  {% include "onboarding/_targets.html" with show_remove=1 %}
+</div>
+{% endblock %}

@@ -1,0 +1,18 @@
+{% extends "onboarding/_step_base.html" %}{% load le %}
+{% block step %}
+{% include "onboarding/_vault_warning.html" %}
+<form class="panel" method="post" action="{% url 'onboarding:step' run.pk 'scope' %}">{% csrf_token %}
+  <div class="panel-h"><h2>Scope</h2><small>Only a site you administer can be onboarded into</small></div>
+  {% for e in form.non_field_errors %}<p class="err">{{ e }}</p>{% endfor %}
+  <div class="form-grid">
+    {% include "administration/_field.html" with f=form.kind %}
+    {% include "administration/_field.html" with f=form.site %}
+    {% include "administration/_field.html" with f=form.client %}
+    {% include "administration/_field.html" with f=form.environment %}
+    {% include "administration/_field.html" with f=form.notes full=1 %}
+    {% if can_manage %}<div class="field full ob-foot">
+      <button class="btn primary" type="submit" name="action" value="save">{% icon "check" 16 %}Save and continue</button>
+    </div>{% endif %}
+  </div>
+</form>
+{% endblock %}

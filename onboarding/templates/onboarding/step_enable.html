@@ -1,0 +1,32 @@
+{% extends "onboarding/_step_base.html" %}{% load le %}
+{% block step %}
+<div class="panel">
+  <div class="panel-h"><h2>Enable collection</h2><small>Install command, or an install over SSH you tick explicitly</small></div>
+  <p>{{ install_hint }}</p>
+  {% if can_manage %}<form method="post" action="{% url 'onboarding:step' run.pk 'enable' %}">{% csrf_token %}
+    <div class="form-grid">
+      <div class="field inline-check"><input type="checkbox" id="ssh-install" name="install_over_ssh" value="1">
+        <label class="inline-check" for="ssh-install">Install the exporter over SSH with the stored credential</label></div>
+      <div class="field"><label for="snmp-module">SNMP exporter module</label>
+        <input id="snmp-module" type="text" name="snmp_module" placeholder="if_mib">
+        <span class="hint">Used for network devices only.</span></div>
+      <div class="field full ob-foot">
+        <button class="btn primary" type="submit" name="action" value="enable">{% icon "zap" 16 %}Enable collection</button>
+        <button class="btn" type="submit" name="action" value="next">Continue{% icon "chevron-right" 16 %}</button>
+      </div>
+    </div>
+  </form>{% endif %}
+</div>
+<div class="panel">
+  <div class="panel-h"><h2>Install commands</h2><small>Run these on the host if you would rather not hand over SSH</small></div>
+  {% for t in targets %}
+    <h3 class="ob-h3">{{ t.hostname }} <span class="badge {{ t.tone }}">{{ t.get_state_display }}</span></h3>
+    {% if t.facts.install_command %}<pre class="log">{{ t.facts.install_command }}</pre>
+    {% else %}<p class="empty">No command recorded yet — press “Enable collection”.</p>{% endif %}
+  {% empty %}<p class="empty">No targets yet.</p>{% endfor %}
+</div>
+<div class="panel">
+  <div class="panel-h"><h2>Targets</h2></div>
+  {% include "onboarding/_targets.html" %}
+</div>
+{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "onboarding/_step_base.html" %}{% load le %}
+{% block step %}
+<div class="panel">
+  <div class="panel-h"><h2>Verify reachability</h2><small>Nothing is probed until you press the button</small></div>
+  <p>LinkedEye checks each target now and reports DNS, the TCP port, whether an exporter answers on <code>/metrics</code>, whether the stored credential is accepted, and the host facts it found. All probing goes through the SSRF-guarded probe policy.</p>
+  {% if can_manage %}<form method="post" action="{% url 'onboarding:step' run.pk 'verify' %}" class="ob-foot">{% csrf_token %}
+    <button class="btn primary" type="submit" name="action" value="verify">{% icon "radar" 16 %}Verify {{ summary.total }} target{{ summary.total|pluralize }} now</button>
+    <button class="btn" type="submit" name="action" value="next">Continue{% icon "chevron-right" 16 %}</button>
+  </form>{% endif %}
+</div>
+<div class="panel">
+  <div class="panel-h"><h2>What was found</h2></div>
+  {% include "onboarding/_targets.html" %}
+  <div class="table-wrap dense ob-facts"><table>
+    <thead><tr><th>Host</th><th>OS / kernel</th><th>CPU</th><th>Memory</th><th>Exporter</th><th>Metrics URL</th></tr></thead>
+    <tbody>{% for t in targets %}
+      <tr><td><b>{{ t.hostname }}</b></td>
+        <td>{{ t.facts.os|default:"—" }}{% if t.facts.kernel %} · {{ t.facts.kernel }}{% endif %}</td>
+        <td class="num">{{ t.facts.cpus|default:"—" }}</td>
+        <td class="num">{% if t.facts.memory_mb %}{{ t.facts.memory_mb }} MB{% else %}—{% endif %}</td>
+        <td>{{ t.facts.exporter|default:"—" }}{% if t.facts.exporter_version %} {{ t.facts.exporter_version }}{% endif %}</td>
+        <td class="num">{{ t.metrics_url }}</td></tr>
+    {% empty %}<tr><td colspan="6" class="empty">No targets yet.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+{% endblock %}

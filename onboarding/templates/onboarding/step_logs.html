@@ -1,0 +1,18 @@
+{% extends "onboarding/_step_base.html" %}{% load le %}
+{% block step %}
+<div class="panel">
+  <div class="panel-h"><h2>Logs</h2><small>promtail or vector, pre-filled with the log-ingest URL and token</small></div>
+  <p>LinkedEye generates the matching log shipper configuration for each target and then verifies that lines arrive at the log-ingest endpoint.</p>
+  {% if can_manage %}<form method="post" action="{% url 'onboarding:step' run.pk 'logs' %}" class="ob-foot">{% csrf_token %}
+    <button class="btn primary" type="submit" name="action" value="logs">{% icon "logs" 16 %}Generate shipper configuration</button>
+    <button class="btn" type="submit" name="action" value="next">Continue{% icon "chevron-right" 16 %}</button>
+  </form>{% endif %}
+</div>
+{% for t in targets %}
+<div class="panel">
+  <div class="panel-h"><h2>{{ t.hostname }}</h2><small>{% if t.facts.logs.verified %}lines arriving{% else %}not verified yet{% endif %}</small></div>
+  {% if t.facts.logs.config %}<pre class="log">{{ t.facts.logs.config }}</pre>
+  {% else %}<p class="empty">Nothing generated yet for this host.</p>{% endif %}
+</div>
+{% empty %}<div class="panel"><p class="empty">No targets yet.</p></div>{% endfor %}
+{% endblock %}
