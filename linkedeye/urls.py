@@ -41,6 +41,7 @@ urlpatterns = [
     path("", include("ipam.urls")),
     path("", include("dcim.urls")),
     path("", include("compute.urls")),
+    path("", include("k8s.urls")),
     path("soon/<slug:slug>/", core.coming_soon, name="coming_soon"),
     path("admin/", admin.site.urls),
 ]

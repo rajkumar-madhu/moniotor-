@@ -1,0 +1,107 @@
+/* Kubernetes inventory: overview, clients, namespaces, nodes, imports. Scoped under .pg-k8s. */
+
+.pg-k8s { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.pg-k8s .grid, .pg-k8s .stack { gap: 12px; }
+.pg-k8s .panel { padding: 14px; min-width: 0; }
+.pg-k8s .panel-h { margin-bottom: 10px; gap: 8px; flex-wrap: wrap; }
+.pg-k8s .panel-h h2 { font-size: 16px; }
+.pg-k8s .panel-h .right { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-left: auto; }
+.pg-k8s .panel-h .right form { display: contents; }
+.pg-k8s .head .glyph { border-radius: 12px; }
+.pg-k8s .head h1 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; overflow-wrap: anywhere; min-width: 0; }
+.pg-k8s .head > div:nth-child(2) { min-width: 0; flex: 1 1 260px; }
+.pg-k8s .head .actions form { display: contents; }
+.pg-k8s .mono, .pg-k8s code { font-family: var(--mono); font-size: .94em; }
+.pg-k8s code { background: var(--line-soft); padding: 1px 5px; border-radius: 4px; font-size: 12px; overflow-wrap: anywhere; }
+.pg-k8s .small { font-size: 12.5px; }
+.pg-k8s .empty { padding: 20px; }
+.pg-k8s .chip { font-size: 11px; padding: 0 7px; vertical-align: 1px; }
+
+/* section tabs */
+.pg-k8s .k8-tabs { margin-top: -2px; }
+.pg-k8s .k8-tabs a { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; }
+
+/* kpis */
+.pg-k8s .k8-kpis { grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); }
+.pg-k8s .kpi .value small { font: 500 13px var(--font); color: var(--muted); }
+.pg-k8s .kpi-link { color: inherit; }
+.pg-k8s .kpi-link:hover { text-decoration: none; border-color: #cfc5b3; }
+
+/* notes, alerts, empty states */
+.pg-k8s .k8-note { margin: 8px 0 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.pg-k8s .k8-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center;
+  color: var(--muted); padding: 22px 16px; border: 1px dashed var(--line); border-radius: 10px; background: var(--panel-2); }
+.pg-k8s .k8-empty p { margin: 0; max-width: 560px; font-size: 13px; overflow-wrap: anywhere; }
+.pg-k8s .k8-empty .ic { color: var(--stone); }
+.pg-k8s .k8-empty .btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 4px; }
+.pg-k8s .k8-alert { display: flex; gap: 8px; align-items: flex-start; padding: 9px 12px; border-radius: 10px;
+  font-size: 13px; border: 1px solid var(--line); background: var(--mute-bg); color: var(--ink-2); overflow-wrap: anywhere; }
+.pg-k8s .k8-alert.crit { background: var(--crit-bg); border-color: var(--crit-line); color: var(--crit-ink); }
+.pg-k8s .k8-alert.warn { background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn-ink); }
+.pg-k8s .k8-alert.ok { background: var(--ok-bg); border-color: var(--ok-line); color: var(--ok-ink); }
+.pg-k8s .k8-alert ul { margin: 6px 0 0; padding-left: 18px; }
+.pg-k8s .k8-alert li { margin: 2px 0; }
+
+/* toolbars & tables */
+/* app.css sets .table-wrap{overflow:hidden} after its own overflow-x rule, which clips a wide table and
+   makes its right-hand columns unreachable. The node table deliberately carries every discovered column,
+   so restore horizontal scrolling for this module's tables. */
+.pg-k8s .table-wrap { overflow-x: auto; overflow-y: hidden; }
+.pg-k8s .toolbar.compact { margin-bottom: 12px; gap: 8px; }
+.pg-k8s .toolbar.compact .search { height: 32px; max-width: 280px; font-size: 13px; }
+.pg-k8s .toolbar.compact select { width: auto; min-width: 100px; max-width: 100%; height: 32px; font-size: 13px; }
+.pg-k8s .toolbar.compact .btn.icon { width: 32px; height: 32px; }
+.pg-k8s .table-wrap.dense th, .pg-k8s .table-wrap.dense td { padding-left: 7px; padding-right: 7px; }
+.pg-k8s .table-wrap td.mono { font-size: 12.5px; white-space: nowrap; }
+.pg-k8s .table-wrap td.num { text-align: right; font-family: var(--mono); font-size: 12.5px; white-space: nowrap; }
+.pg-k8s .table-wrap th.num { text-align: right; }
+.pg-k8s .table-wrap td.trunc { max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-k8s .table-wrap tr.review td { background: var(--crit-bg); }
+.pg-k8s .table-wrap tr.gone td { opacity: .62; }
+.pg-k8s .row-actions { display: flex; gap: 2px; }
+.pg-k8s .row-actions form { display: contents; }
+
+/* per-client roll-up */
+.pg-k8s .k8-rollup { display: grid; grid-template-columns: repeat(auto-fill, minmax(236px, 1fr)); gap: 10px; }
+.pg-k8s .k8-card { border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px; background: var(--panel-2); min-width: 0; }
+.pg-k8s .k8-card h3 { margin: 0 0 2px; font-size: 14px; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.pg-k8s .k8-card h3 a { color: inherit; }
+.pg-k8s .k8-card .meta { font-size: 11.5px; color: var(--muted); margin-bottom: 8px; overflow-wrap: anywhere; }
+.pg-k8s .k8-card .nums { display: flex; gap: 12px; flex-wrap: wrap; }
+.pg-k8s .k8-card .nums div { min-width: 0; }
+.pg-k8s .k8-card .nums b { display: block; font: 700 15px var(--mono); }
+.pg-k8s .k8-card .nums span { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.pg-k8s .k8-card.crit { border-color: var(--crit-line); }
+.pg-k8s .k8-card.warn { border-color: var(--warn-line); }
+
+/* node detail */
+.pg-k8s .k8-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+.pg-k8s .k8-stats .cell { border: 1px solid var(--line); border-radius: 9px; padding: 9px 10px; background: var(--panel-2); min-width: 0; }
+.pg-k8s .k8-stats .cell b { display: block; font: 700 16px var(--mono); overflow-wrap: anywhere; }
+.pg-k8s .k8-stats .cell span { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.pg-k8s .k8-pairs { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 4px 14px; margin: 0; font-size: 12.5px; }
+.pg-k8s .k8-pairs > div { display: flex; gap: 8px; min-width: 0; padding: 3px 0; border-bottom: 1px dashed var(--line-soft); }
+.pg-k8s .k8-pairs b { font: 500 12.5px var(--mono); color: var(--ink-2); overflow-wrap: anywhere; }
+.pg-k8s .k8-pairs span { font: 400 12.5px var(--mono); margin-left: auto; text-align: right; overflow-wrap: anywhere; }
+
+/* import page */
+.pg-k8s pre.sample { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px;
+  font: 400 12px/1.6 var(--mono); overflow-x: auto; margin: 0; }
+.pg-k8s .k8-diff th, .pg-k8s .k8-diff td { font-size: 12.5px; }
+.pg-k8s .k8-confirm { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px;
+  padding-top: 12px; border-top: 1px solid var(--line); }
+.pg-k8s .k8-confirm form { display: contents; }
+.pg-k8s .k8-form-foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; padding-top: 12px;
+  border-top: 1px solid var(--line); }
+.pg-k8s .k8-form-foot form { display: contents; }
+.pg-k8s .k8-cmds { max-height: 320px; overflow: auto; }
+
+@media (max-width: 900px) {
+  .pg-k8s .k8-kpis { grid-template-columns: repeat(auto-fit, minmax(146px, 1fr)); }
+}
+@media (max-width: 560px) {
+  .pg-k8s .head .actions { margin-left: 0; width: 100%; }
+  .pg-k8s .toolbar.compact .search { max-width: 100%; }
+  .pg-k8s .k8-rollup { grid-template-columns: minmax(0, 1fr); }
+  .pg-k8s .k8-pairs { grid-template-columns: minmax(0, 1fr); }
+}

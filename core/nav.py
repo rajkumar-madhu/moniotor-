@@ -38,6 +38,23 @@ NAV = [
         {"label": "Clusters", "url": "compute:clusters"},
         {"label": "Kubernetes", "url": "compute:kubernetes"},
     ]},
+    # Kubernetes client inventory (the k8s module): the imported estate, not live cluster health.
+    {"label": "Kubernetes", "icon": "hexagon", "children": [
+        {"label": "Overview", "url": "k8s:overview"},
+        {"label": "Clients", "url": "k8s:clients"},
+        {"label": "Namespaces", "url": "k8s:namespaces"},
+        {"label": "Nodes", "url": "k8s:nodes"},
+        {"label": "Workloads", "url": "k8s:workloads"},
+        {"label": "Services", "url": "k8s:services"},
+        {"label": "Ingresses", "url": "k8s:ingresses"},
+        {"label": "Volumes", "url": "k8s:volumes"},
+        {"label": "Certificates", "url": "k8s:certificates"},
+        {"label": "Secret References", "url": "k8s:secrets"},
+        {"label": "Tools", "url": "k8s:tools"},
+        {"label": "Monitoring", "url": "k8s:monitoring"},
+        {"label": "Issues", "url": "k8s:issues"},
+        {"label": "Imports", "url": "k8s:imports"},
+    ]},
     {"label": "IPAM", "icon": "grid", "children": [
         {"label": "Overview", "url": "ipam:overview"},
         {"label": "Subnets", "url": "ipam:subnets"},

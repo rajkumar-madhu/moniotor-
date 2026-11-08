@@ -1,0 +1,94 @@
+{% extends "core/base.html" %}{% load le static k8s_tags %}
+{% block title %}Kubernetes workloads{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'k8s/page.css' %}"><link rel="stylesheet" href="{% static 'k8s/workloads.css' %}">{% endblock %}
+{% block crumbs %}{% include "k8s/_crumbs.html" with section="Workloads" %}{% endblock %}
+{% block content %}
+<div class="pg-k8s">
+<div class="head">
+  <div class="glyph bg-info">{% icon "app" 30 %}</div>
+  <div><h1>Workloads</h1><p>Every container of every pod the application inventory recorded — replicas, image, node and the stale-image flag{% if site_filter %} · {{ site_filter }}{% endif %}.</p></div>
+  <div class="actions"><a class="btn" href="{% url 'k8s:workloads_export' %}?{{ query.urlencode }}">{% icon "download" 17 %}Export CSV</a></div>
+</div>
+{% k8s_tabs "workloads" %}
+
+<section class="kpis k8-kpis" aria-label="Summary">
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-purple">{% icon "app" 22 %}</div><div class="kpi-body"><div class="label">Workloads</div><div class="value">{{ totals.workloads|num }}</div></div></div><div class="sub">{{ totals.containers|num }} container row{{ totals.containers|pluralize }} · {{ totals.pods|num }} pod{{ totals.pods|pluralize }}</div></div>
+  <a class="kpi stacked kpi-link" href="?{% if request.GET %}{{ query.urlencode }}&{% endif %}signal=latest"><div class="kpi-top"><div class="tile {% if totals.latest %}s-warn{% else %}s-ok{% endif %}">{% icon "alert" 22 %}</div><div class="kpi-body"><div class="label">Stale images</div><div class="value">{{ totals.latest|num }}</div></div></div><div class="sub">{% if totals.latest %}Workloads on a <code>latest</code> tag{% else %}No workload uses a <code>latest</code> tag{% endif %}</div></a>
+  <a class="kpi stacked kpi-link" href="?{% if request.GET %}{{ query.urlencode }}&{% endif %}signal=short"><div class="kpi-top"><div class="tile {% if totals.short %}s-crit{% else %}s-ok{% endif %}">{% icon "layers" 22 %}</div><div class="kpi-body"><div class="label">Replicas short</div><div class="value">{{ totals.short|num }}</div></div></div><div class="sub">{% if totals.short %}Fewer ready than desired{% else %}Every known replica count is met{% endif %}</div></a>
+  <a class="kpi stacked kpi-link" href="?{% if request.GET %}{{ query.urlencode }}&{% endif %}signal=unhealthy"><div class="kpi-top"><div class="tile {% if totals.unhealthy %}s-warn{% else %}s-ok{% endif %}">{% icon "activity" 22 %}</div><div class="kpi-body"><div class="label">Warning health</div><div class="value">{{ totals.unhealthy|num }}</div></div></div><div class="sub">{{ totals.pending|num }} pending · {{ totals.failed|num }} failed · {{ totals.no_pod|num }} without a pod</div></a>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "server" 22 %}</div><div class="kpi-body"><div class="label">Nodes used</div><div class="value">{{ totals.nodes|num }}</div></div></div><div class="sub">Distinct nodes the pods ran on</div></div>
+</section>
+
+{% if totals.containers %}
+<section class="wl-charts" aria-label="Charts">
+  <div class="panel"><div class="panel-h"><h2>Workloads by type</h2></div>
+    <div class="donut-wrap"><div class="chart" data-chart="donut" data-src="wl-types"></div>
+      <div class="donut-legend">{% for seg in type_donut.segments %}<span><i class="dot" style="background:{{ seg.color }}"></i>{{ seg.label }}</span><b>{{ seg.value|num }}</b>{% endfor %}</div></div>
+  </div>
+  <div class="panel"><div class="panel-h"><h2>Pods by status</h2></div>
+    <div class="donut-wrap"><div class="chart" data-chart="donut" data-src="wl-pods"></div>
+      <div class="donut-legend">{% for seg in pod_donut.segments %}<span><i class="dot" style="background:{{ seg.color }}"></i>{{ seg.label }}</span><b>{{ seg.value|num }}</b>{% endfor %}</div></div>
+    <p class="k8-note">A workload with no pod (scaled to zero) is counted once under “No pod”.</p>
+  </div>
+</section>
+{{ type_donut|json_script:"wl-types" }}{{ pod_donut|json_script:"wl-pods" }}
+{% endif %}
+
+<div class="panel">
+  <div class="panel-h"><h2>Workloads ({{ page.paginator.count|num }})</h2>
+    <div class="right"><a class="btn sm ghost-primary" href="{% url 'k8s:workloads_export' %}?{{ query.urlencode }}">{% icon "download" 15 %}CSV</a></div></div>
+  <form class="toolbar compact" method="get">
+    {% if request.GET.per %}<input type="hidden" name="per" value="{{ request.GET.per }}">{% endif %}
+    {% if request.GET.node %}<input type="hidden" name="node" value="{{ request.GET.node }}">{% endif %}
+    <label class="search">{% icon "search" 16 %}<input type="search" name="q" value="{{ request.GET.q|default:'' }}" placeholder="Workload, image, pod, namespace…" aria-label="Search workloads"></label>
+    <select name="client" data-autosubmit aria-label="Client"><option value="">All clients</option>{% for c in client_options %}<option value="{{ c }}"{% if request.GET.client == c %} selected{% endif %}>{{ c }}</option>{% endfor %}</select>
+    <select name="namespace" data-autosubmit aria-label="Namespace"><option value="">All namespaces</option>{% for n in namespace_options %}<option value="{{ n }}"{% if request.GET.namespace == n %} selected{% endif %}>{{ n }}</option>{% endfor %}</select>
+    <select name="type" data-autosubmit aria-label="Type"><option value="">All types</option>{% for v, l in types %}<option value="{{ v }}"{% if request.GET.type == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <select name="health" data-autosubmit aria-label="Health"><option value="">Any health</option>{% for v, l in healths %}<option value="{{ v }}"{% if request.GET.health == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <select name="registry" data-autosubmit aria-label="Image registry"><option value="">All registries</option>{% for r in registry_options %}<option value="{{ r }}"{% if request.GET.registry == r %} selected{% endif %}>{{ r }}</option>{% endfor %}</select>
+    <select name="pod" data-autosubmit aria-label="Pod status"><option value="">Any pod status</option>{% for v, l in pod_statuses %}<option value="{{ v }}"{% if request.GET.pod == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <select name="signal" data-autosubmit aria-label="Signal"><option value="">Any signal</option>{% for v, l in signals %}<option value="{{ v }}"{% if request.GET.signal == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <select name="sort" data-autosubmit aria-label="Sort"><option value="">Sort: namespace</option>
+      <option value="name"{% if request.GET.sort == 'name' %} selected{% endif %}>Sort: workload</option>
+      <option value="replicas"{% if request.GET.sort == 'replicas' %} selected{% endif %}>Sort: fewest ready</option>
+      <option value="health"{% if request.GET.sort == 'health' %} selected{% endif %}>Sort: health</option>
+      <option value="image"{% if request.GET.sort == 'image' %} selected{% endif %}>Sort: image</option>
+      <option value="node"{% if request.GET.sort == 'node' %} selected{% endif %}>Sort: node</option></select>
+    {% include "k8s/_site_filter.html" %}
+    <a class="btn icon blue" href="{% url 'k8s:workloads' %}" title="Clear filters" aria-label="Clear filters">{% icon "refresh" 16 %}</a>
+  </form>
+  {% if node_filter %}<p class="filter-note">{% icon "server" 15 %}Running on node <a href="{{ node_filter.get_absolute_url }}"><b>{{ node_filter.hostname }}</b></a></p>{% endif %}
+  <div class="table-wrap dense"><table>
+    <thead><tr><th>Workload</th><th>Client</th><th>Container</th><th>Image</th><th class="num">Replicas</th><th>Health</th>
+      <th>Pod</th><th>Node</th><th>Ports</th><th class="num">Svc</th><th class="num">PVC</th></tr></thead>
+    <tbody>
+    {% for w in items %}
+      <tr{% if w.is_missing %} class="gone"{% endif %}>
+        <td class="wl-name"><div class="wl-cell"><a href="{{ w.get_absolute_url }}"><b>{{ w.workload_name }}</b></a>
+          <span class="chip mute">{{ w.get_workload_type_display }}</span>
+          {% if w.is_missing %}<span class="chip warn" title="Not in the newest snapshot">gone</span>{% endif %}
+          <div class="sub">{{ w.namespace.name }}{% if w.application and w.application != w.workload_name %} · {{ w.application }}{% endif %}{% if w.environment %} · {{ w.environment }}{% endif %}</div></div></td>
+        <td class="trunc" title="{{ w.client_label }}">{% if w.client_id %}{{ w.client.name }}{% else %}{{ w.client_label|default:"–" }}{% endif %}</td>
+        <td class="mono trunc" title="{{ w.container }}">{{ w.container|default:"–" }}</td>
+        <td class="wl-img">{% if w.image %}<div class="wl-image" title="{{ w.image }}">{{ w.image|truncatechars:70 }}</div>
+          <div class="chips">{% if w.image_latest %}<span class="chip warn" title="The image is the moving 'latest' tag: a restart can pull different code">latest</span>{% endif %}{% if w.image_tag and not w.image_latest %}<span class="chip mute mono">{{ w.image_tag|truncatechars:24 }}</span>{% endif %}{% if w.is_pinned %}<span class="chip ok" title="Pinned by digest">digest</span>{% endif %}</div>{% else %}–{% endif %}</td>
+        <td class="num">{% if w.is_short %}<span class="short" title="{{ w.ready_replicas }} ready of {{ w.desired_replicas }} desired">{{ w.replicas_label }}</span>{% else %}{{ w.replicas_label }}{% endif %}</td>
+        <td>{% if w.health != 'unknown' %}<span class="chip {{ w.health_tone }}">{{ w.get_health_display }}</span>{% else %}–{% endif %}</td>
+        <td class="wl-pod"><span class="chip {{ w.pod_tone }}">{{ w.pod_status_label }}</span>{% if w.pod_name %}<div class="sub mono">{{ w.pod_name }}{% if w.pod_ip %} · {{ w.pod_ip }}{% endif %}</div>{% endif %}</td>
+        <td class="trunc">{% if w.node_id %}<a href="{{ w.node.get_absolute_url }}">{{ w.node.hostname }}</a>{% elif w.node_name %}<span title="Not in the node inventory">{{ w.node_name }}</span>{% else %}<span class="t-mute">–</span>{% endif %}</td>
+        <td class="mono">{{ w.ports_display|join:", "|default:"–" }}</td>
+        <td class="num">{% if w.service_count %}<a href="{% url 'k8s:services' %}?namespace={{ w.namespace.name|urlencode }}&amp;q={{ w.service_q|urlencode }}" title="Services of this namespace named after the workload">{{ w.service_count }}</a>{% else %}<span class="t-mute">–</span>{% endif %}</td>
+        <td class="num">{% if w.storage_attached %}<a href="{% url 'k8s:volumes' %}?namespace={{ w.namespace.name|urlencode }}&amp;q={{ w.storage_attached.0|urlencode }}">{{ w.storage_attached|length }}</a>{% else %}<span class="t-mute">–</span>{% endif %}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="11" class="empty">{% if filtered %}No workloads match these filters.{% else %}No workloads imported yet. <a href="{% url 'k8s:import_inventory' %}">Import a workbook</a>.{% endif %}</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  {% include "core/_pager.html" with pager_noun="rows" %}
+  <p class="k8-note">One row per container of each pod, as the workbook lists them; open a workload for all its
+    containers together. Replicas read <b>ready/desired</b> and turn amber when fewer are ready than wanted — a
+    dash means the discovery recorded no count, which is not the same as zero. “Svc” counts the services of the same
+    namespace named after the workload or its application; selectors are not matched because the sheets carry no pod labels.</p>
+</div>
+</div>
+{% endblock %}

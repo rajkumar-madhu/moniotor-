@@ -60,6 +60,41 @@ pinned open by the menu button (`.shell.rail-open`). Nav labels sit in `.lbl`, c
 * Every list view: search/filter where useful, pagination (`?per=`), CSV export where useful.
 * Every mutation: POST + CSRF, permission check, `audit(...)`, success message, redirect.
 
+## Kubernetes inventory (`k8s`)
+
+Holds the **client Kubernetes estate** as a read-only `kubectl` discovery recorded it, delivered as a
+workbook. It is inventory, not live health: live cluster health stays in `compute` (Compute → Kubernetes,
+read from kube-state-metrics through Prometheus). The two link up — a `KubeCluster` can point at a
+`compute.Cluster`, and a `Node` at the `cmdb.ConfigurationItem` / `network.Device` / `compute.ClusterMember`
+that already describe the same machine.
+
+* **Pages** `k8s:overview` (`/kubernetes/`), `k8s:clients`, `k8s:namespaces`, `k8s:nodes`,
+  `k8s:node_detail`, `k8s:import_inventory`, `k8s:imports`, `k8s:import_detail`, plus a CSV export beside
+  each list. Sidebar: **Kubernetes**, after Compute.
+* **Tab strip** `k8s/tabs.py` is the single list of sections. A page for one of the remaining workbook
+  sheets (`k8s:workloads`, `k8s:services`, `k8s:ingresses`, `k8s:volumes`, `k8s:certificates`, `k8s:tools`,
+  `k8s:issues`) adds its path to `k8s/urls.py` and flips `"enabled": True` on its row; nothing else changes
+  and the strip never links to a URL name that does not resolve.
+* **Import engine** `k8s/importer.py`. `register_sheet(name, order, fn)` maps one workbook sheet to one
+  importer callable, registered from its own module under `k8s/sheets/` (listed in `k8s/sheets/__init__.py`).
+  `run_import()` calls them in order, each in its own transaction, and records per-sheet counts, warnings
+  and errors on the `ImportRun`. Sheet importers use the shared `ImportContext`: `upsert()` (idempotent
+  create-or-update plus the created/updated counts), `track()` (which rows the run owns, so ones it did not
+  see are marked missing), `resolve_client()`, `resolve_namespace()`, `cluster_for()`, `resolve_site()`,
+  `warn()` / `error()`. Sheets 04–12 should register at order 60 or above, after the backbone sheets.
+* **Versioning** an import is idempotent: the same workbook twice changes nothing. A row the new snapshot
+  no longer contains gets `missing_since` (cleared if it comes back) — never deleted, never silently kept
+  as current. `dry_run=True` reports the same numbers and writes nothing.
+* **Entry points** `manage.py import_k8s_inventory <path> [--dry-run] [--create-compute] [--site NAME]`,
+  and `/kubernetes/import/` for admins on every site (dry-run diff first, then a confirm button).
+* **Data rules** the workbook describes a real customer estate, so **none of it belongs in this
+  repository** — not a row, host name, address, client name, URL or Secret name. Tests use synthetic
+  fixtures (`k8s/tests/fixtures.py`: "Acme"/"Globex", RFC 5737 addresses, example.com). The sheets carry
+  Kubernetes Secret **names** only and this module has no field that could hold a value. The collector's
+  placeholder strings ("NOT DISCOVERED", "NOT APPLICABLE", "MANUAL INPUT REQUIRED",
+  "MULTIPLE / SEE NODE INVENTORY") mean *no value*: `k8s.parsing.clean()` normalises them to empty and the
+  pages show a dash. See **docs/IMPORT.md** for the workbook format and the discovery commands.
+
 ## Cross-module interfaces
 
 Modules may depend on each other only through these names, imported lazily inside functions
@@ -74,6 +109,7 @@ works if the other module is absent.
 | tcpcheck | Model `TcpCheck` (name, host, port, site, last_status: online/down/unknown, last_checked_at, last_response_ms). |
 | automation | `automation.services.trigger_stackstorm(trigger, payload) -> Execution`. |
 | urlchecker / domainmonitor | Existing models `UrlCheck`, `UrlResult`, `Domain`, `DomainCheck` (read-only for other modules). |
+| k8s | Models `KubeCluster`, `Node`, `Namespace`, `ClientProfile`, `ImportRun`. `k8s.services.clusters_for(user)` / `nodes_for(user)` / `namespaces_for(user)` / `profiles_for(user)` (site-scoped querysets), `k8s.services.can_import(user)`, `k8s.services.last_run()`. Import engine: `k8s.importer.run_import(source, user=None, dry_run=False, site="All Sites", create_compute=False)` and `k8s.importer.register_sheet(name, order, fn)`; cell parsing in `k8s.parsing`. |
 
 ## Prometheus discovery
 

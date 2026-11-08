@@ -1,0 +1,60 @@
+/* Kubernetes edge exposure: ingresses, certificates, secret references. Scoped under .pg-k8s. */
+
+/* ingress list: one block per host, its paths underneath */
+.pg-k8s .k8-edge tbody.k8-host-group { border-top: 1px solid var(--line); }
+.pg-k8s .k8-edge tr.k8-host td { padding-top: 9px; padding-bottom: 5px; border-bottom: 0; vertical-align: top; }
+.pg-k8s .k8-edge tr.k8-host .hostname { font: 600 13.5px var(--mono); overflow-wrap: anywhere; }
+.pg-k8s .k8-edge tr.k8-path td { padding-top: 2px; padding-bottom: 2px; border-bottom: 0; font-size: 12.5px; color: var(--ink-2); vertical-align: top; }
+.pg-k8s .k8-edge tr.k8-path:last-child td, .pg-k8s .k8-edge tr.k8-path.last td { padding-bottom: 8px; }
+.pg-k8s .k8-edge tr.k8-path td:first-child { padding-left: 22px; font-family: var(--mono); overflow-wrap: anywhere; }
+.pg-k8s .k8-edge tr.k8-path td.mono { white-space: normal; overflow-wrap: anywhere; }
+.pg-k8s .k8-edge tr.gone td { opacity: .62; }
+.pg-k8s .k8-edge .sub { display: block; font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
+.pg-k8s .k8-edge .chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+
+.pg-k8s .k8-edge td.wrap { white-space: normal; overflow-wrap: anywhere; min-width: 140px; }
+.pg-k8s .k8-edge td.wrap.name { min-width: 190px; }
+
+/* opt-in link panel */
+.pg-k8s .k8-linkbox { border: 1px dashed var(--line); border-radius: 10px; padding: 10px 12px; background: var(--panel-2);
+  margin-bottom: 12px; font-size: 13px; }
+.pg-k8s .k8-linkbox form { display: flex; gap: 8px 16px; flex-wrap: wrap; align-items: center; }
+.pg-k8s .k8-linkbox label { display: inline-flex; gap: 6px; align-items: center; }
+.pg-k8s .k8-linkbox p { margin: 0 0 6px; color: var(--muted); font-size: 12.5px; }
+.pg-k8s .k8-linkbox .btn { margin-left: auto; }
+
+/* certificate countdown */
+.pg-k8s .k8-count { display: flex; flex-direction: column; gap: 4px; min-width: 120px; }
+.pg-k8s .k8-count b { font: 700 15px var(--mono); }
+.pg-k8s .k8-count b.t-ok { color: var(--ok-ink); }
+.pg-k8s .k8-bar { display: block; height: 5px; border-radius: 3px; background: var(--line-soft); overflow: hidden; }
+.pg-k8s .k8-bar i { display: block; height: 100%; border-radius: 3px; background: var(--stone); }
+.pg-k8s .k8-bar.ok i { background: var(--ok-ink); }
+.pg-k8s .k8-bar.warn i { background: var(--warn-ink); }
+.pg-k8s .k8-bar.crit i { background: var(--crit-ink); }
+.pg-k8s .k8-bar.info i { background: var(--info); }
+
+/* secret references: names only */
+.pg-k8s .k8-banner { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px;
+  background: var(--ok-bg); border: 1px solid var(--ok-line); color: var(--ok-ink); font-size: 13px; }
+.pg-k8s .k8-banner p { margin: 0; overflow-wrap: anywhere; }
+.pg-k8s .k8-nslist { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.pg-k8s .k8-nslist li { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; border-bottom: 1px dashed var(--line-soft); min-width: 0; }
+.pg-k8s .k8-nslist a { font: 500 12.5px var(--mono); overflow-wrap: anywhere; min-width: 0; }
+.pg-k8s .k8-nslist span { margin-left: auto; font: 500 12px var(--mono); color: var(--muted); white-space: nowrap; }
+
+/* overview contribution */
+.pg-k8s .k8-edge-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.pg-k8s .k8-edge-cards a { display: block; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+  background: var(--panel-2); color: inherit; min-width: 0; }
+.pg-k8s .k8-edge-cards a:hover { text-decoration: none; border-color: #cfc5b3; }
+.pg-k8s .k8-edge-cards a.crit { border-color: var(--crit-line); }
+.pg-k8s .k8-edge-cards a.warn { border-color: var(--warn-line); }
+.pg-k8s .k8-edge-cards b { display: block; font: 700 20px var(--mono); }
+.pg-k8s .k8-edge-cards span { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.pg-k8s .k8-edge-cards em { display: block; font-style: normal; font-size: 12px; color: var(--muted); margin-top: 3px; overflow-wrap: anywhere; }
+
+@media (max-width: 560px) {
+  .pg-k8s .k8-linkbox .btn { margin-left: 0; }
+  .pg-k8s .k8-edge tr.k8-path td:first-child { padding-left: 14px; }
+}

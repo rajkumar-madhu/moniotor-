@@ -1,0 +1,100 @@
+{% extends "core/base.html" %}{% load le static k8s_tags %}
+{% block title %}Kubernetes ingresses{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'k8s/page.css' %}"><link rel="stylesheet" href="{% static 'k8s/edge.css' %}">{% endblock %}
+{% block crumbs %}{% include "k8s/_crumbs.html" with section="Ingresses" %}{% endblock %}
+{% block content %}
+<div class="pg-k8s">
+<div class="head">
+  <div class="glyph bg-info">{% icon "link" 30 %}</div>
+  <div><h1>Ingresses</h1><p>Every ingress rule the discovery recorded, grouped by host name with its paths{% if site_filter %} · {{ site_filter }}{% endif %}.</p></div>
+  <div class="actions"><a class="btn" href="{% url 'k8s:ingresses_export' %}?{{ query.urlencode }}">{% icon "download" 17 %}Export CSV</a></div>
+</div>
+{% k8s_tabs "ingresses" %}
+
+<section class="kpis k8-kpis" aria-label="Summary">
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "link" 22 %}</div><div class="kpi-body"><div class="label">Ingress rules</div><div class="value">{{ totals.rules|num }}</div></div></div><div class="sub">{{ totals.hosts|num }} distinct host name{{ totals.hosts|pluralize }}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile {% if totals.rules and totals.tls == totals.rules %}s-ok{% elif totals.rules %}s-warn{% else %}s-mute{% endif %}">{% icon "lock" 22 %}</div><div class="kpi-body"><div class="label">TLS coverage</div><div class="value">{% if totals.tls_pct is None %}–{% else %}{{ totals.tls_pct }}<small>%</small>{% endif %}</div></div></div><div class="sub">{{ totals.tls|num }} of {{ totals.rules|num }} rules terminate TLS</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-purple">{% icon "globe" 22 %}</div><div class="kpi-body"><div class="label">Public address</div><div class="value">{{ totals.public|num }}</div></div></div><div class="sub">Rules whose address is public</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile {% if totals.missing_address %}s-warn{% else %}s-ok{% endif %}">{% icon "alert" 22 %}</div><div class="kpi-body"><div class="label">Missing address</div><div class="value">{{ totals.missing_address|num }}</div></div></div><div class="sub">{% if totals.missing_address %}No load-balancer address{% else %}Every rule has an address{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile {% if totals.checked %}s-ok{% else %}s-mute{% endif %}">{% icon "activity" 22 %}</div><div class="kpi-body"><div class="label">With a URL check</div><div class="value">{{ totals.checked|num }}</div></div></div><div class="sub">Linked to URL Checker</div></div>
+</section>
+
+{% if totals.missing_address %}
+<div class="k8-alert warn">{% icon "alert" 16 %}<p><b>{{ totals.missing_address }} rule{{ totals.missing_address|pluralize }} had no address when the cluster was read.</b>
+  Filter “Missing address” to see them: DNS may point at a load balancer that was never assigned.</p></div>
+{% endif %}
+
+<div class="panel">
+  <div class="panel-h"><h2>Hosts ({{ page.paginator.count }})</h2>
+    <div class="right"><a class="btn sm ghost-primary" href="{% url 'k8s:ingresses_export' %}?{{ query.urlencode }}">{% icon "download" 15 %}CSV</a></div></div>
+  <form class="toolbar compact" method="get">
+    {% if request.GET.per %}<input type="hidden" name="per" value="{{ request.GET.per }}">{% endif %}
+    <label class="search">{% icon "search" 16 %}<input type="search" name="q" value="{{ request.GET.q|default:'' }}" placeholder="Host, path, service, application…" aria-label="Search ingresses"></label>
+    {% if clients %}<select name="client" data-autosubmit aria-label="Client"><option value="">All clients</option>{% for c in clients %}<option value="{{ c }}"{% if request.GET.client == c %} selected{% endif %}>{{ c }}</option>{% endfor %}</select>{% endif %}
+    {% if classes %}<select name="class" data-autosubmit aria-label="Ingress class"><option value="">Any class</option>{% for c in classes %}<option value="{{ c }}"{% if request.GET.class == c %} selected{% endif %}>{{ c }}</option>{% endfor %}</select>{% endif %}
+    <select name="ip_type" data-autosubmit aria-label="Address type"><option value="">Public &amp; private</option>{% for v, l in ip_types %}<option value="{{ v }}"{% if request.GET.ip_type == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <select name="tls" data-autosubmit aria-label="TLS"><option value="">TLS or not</option><option value="yes"{% if request.GET.tls == 'yes' %} selected{% endif %}>TLS</option><option value="no"{% if request.GET.tls == 'no' %} selected{% endif %}>No TLS</option></select>
+    {% if environments %}<select name="environment" data-autosubmit aria-label="Environment"><option value="">All environments</option>{% for e in environments %}<option value="{{ e }}"{% if request.GET.environment == e %} selected{% endif %}>{{ e }}</option>{% endfor %}</select>{% endif %}
+    <select name="state" data-autosubmit aria-label="State"><option value="">Any state</option>
+      <option value="missing_address"{% if request.GET.state == 'missing_address' %} selected{% endif %}>Missing address</option>
+      <option value="no_certificate"{% if request.GET.state == 'no_certificate' %} selected{% endif %}>TLS, no certificate record</option>
+      <option value="no_check"{% if request.GET.state == 'no_check' %} selected{% endif %}>No URL check</option>
+      <option value="gone"{% if request.GET.state == 'gone' %} selected{% endif %}>No longer present</option></select>
+    {% include "k8s/_site_filter.html" %}
+    <a class="btn icon blue" href="{% url 'k8s:ingresses' %}" title="Clear filters" aria-label="Clear filters">{% icon "refresh" 16 %}</a>
+  </form>
+
+  {% if can_link and totals.rules %}
+  <div class="k8-linkbox">
+    <p>Optionally connect these {{ totals.rules|num }} rule{{ totals.rules|pluralize }} to monitoring. Nothing is probed: new URL checks are created <b>disabled</b> and new domains with monitoring <b>off</b>; an existing check or domain is linked, never duplicated.</p>
+    <form method="post" action="{% url 'k8s:ingresses_link' %}">{% csrf_token %}
+      {% for key, value in filter_items %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
+      <label><input type="checkbox" name="urlchecks" value="1"> URL checks for https hosts</label>
+      <label><input type="checkbox" name="domains" value="1"> Domains (registrable domain)</label>
+      <button class="btn sm" type="submit">{% icon "link" 15 %}Create / link</button>
+    </form>
+  </div>
+  {% endif %}
+
+  <div class="table-wrap dense"><table class="k8-edge">
+    <thead><tr><th>Host / path</th><th>Client · namespace / backend</th><th>Class / ingress</th><th>Address / status</th><th>TLS</th><th>Monitoring</th></tr></thead>
+    {% for g in groups %}
+    <tbody class="k8-host-group">
+      <tr class="k8-host{% if g.gone %} gone{% endif %}">
+        <td><span class="hostname">{% if g.hostname %}{{ g.hostname }}{% else %}<span class="t-mute">(no host rule)</span>{% endif %}</span>
+          {% if g.rows|length > 1 %}<span class="sub">{{ g.rows|length }} paths</span>{% endif %}{% if g.gone %} <span class="chip warn">gone</span>{% endif %}</td>
+        <td>{% if g.client %}{{ g.client }}{% else %}<span class="t-mute">not determined</span>{% endif %}
+          <span class="sub mono">{{ g.namespaces|join:", " }}</span></td>
+        <td>{% if g.classes %}{{ g.classes|join:", " }}{% else %}–{% endif %}</td>
+        <td>{% if g.ips %}<span class="mono">{{ g.ips|join:", " }}</span>{% else %}–{% endif %}
+          <span class="chips">{% if g.ip_type != 'unknown' %}<span class="chip {% if g.ip_type == 'public' %}warn{% else %}mute{% endif %}">{% if g.ip_type == 'public' %}Public{% else %}Private{% endif %}</span>{% endif %}{% if g.missing_address %}<span class="chip warn">Missing address</span>{% endif %}</span></td>
+        <td>{% if g.tls %}<span class="chip {% if g.all_tls %}ok{% else %}warn{% endif %}">{% if g.all_tls %}TLS{% else %}Partly TLS{% endif %}</span>
+            {% if g.certificate %}<a class="sub" href="{% url 'k8s:certificates' %}?q={{ g.certificate.name|urlencode }}">{{ g.certificate.name }}</a>
+            {% else %}<span class="sub">no certificate record</span>{% endif %}
+          {% else %}<span class="chip crit">No TLS</span>{% endif %}</td>
+        <td><span class="chips">
+          {% if g.url_check %}<a class="chip {% if g.url_check.enabled %}ok{% else %}mute{% endif %}" href="{% url 'urlchecker:detail' g.url_check.pk %}" title="{% if g.url_check.enabled %}Being probed{% else %}Linked, not enabled — nothing is probed{% endif %}">{% icon "activity" 12 %} {% if g.url_check.enabled %}{{ g.url_check.get_last_status_display }}{% else %}Check off{% endif %}</a>{% endif %}
+          {% if g.domain %}<a class="chip {% if g.domain.monitor_enabled %}ok{% else %}mute{% endif %}" href="{% url 'domains:list' %}?q={{ g.domain.hostname|urlencode }}" title="Domain monitor: {{ g.domain.hostname }}">{% icon "globe" 12 %} {{ g.domain.hostname }}</a>{% endif %}
+          {% if not g.url_check and not g.domain %}<span class="t-mute">–</span>{% endif %}</span></td>
+      </tr>
+      {% for r in g.rows %}
+      <tr class="k8-path{% if r.is_missing %} gone{% endif %}">
+        <td>{{ r.path|default:"/" }}</td>
+        <td class="mono">{% if r.backend %}{{ r.backend }}{% else %}–{% endif %}</td>
+        <td>{{ r.name|default:"–" }}{% if r.application and r.application != r.name %}<span class="sub">{{ r.application }}</span>{% endif %}</td>
+        <td>{% if r.status %}<span class="chip {% if r.missing_address %}warn{% else %}mute{% endif %}">{{ r.status }}</span>{% else %}–{% endif %}</td>
+        <td>{% if r.tls %}<span class="t-ok">TLS</span>{% else %}<span class="t-crit">none</span>{% endif %}</td>
+        <td></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    {% empty %}
+    <tbody><tr><td colspan="6" class="empty">{% if filtered %}No ingress rules match these filters.{% else %}No ingresses imported yet. <a href="{% url 'k8s:import_inventory' %}">Import a workbook</a> that includes the ingress sheet.{% endif %}</td></tr></tbody>
+    {% endfor %}
+  </table></div>
+  {% include "core/_pager.html" with pager_noun="hosts" %}
+  <p class="k8-note">Rows are grouped by host name; the same host can appear in several namespaces and with several paths.
+    A dash means the discovery recorded no value. “Check off” means a URL check is linked but disabled, so nothing is probed.</p>
+</div>
+</div>
+{% endblock %}

@@ -1,0 +1,61 @@
+{% extends "core/base.html" %}{% load le static k8s_tags %}
+{% block title %}Kubernetes services{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'k8s/page.css' %}"><link rel="stylesheet" href="{% static 'k8s/workloads.css' %}">{% endblock %}
+{% block crumbs %}{% include "k8s/_crumbs.html" with section="Services" %}{% endblock %}
+{% block content %}
+<div class="pg-k8s">
+<div class="head">
+  <div class="glyph bg-info">{% icon "share" 30 %}</div>
+  <div><h1>Services</h1><p>Every service port the service inventory recorded, with the port it forwards to, its NodePort and its selector{% if site_filter %} · {{ site_filter }}{% endif %}.</p></div>
+  <div class="actions"><a class="btn" href="{% url 'k8s:services_export' %}?{{ query.urlencode }}">{% icon "download" 17 %}Export CSV</a></div>
+</div>
+{% k8s_tabs "services" %}
+
+<section class="kpis k8-kpis" aria-label="Summary">
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "share" 22 %}</div><div class="kpi-body"><div class="label">Services</div><div class="value">{{ totals.services|num }}</div></div></div><div class="sub">{{ totals.ports|num }} port row{{ totals.ports|pluralize }}</div></div>
+  <a class="kpi stacked kpi-link" href="?{% if request.GET %}{{ query.urlencode }}&{% endif %}type=NodePort"><div class="kpi-top"><div class="tile {% if totals.node_port %}s-warn{% else %}s-ok{% endif %}">{% icon "link" 22 %}</div><div class="kpi-body"><div class="label">NodePort</div><div class="value">{{ totals.node_port|num }}</div></div></div><div class="sub">Reachable on every node's address</div></a>
+  <a class="kpi stacked kpi-link" href="?{% if request.GET %}{{ query.urlencode }}&{% endif %}type=LoadBalancer"><div class="kpi-top"><div class="tile s-purple">{% icon "globe" 22 %}</div><div class="kpi-body"><div class="label">LoadBalancer</div><div class="value">{{ totals.load_balancer|num }}</div></div></div><div class="sub">{{ totals.external_name|num }} ExternalName</div></a>
+  <a class="kpi stacked kpi-link" href="?{% if request.GET %}{{ query.urlencode }}&{% endif %}headless=1"><div class="kpi-top"><div class="tile s-mute">{% icon "layers" 22 %}</div><div class="kpi-body"><div class="label">Headless</div><div class="value">{{ totals.headless|num }}</div></div></div><div class="sub">No cluster IP · {{ totals.no_selector|num }} without a selector</div></a>
+</section>
+
+<div class="panel">
+  <div class="panel-h"><h2>Services ({{ page.paginator.count|num }})</h2>
+    <div class="right"><a class="btn sm ghost-primary" href="{% url 'k8s:services_export' %}?{{ query.urlencode }}">{% icon "download" 15 %}CSV</a></div></div>
+  <form class="toolbar compact" method="get">
+    {% if request.GET.per %}<input type="hidden" name="per" value="{{ request.GET.per }}">{% endif %}
+    <label class="search">{% icon "search" 16 %}<input type="search" name="q" value="{{ request.GET.q|default:'' }}" placeholder="Service, application, port…" aria-label="Search services"></label>
+    <select name="type" data-autosubmit aria-label="Service type"><option value="">All types</option>{% for v, l in types %}<option value="{{ v }}"{% if request.GET.type == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <select name="namespace" data-autosubmit aria-label="Namespace"><option value="">All namespaces</option>{% for n in namespace_options %}<option value="{{ n }}"{% if request.GET.namespace == n %} selected{% endif %}>{{ n }}</option>{% endfor %}</select>
+    <select name="client" data-autosubmit aria-label="Client"><option value="">All clients</option>{% for c in client_options %}<option value="{{ c }}"{% if request.GET.client == c %} selected{% endif %}>{{ c }}</option>{% endfor %}</select>
+    <select name="exposed" data-autosubmit aria-label="Exposure"><option value="">Internal &amp; exposed</option><option value="1"{% if request.GET.exposed == '1' %} selected{% endif %}>Exposed outside the cluster</option></select>
+    {% include "k8s/_site_filter.html" %}
+    <a class="btn icon blue" href="{% url 'k8s:services' %}" title="Clear filters" aria-label="Clear filters">{% icon "refresh" 16 %}</a>
+  </form>
+  {% if type_counts %}<p class="kvbar">{% for label, n in type_counts %}<span>{{ label }} <b>{{ n|num }}</b></span>{% endfor %}<span class="t-mute">port rows in this view</span></p>{% endif %}
+  <div class="table-wrap dense"><table>
+    <thead><tr><th>Service</th><th>Type</th><th>Client</th><th>Port → target</th><th class="num">NodePort</th><th>Cluster IP</th><th>Load balancer</th><th>Selector</th><th>Status</th></tr></thead>
+    <tbody>
+    {% for s in items %}
+      <tr{% if s.is_missing %} class="gone"{% endif %}>
+        <td class="wl-name"><div class="wl-cell"><b>{{ s.name }}</b>{% if s.is_missing %} <span class="chip warn" title="Not in the newest snapshot">gone</span>{% endif %}
+          <div class="sub">{{ s.namespace.name }}{% if s.application and s.application != s.name %} · {{ s.application }}{% endif %}{% if s.environment %} · {{ s.environment }}{% endif %}</div></div></td>
+        <td>{% if s.is_exposed %}<span class="chip warn">{{ s.get_service_type_display }}</span>{% else %}<span class="chip mute">{{ s.get_service_type_display }}</span>{% endif %}</td>
+        <td class="trunc" title="{{ s.client_label }}">{% if s.client_id %}{{ s.client.name }}{% else %}{{ s.client_label|default:"–" }}{% endif %}</td>
+        <td class="mono">{{ s.ports_label|default:"–" }}</td>
+        <td class="num">{{ s.node_port|default_if_none:"–" }}</td>
+        <td class="mono">{% if s.cluster_ip %}{{ s.cluster_ip }}{% elif s.headless %}<span class="chip mute">headless</span>{% else %}–{% endif %}</td>
+        <td class="mono">{{ s.loadbalancer_ip|default:"–" }}</td>
+        <td>{% if s.selector_pairs %}<ul class="sel-list">{% for k, v in s.selector_pairs %}<li>{{ k }}={{ v }}</li>{% endfor %}</ul>{% else %}<span class="t-mute">none</span>{% endif %}</td>
+        <td>{{ s.status|default:"–" }}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="9" class="empty">{% if filtered %}No services match these filters.{% else %}No services imported yet. <a href="{% url 'k8s:import_inventory' %}">Import a workbook</a>.{% endif %}</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  {% include "core/_pager.html" with pager_noun="rows" %}
+  <p class="k8-note">A multi-port service has one row per port. “Port → target” is the service port, then the
+    container port it forwards to (a name when the pod names its port). A service with no selector is routed by hand
+    (endpoints or ExternalName); a dash means the discovery recorded no value.</p>
+</div>
+</div>
+{% endblock %}
