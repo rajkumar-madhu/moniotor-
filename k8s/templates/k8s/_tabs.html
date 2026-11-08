@@ -1,0 +1,3 @@
+{% load le %}<nav class="tabs k8-tabs" aria-label="Kubernetes sections">
+  {% for t in tabs %}<a href="{% url t.url %}" class="{% if t.key == active %}on{% endif %}">{% icon t.icon 15 %}{{ t.label }}</a>{% endfor %}
+</nav>

@@ -916,6 +916,15 @@ SITE_NAME_FIELDS = [
     ("compute", "Cluster", "site", "Compute clusters"),
     ("onboarding", "OnboardingRun", "site", "Onboarding runs"),
     ("onboarding", "Credential", "site", "Stored credentials"),
+    ("k8s", "KubeCluster", "site", "Kubernetes clusters"),
+    ("k8s", "Namespace", "site", "Kubernetes namespaces"),
+    ("k8s", "ClientProfile", "site", "Kubernetes client profiles"),
+    ("k8s", "ImportRun", "site", "Kubernetes inventory imports"),
+    ("k8s", "Ingress", "site", "Kubernetes ingress rules"),
+    ("k8s", "Certificate", "site", "Kubernetes certificates"),
+    ("k8s", "SecretRef", "site", "Kubernetes secret references"),
+    ("k8s", "ToolInstance", "site", "Kubernetes monitoring and CI/CD tools"),
+    ("k8s", "InventoryIssue", "site", "Kubernetes inventory issues"),
 ]
 
 

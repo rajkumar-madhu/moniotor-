@@ -1,0 +1,84 @@
+{% extends "core/base.html" %}{% load le static k8s_tags k8s_ops_tags %}
+{% block title %}Kubernetes monitoring coverage{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'k8s/page.css' %}"><link rel="stylesheet" href="{% static 'k8s/ops.css' %}">{% endblock %}
+{% block crumbs %}{% include "k8s/_crumbs.html" with section="Monitoring" %}{% endblock %}
+{% block content %}
+<div class="pg-k8s">
+<div class="head">
+  <div class="glyph bg-info">{% icon "activity" 30 %}</div>
+  <div><h1>Monitoring coverage</h1><p>What monitoring each client runs in the estate — and which clients have none{% if site_filter %} · {{ site_filter }}{% endif %}.</p></div>
+  <div class="actions"><form method="get">{% include "k8s/_site_filter.html" %}</form>
+    <a class="btn" href="{% url 'k8s:monitoring_export' %}?{{ query.urlencode }}">{% icon "download" 17 %}Export CSV</a></div>
+</div>
+{% k8s_tabs "monitoring" %}
+
+{% if not cover.has_data %}
+<div class="panel"><div class="k8-empty" role="status">{% icon "activity" 32 %}
+  <p><b>No clients or monitoring tools have been imported yet.</b> This page compares the clients in the inventory
+    with the monitoring tools the discovery found in their namespaces. Import a workbook that includes the client,
+    namespace and monitoring sheets.</p>
+  <div class="btns"><a class="btn primary sm" href="{% url 'k8s:imports' %}">{% icon "upload" 15 %}Imports</a></div></div></div>
+{% else %}
+
+<section class="kpis k8-kpis" aria-label="Summary">
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "users" 22 %}</div><div class="kpi-body"><div class="label">Clients</div><div class="value">{{ cover.total|num }}</div></div></div><div class="sub">In the inventory</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-ok">{% icon "check-circle" 22 %}</div><div class="kpi-body"><div class="label">With monitoring</div><div class="value">{{ cover.covered|num }}{% if cover.pct is not None %} <small>{{ cover.pct }}%</small>{% endif %}</div></div></div><div class="sub">At least one monitoring tool</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile {% if cover.none %}s-crit{% else %}s-ok{% endif %}">{% icon "x-circle" 22 %}</div><div class="kpi-body"><div class="label">No monitoring</div><div class="value">{{ cover.none|length|num }}</div></div></div><div class="sub">{% if cover.none %}No monitoring tool found{% else %}Every client is covered{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-purple">{% icon "plug" 22 %}</div><div class="kpi-body"><div class="label">Monitoring tools</div><div class="value">{{ cover.instances|num }}</div></div></div><div class="sub"><a href="{% url 'k8s:tools' %}?category=monitoring">View tools</a></div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile {% if cover.attention %}s-warn{% else %}s-ok{% endif %}">{% icon "alert" 22 %}</div><div class="kpi-body"><div class="label">Need attention</div><div class="value">{{ cover.attention|num }}</div></div></div><div class="sub">Warning status or scaled to zero</div></div>
+</section>
+
+{% if not cover.tools_imported %}
+<div class="k8-alert warn">{% icon "info" 16 %}<p><b>The monitoring sheet has not been imported.</b> Until it is, every client shows as having no monitoring — that would be a statement about the import, not about the estate.</p></div>
+{% elif cover.none %}
+<div class="panel">
+  <div class="panel-h"><h2>Clients with no monitoring ({{ cover.none|length }})</h2><small>The gap</small></div>
+  <div class="ops-gap">
+    {% for r in cover.none %}
+    <div class="gap"><h3>{{ r.name }}</h3>
+      <p>{{ r.namespaces|num }} namespace{{ r.namespaces|pluralize }}{% if r.apps is not None %} · {{ r.apps|num }} application{{ r.apps|pluralize }}{% endif %}{% if r.urls %} · {{ r.urls|num }} ingress{{ r.urls|pluralize:",es" }}{% endif %}</p>
+      <p>{% if r.cicd %}{{ r.cicd }} CI/CD or platform tool{{ r.cicd|pluralize }}, {% endif %}no Prometheus, Grafana, alerting or log stack found{% if r.high %} · <b class="t-crit">{{ r.high }} open High issue{{ r.high|pluralize }}</b>{% endif %}</p>
+    </div>
+    {% endfor %}
+  </div>
+  <p class="k8-note">“No monitoring” means the read-only discovery found no monitoring tool in the namespaces mapped to the client. Monitoring that runs outside the cluster is not visible to it.</p>
+</div>
+{% endif %}
+
+{% if cover.tools_imported %}
+<section class="ops-charts" aria-label="Charts">
+  <div class="panel"><div class="panel-h"><h2>Clients with monitoring</h2></div>
+    <div class="donut-wrap"><div class="chart" data-chart="donut" data-src="ops-cover"></div>
+      <div class="donut-legend">{% for seg in donut.segments %}<span><i class="dot" style="background:{{ seg.color }}"></i>{{ seg.label }}</span><b>{{ seg.value|num }}</b>{% endfor %}</div></div>
+  </div>
+  <div class="panel"><div class="panel-h"><h2>Coverage by capability</h2><small>Clients that have it</small></div>
+    <div class="chart" data-chart="bars" data-src="ops-caps" style="height:200px"></div>
+  </div>
+</section>
+{{ donut|json_script:"ops-cover" }}{{ bars|json_script:"ops-caps" }}
+{% endif %}
+
+<div class="panel">
+  <div class="panel-h"><h2>Coverage by client</h2><small>Number of tool instances per capability</small></div>
+  <div class="table-wrap dense"><table class="ops-matrix">
+    <thead><tr><th>Client</th>{% for key, label, hint in capabilities %}<th class="cap" title="{{ hint }}">{{ label }}</th>{% endfor %}<th class="num">Tools</th><th class="num">Attention</th><th class="num">High issues</th></tr></thead>
+    <tbody>
+    {% for r in cover.rows %}
+      <tr{% if r.none and cover.tools_imported %} class="none"{% endif %}>
+        <td class="ops-wrap"><a class="ops-name" href="{% url 'k8s:tools' %}?client={{ r.name|urlencode }}">{{ r.name }}</a>
+          <span class="ops-sub">{{ r.namespaces|num }} namespace{{ r.namespaces|pluralize }}{% if r.cicd %} · {{ r.cicd }} CI/CD{% endif %}</span></td>
+        {% for key, label, hint in capabilities %}<td class="cap">{% with n=r.caps|get_item:key %}{% if n %}<span class="yes" title="{{ hint }}">{{ n }}</span>{% else %}<span class="no" aria-label="none">–</span>{% endif %}{% endwith %}</td>{% endfor %}
+        <td class="num">{% if r.none and cover.tools_imported %}<span class="chip crit">none</span>{% else %}{{ r.monitoring|num }}{% endif %}</td>
+        <td class="num">{% if r.attention %}<span class="t-warn">{{ r.attention }}</span>{% else %}0{% endif %}</td>
+        <td class="num">{% if r.high %}<a class="t-crit" href="{% url 'k8s:issues' %}?client={{ r.name|urlencode }}&amp;severity=high">{{ r.high }}</a>{% else %}0{% endif %}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="{{ capabilities|length|add:4 }}" class="empty">No clients in this site.</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  <p class="k8-note">{% for key, label, hint in capabilities %}<b>{{ label }}</b>: {{ hint }}{% if not forloop.last %} · {% endif %}{% endfor %}</p>
+  {% if cover.unmapped_tools %}<p class="k8-note">{{ cover.unmapped_tools }} monitoring tool instance{{ cover.unmapped_tools|pluralize }} run in namespaces that are not mapped to any client and are not counted above.</p>{% endif %}
+</div>
+{% endif %}
+</div>
+{% endblock %}

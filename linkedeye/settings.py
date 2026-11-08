@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "dcim",
     "compute",
     "onboarding",
+    "k8s",
 ]
 
 MIDDLEWARE = [

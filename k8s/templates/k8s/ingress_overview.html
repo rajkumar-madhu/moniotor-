@@ -1,0 +1,12 @@
+{% load le static k8s_tags %}{% if edge.has_data %}
+<link rel="stylesheet" href="{% static 'k8s/edge.css' %}">
+<div class="panel">
+  <div class="panel-h"><h2>Edge exposure</h2><small>Ingresses and the certificates in front of them</small>
+    <div class="right"><a class="btn sm ghost-primary" href="{% url 'k8s:ingresses' %}">{% icon "link" 15 %}Ingresses</a><a class="btn sm ghost-primary" href="{% url 'k8s:certificates' %}">{% icon "shield" 15 %}Certificates</a></div></div>
+  <div class="k8-edge-cards">
+    <a href="{% url 'k8s:ingresses' %}"><b>{{ edge.ingress.rules|num }}</b><span>Ingress rules</span><em>{{ edge.ingress.hosts|num }} host name{{ edge.ingress.hosts|pluralize }}</em></a>
+    <a href="{% url 'k8s:ingresses' %}?tls=no" class="{% if edge.ingress.rules and edge.ingress.tls != edge.ingress.rules %}warn{% endif %}"><b>{% if edge.ingress.tls_pct is None %}–{% else %}{{ edge.ingress.tls_pct }}%{% endif %}</b><span>TLS coverage</span><em>{{ edge.ingress.tls|num }} of {{ edge.ingress.rules|num }} rules terminate TLS</em></a>
+    <a href="{% url 'k8s:certificates' %}?status=under30" class="{% if edge.certs.expired or edge.certs.critical %}crit{% elif edge.certs.under30 %}warn{% endif %}"><b>{{ edge.certs.under30|num }}</b><span>Certificates under 30 days</span><em>{% if edge.certs.expired %}{{ edge.certs.expired }} already expired{% elif edge.certs.under30 %}Renew soon{% elif edge.certs.total %}of {{ edge.certs.total|num }} certificates{% else %}No certificate sheet imported{% endif %}</em></a>
+    {% if edge.certs.next %}<a href="{% url 'k8s:certificates' %}"><b>{{ edge.certs.next.expiry|date:"d M" }}</b><span>Next certificate expiry</span><em>{{ edge.certs.next.name }}</em></a>{% endif %}
+  </div>
+</div>{% endif %}

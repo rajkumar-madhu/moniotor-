@@ -1,0 +1,124 @@
+{% extends "core/base.html" %}{% load le static k8s_tags %}
+{% block title %}{{ w.workload_name }}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'k8s/page.css' %}"><link rel="stylesheet" href="{% static 'k8s/workloads.css' %}">{% endblock %}
+{% block crumbs %}{% url 'k8s:workloads' as list_url %}{% include "k8s/_crumbs.html" with section="Workloads" section_url=list_url leaf=w.workload_name %}{% endblock %}
+{% block content %}
+<div class="pg-k8s">
+<div class="head">
+  <div class="glyph bg-info">{% icon "app" 30 %}</div>
+  <div><h1>{{ w.workload_name }}
+      <span class="chip mute">{{ w.get_workload_type_display }}</span>
+      {% if w.health != 'unknown' %}<span class="chip {{ w.health_tone }}">{{ w.get_health_display }}</span>{% endif %}
+      {% if any_latest %}<span class="chip warn" title="At least one container uses a moving 'latest' tag">stale image</span>{% endif %}
+      {% if w.is_missing %}<span class="chip crit">No longer in the snapshot</span>{% endif %}</h1>
+    <p>{{ w.namespace.name }} · {{ w.cluster.name }} · {{ w.site_label }}{% if w.client_id %} · {{ w.client.name }}{% elif w.client_label %} · {{ w.client_label }}{% endif %}{% if w.environment %} · {{ w.environment }}{% endif %}</p></div>
+  <div class="actions"><a class="btn" href="{% url 'k8s:workloads' %}">{% icon "chevron-left" 17 %}All workloads</a>
+    <a class="btn" href="{% url 'k8s:workloads' %}?namespace={{ w.namespace.name|urlencode }}&amp;q={{ w.workload_name|urlencode }}">{% icon "search" 17 %}Rows in the list</a></div>
+</div>
+{% k8s_tabs "workloads" %}
+
+<section class="kpis k8-kpis" aria-label="Summary">
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile {% if w.is_short %}s-crit{% else %}s-ok{% endif %}">{% icon "layers" 22 %}</div><div class="kpi-body"><div class="label">Replicas ready</div><div class="value">{{ w.replicas_label }}</div></div></div><div class="sub">{% if w.is_short %}Fewer ready than desired{% elif w.desired_replicas is None %}Desired count not discovered{% else %}Replica count met{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "app" 22 %}</div><div class="kpi-body"><div class="label">Containers</div><div class="value">{{ containers|length }}</div></div></div><div class="sub">{{ pods|length }} pod row{{ pods|length|pluralize }} recorded</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-mute">{% icon "hdd" 22 %}</div><div class="kpi-body"><div class="label">Volumes</div><div class="value">{{ volumes|length }}</div></div></div><div class="sub">{% if missing_pvcs %}{{ missing_pvcs|length }} claim{{ missing_pvcs|length|pluralize }} not in the storage sheet{% else %}Claims the workload mounts{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "share" 22 %}</div><div class="kpi-body"><div class="label">Services</div><div class="value">{{ service_rows|length }}</div></div></div><div class="sub">Same namespace, same name</div></div>
+</section>
+
+<section class="grid g-main">
+  <div class="stack">
+    <div class="panel">
+      <div class="panel-h"><h2>Containers ({{ containers|length }})</h2></div>
+      <div class="table-wrap dense"><table>
+        <thead><tr><th>Container</th><th>Image</th><th>Ports</th><th class="num">Pods</th></tr></thead>
+        <tbody>
+        {% for c in containers %}
+          <tr><td class="mono">{{ c.name }}</td>
+            <td class="wl-img"><div class="wl-image">{{ c.row.image|default:"–" }}</div>
+              <div class="chips">{% if c.row.image_latest %}<span class="chip warn" title="Moving tag: a restart can pull different code">latest</span>{% endif %}{% if c.row.image_tag and not c.row.image_latest %}<span class="chip mute mono">{{ c.row.image_tag|truncatechars:24 }}</span>{% endif %}{% if c.row.is_pinned %}<span class="chip ok" title="{{ c.row.image_digest }}">pinned by digest</span>{% endif %}{% if c.row.image_registry %}<span class="chip mute">{{ c.row.image_registry }}</span>{% endif %}</div></td>
+            <td class="mono">{{ c.ports|join:", "|default:"–" }}</td>
+            <td class="num">{{ c.pod_count }}</td></tr>
+        {% endfor %}
+        </tbody></table></div>
+      {% if any_latest %}<p class="k8-note t-warn">A container on <code>latest</code> is not reproducible: the same manifest can run different code after a restart or a reschedule. Pin a version tag or a digest.</p>{% endif %}
+    </div>
+
+    <div class="panel">
+      <div class="panel-h"><h2>Pods ({{ pods|length }})</h2></div>
+      {% if pods %}
+      <div class="table-wrap dense"><table>
+        <thead><tr><th>Pod</th><th>Container</th><th>Status</th><th>Pod IP</th><th>Node</th></tr></thead>
+        <tbody>
+        {% for p in pods %}
+          <tr><td class="mono wl-pod">{{ p.pod_name }}</td><td class="mono">{{ p.container|default:"–" }}</td>
+            <td><span class="chip {{ p.pod_tone }}">{{ p.pod_status_label }}</span></td>
+            <td class="mono">{{ p.pod_ip|default:"–" }}</td>
+            <td class="trunc">{% if p.node_id %}<a href="{{ p.node.get_absolute_url }}">{{ p.node.hostname }}</a>{% elif p.node_name %}{{ p.node_name }}{% else %}<span class="t-mute">–</span>{% endif %}</td></tr>
+        {% endfor %}
+        </tbody></table></div>
+      {% else %}<p class="empty">No pod is recorded for this workload — it is scaled to zero or none was running at discovery time.</p>{% endif %}
+    </div>
+
+    <div class="panel">
+      <div class="panel-h"><h2>Volumes ({{ volumes|length }})</h2><div class="right"><a class="btn sm ghost-primary" href="{% url 'k8s:volumes' %}?namespace={{ w.namespace.name|urlencode }}">{% icon "hdd" 15 %}Namespace volumes</a></div></div>
+      {% if volumes %}
+      <div class="table-wrap dense"><table>
+        <thead><tr><th>PVC</th><th>Status</th><th class="num">Capacity</th><th>Class</th><th>Mount</th><th>Risk</th></tr></thead>
+        <tbody>
+        {% for v in volumes %}
+          <tr{% if v.is_pending %} class="review"{% endif %}><td class="mono">{{ v.pvc|default:v.pv }}</td>
+            <td>{% if v.pvc_status %}<span class="chip {% if v.is_pending %}crit{% else %}ok{% endif %}">{{ v.pvc_status }}</span>{% else %}–{% endif %}</td>
+            <td class="num">{{ v.capacity_bytes|bytes }}</td><td class="mono">{{ v.storage_class|default:"–" }}</td>
+            <td class="mono trunc" title="{{ v.mount_path }}">{{ v.mount_path|default:"–" }}</td>
+            <td>{% if v.risk != 'unknown' %}<span class="chip {{ v.risk_tone }}">{{ v.get_risk_display }}</span>{% else %}–{% endif %}</td></tr>
+        {% endfor %}
+        </tbody></table></div>
+      {% else %}<p class="empty">No volume is attached to this workload.</p>{% endif %}
+      {% if missing_pvcs %}<p class="k8-note">Claims named on the application sheet with no row in the storage sheet:
+        {% for n in missing_pvcs %}<code>{{ n }}</code> {% endfor %}</p>{% endif %}
+    </div>
+  </div>
+
+  <div class="stack">
+    <div class="panel">
+      <div class="panel-h"><h2>Workload</h2></div>
+      <dl class="kv">
+        <dt>Type</dt><dd>{{ w.get_workload_type_display }}{% if w.type_raw and w.type_raw != w.get_workload_type_display %} <span class="t-mute">({{ w.type_raw }})</span>{% endif %}</dd>
+        <dt>Namespace</dt><dd><a href="{% url 'k8s:namespaces' %}?q={{ w.namespace.name|urlencode }}">{{ w.namespace.name }}</a></dd>
+        <dt>Application</dt><dd>{{ w.application|default:"–" }}</dd>
+        <dt>Project</dt><dd>{{ w.project|default:"–" }}</dd>
+        <dt>Client</dt><dd>{% if w.client_id %}{{ w.client.name }}{% elif w.client_label %}{{ w.client_label }}{% else %}–{% endif %}</dd>
+        <dt>Environment</dt><dd>{{ w.environment|default:"–" }}</dd>
+        <dt>Replicas</dt><dd class="mono">{{ w.ready_replicas|num }} ready / {{ w.desired_replicas|num }} desired</dd>
+        <dt>Health</dt><dd>{% if w.health != 'unknown' %}<span class="chip {{ w.health_tone }}">{{ w.get_health_display }}</span>{% else %}–{% endif %}</dd>
+        <dt>Node</dt><dd>{% if w.node_id %}<a href="{{ w.node.get_absolute_url }}">{{ w.node.hostname }}</a>{% elif w.node_name %}{{ w.node_name }} <span class="t-mute">(not in the node inventory)</span>{% else %}–{% endif %}</dd>
+        <dt>URL{{ w.urls|length|pluralize }}</dt><dd>{% for u in w.urls %}<div><a href="{{ u }}" target="_blank" rel="noopener noreferrer">{{ u }}</a></div>{% empty %}–{% endfor %}</dd>
+      </dl>
+    </div>
+    <div class="panel">
+      <div class="panel-h"><h2>Services ({{ service_rows|length }})</h2><div class="right"><a class="btn sm ghost-primary" href="{% url 'k8s:services' %}?namespace={{ w.namespace.name|urlencode }}&amp;q={{ w.workload_name|urlencode }}">{% icon "share" 15 %}Open</a></div></div>
+      {% if service_rows %}
+      <div class="table-wrap dense"><table>
+        <thead><tr><th>Service</th><th>Type</th><th>Port</th></tr></thead>
+        <tbody>
+        {% for s in service_rows %}
+          <tr><td class="trunc">{{ s.name }}</td><td><span class="chip mute">{{ s.get_service_type_display }}</span></td>
+            <td class="mono">{{ s.ports_label|default:"–" }}{% if s.node_port %} <span class="t-mute">:{{ s.node_port }}</span>{% endif %}</td></tr>
+        {% endfor %}
+        </tbody></table></div>
+      {% else %}<p class="empty">No service in this namespace carries the workload's name.</p>{% endif %}
+      <p class="k8-note">Matched by name and application within the namespace; selectors are not evaluated because the sheets carry no pod labels.</p>
+    </div>
+    <div class="panel">
+      <div class="panel-h"><h2>Provenance</h2></div>
+      <dl class="kv">
+        <dt>Cluster</dt><dd>{{ w.cluster.name }}</dd>
+        <dt>First seen</dt><dd>{{ w.first_seen|short_dt }}</dd>
+        <dt>Last seen</dt><dd>{{ w.last_seen|short_dt }}</dd>
+        <dt>Missing since</dt><dd>{% if w.missing_since %}<span class="t-crit">{{ w.missing_since|short_dt }}</span>{% else %}–{% endif %}</dd>
+        <dt>Import</dt><dd>{% if w.import_run_id %}<a href="{{ w.import_run.get_absolute_url }}">{{ w.import_run.source_name }}</a>{% else %}–{% endif %}</dd>
+      </dl>
+    </div>
+  </div>
+</section>
+</div>
+{% endblock %}

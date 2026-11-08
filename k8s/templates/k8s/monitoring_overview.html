@@ -1,0 +1,16 @@
+{% load le static k8s_tags %}{% if ops.has_data %}
+<link rel="stylesheet" href="{% static 'k8s/ops.css' %}">
+<div class="panel">
+  <div class="panel-h"><h2>Operations</h2><small>Issues, monitoring coverage and tools</small>
+    <div class="right"><a class="btn sm ghost-primary" href="{% url 'k8s:issues' %}">{% icon "alert" 15 %}Issues</a><a class="btn sm ghost-primary" href="{% url 'k8s:monitoring' %}">{% icon "activity" 15 %}Monitoring</a><a class="btn sm ghost-primary" href="{% url 'k8s:tools' %}">{% icon "plug" 15 %}Tools</a></div></div>
+  <div class="ops-cards">
+    {% for s in ops.issues.by_severity %}
+    <a href="{% url 'k8s:issues' %}?severity={{ s.value }}" class="{% if s.value == 'high' and s.count %}crit{% elif s.value == 'medium' and s.count %}warn{% endif %}"><b>{{ s.count|num }}</b><span>Open {{ s.label|lower }} issues</span><em>{% if forloop.first %}{{ ops.issues.open|num }} open in all{% elif s.value == 'low' %}by severity{% else %}&nbsp;{% endif %}</em></a>
+    {% endfor %}
+    {% if ops.cover.tools_imported %}
+    <a href="{% url 'k8s:monitoring' %}" class="{% if ops.cover.none %}crit{% endif %}"><b>{{ ops.cover.none|length|num }}</b><span>Clients without monitoring</span><em>{% if ops.cover.none %}{% for r in ops.cover.none|slice:":3" %}{{ r.name }}{% if not forloop.last %}, {% endif %}{% endfor %}{% if ops.cover.none|length > 3 %} +{{ ops.cover.none|length|add:"-3" }} more{% endif %}{% else %}All {{ ops.cover.total|num }} clients covered{% endif %}</em></a>
+    <a href="{% url 'k8s:monitoring' %}"><b>{% if ops.cover.pct is None %}–{% else %}{{ ops.cover.pct }}%{% endif %}</b><span>Monitoring coverage</span><em>{{ ops.cover.covered|num }} of {{ ops.cover.total|num }} clients</em></a>
+    {% endif %}
+    <a href="{% url 'k8s:tools' %}"><b>{{ ops.tools.instances|num }}</b><span>Tool instances</span><em>{{ ops.tools.tools|num }} tool{{ ops.tools.tools|pluralize }}{% if ops.tools.attention %} · {{ ops.tools.attention }} to check{% endif %}</em></a>
+  </div>
+</div>{% endif %}

@@ -1,0 +1,39 @@
+{% extends "core/base.html" %}{% load le static k8s_tags %}
+{% block title %}Kubernetes imports{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'k8s/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "k8s/_crumbs.html" with section="Imports" %}{% endblock %}
+{% block content %}
+<div class="pg-k8s">
+<div class="head">
+  <div class="glyph bg-info">{% icon "clock" 30 %}</div>
+  <div><h1>Import history</h1><p>Every inventory import, what it changed and what it reported.</p></div>
+  <div class="actions">{% if can_import %}<a class="btn primary" href="{% url 'k8s:import_inventory' %}">{% icon "upload" 17 %}Import workbook</a>{% endif %}</div>
+</div>
+{% k8s_tabs "imports" %}
+
+<div class="panel">
+  <div class="panel-h"><h2>Imports ({{ page.paginator.count }})</h2></div>
+  <div class="table-wrap dense"><table>
+    <thead><tr><th>Started</th><th>Source</th><th>Site</th><th>By</th><th class="num">Rows</th><th class="num">Sheets</th><th class="num">Warnings</th><th class="num">Errors</th><th>Status</th></tr></thead>
+    <tbody>
+    {% for r in items %}
+      <tr>
+        <td><a href="{{ r.get_absolute_url }}">{{ r.started_at|short_dt }}</a><div class="small t-mute">{{ r.started_at|ago }}</div></td>
+        <td class="trunc" title="{{ r.source_name }}{% if r.source_sha256 %} · sha256 {{ r.source_sha256 }}{% endif %}">{{ r.source_name }}</td>
+        <td>{{ r.site|default:"All Sites" }}</td>
+        <td>{{ r.uploaded_by.get_username|default:"command line" }}</td>
+        <td class="num">{{ r.total_rows|num }}</td>
+        <td class="num">{{ r.counts|length }}</td>
+        <td class="num">{% if r.warnings %}<span class="t-warn">{{ r.warnings|length }}</span>{% else %}0{% endif %}</td>
+        <td class="num">{% if r.errors %}<span class="t-crit">{{ r.errors|length }}</span>{% else %}0{% endif %}</td>
+        <td>{% badge r.status %}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="9" class="empty">No imports yet.{% if can_import %} <a href="{% url 'k8s:import_inventory' %}">Import a workbook</a>.{% endif %}</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  {% include "core/_pager.html" with pager_noun="imports" %}
+  <p class="k8-note">Dry runs are not listed: they are rolled back in full, so they leave no record.</p>
+</div>
+</div>
+{% endblock %}

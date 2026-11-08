@@ -1,0 +1,73 @@
+{% extends "core/base.html" %}{% load le static k8s_tags %}
+{% block title %}Kubernetes certificates{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'k8s/page.css' %}"><link rel="stylesheet" href="{% static 'k8s/edge.css' %}">{% endblock %}
+{% block crumbs %}{% include "k8s/_crumbs.html" with section="Certificates" %}{% endblock %}
+{% block content %}
+<div class="pg-k8s">
+<div class="head">
+  <div class="glyph bg-info">{% icon "shield" 30 %}</div>
+  <div><h1>Certificates</h1><p>Certificates the cluster issues for its ingresses, soonest to expire first. Days left are counted from the expiry date, now{% if site_filter %} · {{ site_filter }}{% endif %}.</p></div>
+  <div class="actions"><a class="btn" href="{% url 'k8s:certificates_export' %}?{{ query.urlencode }}">{% icon "download" 17 %}Export CSV</a></div>
+</div>
+{% k8s_tabs "certificates" %}
+
+<section class="kpis k8-kpis" aria-label="Summary">
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "shield" 22 %}</div><div class="kpi-body"><div class="label">Certificates</div><div class="value">{{ totals.total|num }}</div></div></div><div class="sub">In the current filter</div></div>
+  <a class="kpi stacked kpi-link" href="{% url 'k8s:certificates' %}?status=under30"><div class="kpi-top"><div class="tile {% if totals.under30 %}s-crit{% else %}s-ok{% endif %}">{% icon "alarm" 22 %}</div><div class="kpi-body"><div class="label">Under {{ warning_days }} days</div><div class="value">{{ totals.under30|num }}</div></div></div><div class="sub">{% if totals.under30 %}Renew soon{% if totals.expired %} · {{ totals.expired }} already expired{% endif %}{% else %}None expires within {{ warning_days }} days{% endif %}</div></a>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile {% if totals.not_ready %}s-crit{% else %}s-ok{% endif %}">{% icon "check-circle" 22 %}</div><div class="kpi-body"><div class="label">Not ready</div><div class="value">{{ totals.not_ready|num }}</div></div></div><div class="sub">{% if totals.not_ready %}The issuer has not signed them{% else %}All report ready{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-mute">{% icon "calendar" 22 %}</div><div class="kpi-body"><div class="label">Next expiry</div><div class="value" style="font-size:21px">{% if totals.next %}{{ totals.next.expiry|date:"d M Y" }}{% else %}–{% endif %}</div></div></div><div class="sub">{% if totals.next %}{{ totals.next.name }}{% else %}No future expiry recorded{% endif %}</div></div>
+</section>
+
+{% if totals.under30 %}
+<div class="k8-alert {% if totals.expired or totals.critical %}crit{% else %}warn{% endif %}">{% icon "alert" 16 %}<p><b>{{ totals.under30 }} certificate{{ totals.under30|pluralize }} expire{{ totals.under30|pluralize:"s," }} within {{ warning_days }} days{% if totals.expired %}, {{ totals.expired }} already expired{% endif %}.</b>
+  They are listed first below. cert-manager normally renews on its own; a certificate that is not ready or is close to expiry needs a look.</p></div>
+{% endif %}
+
+<div class="panel">
+  <div class="panel-h"><h2>Certificates ({{ page.paginator.count }})</h2>
+    <div class="right"><a class="btn sm ghost-primary" href="{% url 'k8s:certificates_export' %}?{{ query.urlencode }}">{% icon "download" 15 %}CSV</a></div></div>
+  <form class="toolbar compact" method="get">
+    {% if request.GET.per %}<input type="hidden" name="per" value="{{ request.GET.per }}">{% endif %}
+    <label class="search">{% icon "search" 16 %}<input type="search" name="q" value="{{ request.GET.q|default:'' }}" placeholder="Domain, certificate, secret, issuer…" aria-label="Search certificates"></label>
+    {% if clients %}<select name="client" data-autosubmit aria-label="Client"><option value="">All clients</option>{% for c in clients %}<option value="{{ c }}"{% if request.GET.client == c %} selected{% endif %}>{{ c }}</option>{% endfor %}</select>{% endif %}
+    <select name="status" data-autosubmit aria-label="Expiry"><option value="">Any expiry</option><option value="under30"{% if request.GET.status == 'under30' %} selected{% endif %}>Under {{ warning_days }} days (incl. expired)</option>{% for v, l in statuses %}<option value="{{ v }}"{% if request.GET.status == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    {% if issuers %}<select name="issuer" data-autosubmit aria-label="Issuer"><option value="">Any issuer</option>{% for i in issuers %}<option value="{{ i }}"{% if request.GET.issuer == i %} selected{% endif %}>{{ i }}</option>{% endfor %}</select>{% endif %}
+    <select name="ready" data-autosubmit aria-label="Ready"><option value="">Ready or not</option><option value="yes"{% if request.GET.ready == 'yes' %} selected{% endif %}>Ready</option><option value="no"{% if request.GET.ready == 'no' %} selected{% endif %}>Not ready</option></select>
+    <select name="sort" data-autosubmit aria-label="Sort"><option value="">Soonest first</option><option value="-expiry"{% if request.GET.sort == '-expiry' %} selected{% endif %}>Latest first</option><option value="name"{% if request.GET.sort == 'name' %} selected{% endif %}>Name</option><option value="domain"{% if request.GET.sort == 'domain' %} selected{% endif %}>Domain</option></select>
+    {% include "k8s/_site_filter.html" %}
+    <a class="btn icon blue" href="{% url 'k8s:certificates' %}" title="Clear filters" aria-label="Clear filters">{% icon "refresh" 16 %}</a>
+  </form>
+  <div class="table-wrap dense"><table class="k8-edge">
+    <thead><tr><th>Expires in</th><th>Domain / certificate</th><th>Client · namespace</th><th>Issuer</th><th>Valid</th><th>State</th><th class="num">Ingresses</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr class="{% if r.cert.is_missing %}gone{% endif %}">
+        <td><div class="k8-count">
+          {% if r.days is None %}<b class="t-mute">unknown</b>
+          {% elif r.status == 'expired' %}<b class="t-crit">{% if r.days == 0 %}expired today{% else %}expired {{ r.days|cut:"-" }} d ago{% endif %}</b>
+          {% else %}<b class="t-{{ r.tone }}">{{ r.days }} day{{ r.days|pluralize }}</b>{% endif %}
+          {% if r.pct is not None %}<span class="k8-bar {{ r.tone }}" role="img" aria-label="{{ r.pct }}% of the validity period remains"><i style="width:{{ r.pct }}%"></i></span>{% endif %}
+        </div></td>
+        <td><span class="mono">{{ r.cert.domain|default:r.cert.name }}</span>
+          <span class="sub mono">{{ r.cert.name }}{% if r.cert.tls_secret and r.cert.tls_secret != r.cert.name %} · secret {{ r.cert.tls_secret }}{% endif %}</span>
+          {% if r.domain_obj %}<a class="sub" href="{% url 'domains:list' %}?q={{ r.domain_obj.hostname|urlencode }}">Domain monitor: {{ r.domain_obj.hostname }}</a>{% endif %}</td>
+        <td>{% if r.cert.namespace.client_display %}{{ r.cert.namespace.client_display }}{% else %}<span class="t-mute">not determined</span>{% endif %}
+          <span class="sub mono">{{ r.cert.namespace.name }}</span></td>
+        <td class="trunc" title="{{ r.cert.issuer }}">{{ r.cert.issuer|default:"–" }}</td>
+        <td class="mono">{% if r.cert.valid_from %}{{ r.cert.valid_from|date:"d M Y" }}{% else %}–{% endif %} → {% if r.cert.expiry %}{{ r.cert.expiry|date:"d M Y" }}{% else %}–{% endif %}</td>
+        <td><span class="chips"><span class="chip {{ r.tone }}">{{ r.status_label }}</span>
+          {% if r.cert.ready is False %}<span class="chip crit">Not ready</span>{% elif r.cert.ready %}<span class="chip ok">Ready</span>{% endif %}
+          {% if r.cert.risk %}<span class="chip mute" title="Workbook risk label on the day of discovery">{{ r.cert.risk }} at discovery</span>{% endif %}</span></td>
+        <td class="num">{% if r.cert.ingress_count %}<a href="{% url 'k8s:ingresses' %}?q={{ r.cert.domain|default:r.cert.tls_secret|urlencode }}">{{ r.cert.ingress_count }}</a>{% else %}0{% endif %}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="7" class="empty">{% if filtered %}No certificates match these filters.{% else %}No certificates imported yet. <a href="{% url 'k8s:import_inventory' %}">Import a workbook</a> that includes the certificate sheet.{% endif %}</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  {% include "core/_pager.html" with pager_noun="certificates" %}
+  <p class="k8-note">Only certificates managed by the cluster appear here. Ingresses that name a TLS secret but have no certificate
+    record are listed on the Ingresses page under “TLS, no certificate record”. The workbook's own risk label is a snapshot of the
+    discovery day; the countdown above is recomputed from the expiry date every time the page loads.</p>
+</div>
+</div>
+{% endblock %}

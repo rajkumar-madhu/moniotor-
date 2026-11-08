@@ -1,0 +1,1 @@
+{% if sites %}<select name="site" data-autosubmit aria-label="Site"><option value="">All sites</option>{% for s in sites %}<option value="{{ s }}"{% if s == site_filter %} selected{% endif %}>{{ s }}</option>{% endfor %}</select>{% endif %}
