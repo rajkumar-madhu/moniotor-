@@ -1,0 +1,169 @@
+/* Spine–leaf fabric map (scoped under .pg-network.nw-fabric) */
+
+.pg-network.nw-fabric .nw-fabric-grid {
+  align-items: start;
+}
+
+.pg-network.nw-fabric .nw-fabric-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pg-network.nw-fabric .nw-fabric-band {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+  background: var(--panel-2, var(--panel));
+}
+
+.pg-network.nw-fabric .nw-fabric-band-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.pg-network.nw-fabric .nw-fabric-band-icon {
+  display: inline-flex;
+  color: var(--primary);
+}
+
+.pg-network.nw-fabric .nw-fabric-band-counts {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pg-network.nw-fabric .nw-fabric-nodes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pg-network.nw-fabric .nw-fabric-node {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  gap: 2px 8px;
+  min-width: 140px;
+  max-width: 220px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  text-decoration: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.pg-network.nw-fabric .nw-fabric-node:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow);
+}
+
+.pg-network.nw-fabric .nw-fabric-node-icon {
+  grid-row: 1 / 3;
+  align-self: center;
+  color: var(--info);
+}
+
+.pg-network.nw-fabric .nw-fabric-node-name {
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.pg-network.nw-fabric .nw-fabric-node-ip {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.pg-network.nw-fabric .nw-fabric-node-badge {
+  grid-column: 2;
+}
+
+.pg-network.nw-fabric .nw-fabric-node.st-down {
+  border-color: var(--crit-line);
+  background: var(--crit-bg);
+}
+
+.pg-network.nw-fabric .nw-fabric-node.st-up {
+  border-color: var(--ok-line);
+}
+
+.pg-network.nw-fabric .nw-fabric-tiers .nw-fabric-node {
+  border-left-width: 4px;
+}
+
+.pg-network.nw-fabric .nw-fabric-rack-web {
+  border-left-color: var(--chart-5);
+}
+
+.pg-network.nw-fabric .nw-fabric-rack-app {
+  border-left-color: var(--chart-2);
+}
+
+.pg-network.nw-fabric .nw-fabric-rack-db {
+  border-left-color: var(--chart-3);
+}
+
+.pg-network.nw-fabric .nw-fabric-rack-storage {
+  border-left-color: var(--chart-4);
+}
+
+.pg-network.nw-fabric .nw-fabric-ref-fig img {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+}
+
+.pg-network.nw-fabric .nw-fabric-ref-fig figcaption {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pg-network.nw-fabric .nw-fabric-legend {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.pg-network.nw-fabric .nw-fabric-rack-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.pg-network.nw-fabric .nw-fabric-rack-swatch.nw-fabric-rack-web {
+  background: var(--chart-5);
+}
+
+.pg-network.nw-fabric .nw-fabric-rack-swatch.nw-fabric-rack-app {
+  background: var(--chart-2);
+}
+
+.pg-network.nw-fabric .nw-fabric-rack-swatch.nw-fabric-rack-db {
+  background: var(--chart-3);
+}
+
+.pg-network.nw-fabric .nw-fabric-rack-swatch.nw-fabric-rack-storage {
+  background: var(--chart-4);
+}
+
+.pg-network.nw-fabric .nw-fabric-zero,
+.pg-network.nw-fabric .nw-fabric-empty {
+  margin: 0;
+}

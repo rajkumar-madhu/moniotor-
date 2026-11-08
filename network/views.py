@@ -26,7 +26,7 @@ from core.audit import audit
 from core.client_scope import SESSION_KEY as CLIENT_SESSION_KEY
 from core.client_scope import active_client
 
-from . import discovery, images, jobs, legacy_panels, metrics, services, vm_metrics
+from . import discovery, fabric, images, jobs, legacy_panels, metrics, services, vm_metrics
 from .forms import ApproveForm, DeviceForm, DiscoveryForm, FieldImageError
 from .live import FRONT_PANEL_MAX, LIVE_INTERVAL, apply_guest_uptime, card_data, device_snapshot, panel_ports, port_data
 from .models import TYPE_PAGES, Device, DeviceStatus, DeviceType, DiscoveredHost, DiscoveryRun, Environment
@@ -293,6 +293,74 @@ physical_servers = _type_view("physical_server")
 virtual_machines = _type_view("virtual_machine")
 
 
+def _fabric_queryset(request):
+    qs = services.devices_for(request.user, request)
+    site = request.GET.get("site", "").strip()
+    if site:
+        qs = qs.filter(site=site)
+    return qs.order_by("name")
+
+
+@require("view")
+@require_GET
+def fabric_topology(request):
+    """Spine–leaf fabric map with category tiers and links to device detail consoles."""
+    qs = _fabric_queryset(request)
+    site = request.GET.get("site", "").strip()
+    vis = visible_sites(request.user)
+    if vis is None:
+        from core.models import Site
+
+        site_names = sorted(Site.objects.values_list("name", flat=True))
+    else:
+        site_names = sorted(s for s in vis if s)
+    if not site and len(site_names) == 1:
+        site = site_names[0]
+    if site:
+        qs = qs.filter(site=site)
+    built = fabric.build_fabric(qs)
+    live_q = urlencode({"site": site} if site else {})
+    ctx = {
+        **built,
+        "layers": built["layers"],
+        "site_label": site or "All visible sites",
+        "site_filter": site,
+        "site_names": site_names,
+        "live_url": reverse("network:fabric_live") + (f"?{live_q}" if live_q else ""),
+        "live_interval": LIVE_INTERVAL,
+        "topology_url": reverse("cmdb:topology"),
+        **_perms(request),
+    }
+    return render(request, "network/fabric.html", ctx)
+
+
+@require("view")
+@require_GET
+def fabric_live(request):
+    """JSON status refresh for the fabric map (polled by fabric.js)."""
+    qs = _fabric_queryset(request)
+    site = request.GET.get("site", "").strip()
+    if site:
+        qs = qs.filter(site=site)
+    nodes = [
+        {"pk": d.pk, "status": d.status, "name": d.name, "mgmt_ip": d.mgmt_ip}
+        for d in qs.only("pk", "status", "name", "mgmt_ip")
+    ]
+    c = Counter(d.status or "unknown" for d in qs)
+    data = {
+        "totals": {
+            "total": qs.count(),
+            "up": c.get("up", 0),
+            "down": c.get("down", 0),
+            "unknown": c.get("unknown", 0),
+        },
+        "nodes": nodes,
+    }
+    resp = JsonResponse(data)
+    resp["Cache-Control"] = "no-store"
+    return resp
+
+
 @require("view")
 def export_csv(request):
     qs = _filtered(request, services.devices_for(request.user, request), with_type=True)
@@ -406,6 +474,9 @@ def detail(request, pk):
         "legacy_onboard": legacy_panels.resolve_legacy_panel(device),
         "live_url": f"{reverse('network:live', args=[device.pk])}?{urlencode(live_q)}",
         "live_interval": LIVE_INTERVAL,
+        "fabric_url": reverse("network:fabric") + (f"?{urlencode({'site': device.site})}" if device.site else ""),
+        "fabric_layer": fabric.fabric_layer(device),
+        "fabric_layer_label": fabric.fabric_layer_label(fabric.fabric_layer(device)),
         "card": None,
         "vm_metrics": None, "vm_meta": {}, "vm_info_rows": [],
         "vm_actions": vm_metrics.VM_ACTIONS, "vm_power": "", "vm_stub": None,

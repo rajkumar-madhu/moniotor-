@@ -1,0 +1,66 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}Spine–Leaf Fabric · {{ site_label }}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'network/page.css' %}"><link rel="stylesheet" href="{% static 'network/fabric.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'network:all' %}">Network Devices</a>{% icon "chevron-right" 14 %}<span>Spine–Leaf fabric</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-network nw-fabric" id="nw-fabric" data-live-url="{{ live_url }}" data-poll="{{ live_interval }}">
+  {% if site_names|length > 1 %}
+  <form class="filters nw-fabric-filter" method="get" action="">
+    <label class="field"><span>Site</span>
+      <select name="site" onchange="this.form.submit()">
+        <option value="">All visible sites</option>
+        {% for s in site_names %}<option value="{{ s }}"{% if s == site_filter %} selected{% endif %}>{{ s }}</option>{% endfor %}
+      </select>
+    </label>
+  </form>
+  {% endif %}
+  <div class="head nw-fabric-head">
+    <div class="glyph bg-info">{% icon "network" 30 %}</div>
+    <div>
+      <h1>Spine–leaf data center</h1>
+      <p>Category-wise fabric map with <strong>live reachability</strong> · site <span class="mono">{{ site_label }}</span> · click any node for the full device console (panels, traffic, alerts).</p>
+    </div>
+    <div class="actions">
+      <a class="btn" href="{% url 'network:all' %}?site={{ site_filter|urlencode }}">{% icon "list" 16 %}All devices</a>
+      {% if topology_url %}<a class="btn ghost-primary" href="{{ topology_url }}">{% icon "share" 16 %}CMDB topology</a>{% endif %}
+    </div>
+  </div>
+
+  <section class="kpis nw-kpis" aria-label="Fabric summary">
+    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "network" 22 %}</div><div class="kpi-body"><div class="label">Inventory</div><div class="value" data-live="fab-total">{{ totals.total }}</div></div></div><div class="sub">Mapped to fabric layers</div></div>
+    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-ok">{% icon "check" 22 %}</div><div class="kpi-body"><div class="label">Up</div><div class="value" data-live="fab-up">{{ totals.up }}</div></div></div></div>
+    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-crit">{% icon "x" 22 %}</div><div class="kpi-body"><div class="label">Down</div><div class="value" data-live="fab-down">{{ totals.down }}</div></div></div></div>
+    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-mute">{% icon "help" 22 %}</div><div class="kpi-body"><div class="label">Unknown</div><div class="value" data-live="fab-unknown">{{ totals.unknown }}</div></div></div></div>
+  </section>
+
+  <div class="grid g-main nw-fabric-grid">
+    <section class="panel nw-fabric-diagram" aria-labelledby="fabric-diagram-title">
+      <div class="panel-h">
+        <div><h2 id="fabric-diagram-title">Live fabric topology</h2><small>Aligned to spine–leaf reference · status refreshes every {{ live_interval }}s</small></div>
+      </div>
+      <div class="nw-fabric-stack">
+        {% if layers %}
+        {% for row in layers %}{% include "network/fabric_layer.html" %}{% endfor %}
+        {% else %}
+        <p class="nw-fabric-zero">No devices to map. Import Lesites inventory or add devices for site {{ site_label }}.</p>
+        {% endif %}
+      </div>
+    </section>
+
+    <aside class="panel nw-fabric-ref" aria-labelledby="fabric-ref-title">
+      <div class="panel-h"><h2 id="fabric-ref-title">Reference diagram</h2></div>
+      <figure class="nw-fabric-ref-fig">
+        <img src="{% static 'network/spine-leaf-reference.png' %}" width="640" height="360" alt="Spine-leaf data center architecture: WAN, firewalls, spine and leaf switches, web, app, database and storage tiers" loading="lazy" decoding="async">
+        <figcaption>Education layout — live nodes on the left match your inventory categories (web · app · database · storage).</figcaption>
+      </figure>
+      <ul class="nw-fabric-legend">
+        <li><span class="nw-fabric-rack-swatch nw-fabric-rack-web"></span> Web tier</li>
+        <li><span class="nw-fabric-rack-swatch nw-fabric-rack-app"></span> Application tier</li>
+        <li><span class="nw-fabric-rack-swatch nw-fabric-rack-db"></span> Database tier</li>
+        <li><span class="nw-fabric-rack-swatch nw-fabric-rack-storage"></span> Storage tier</li>
+      </ul>
+    </aside>
+  </div>
+</div>
+<script src="{% static 'network/fabric.js' %}" defer></script>
+{% endblock %}
