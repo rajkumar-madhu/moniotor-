@@ -1,5 +1,7 @@
-{% load static le %}<!doctype html>
+{% load static le %}
+<!doctype html>
 <html lang="en">
+
 <head>
   <script>
     (function () {
@@ -15,68 +17,110 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}LinkedEye{% endblock %} · LinkedEye</title>
   <link rel="icon" href="{% static 'linkedeye/img/logo-favicon.png' %}">
-  <link rel="stylesheet" href="{% static 'linkedeye/app.css' %}?v=infra-theme-1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'linkedeye/app.css' %}?v=infra-theme-2">
   {% block page_css %}{% endblock %}
 </head>
+
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
-<div class="shell" id="shell">
-  <aside class="side" id="side">
-    <a class="brand" href="{% url 'dashboard' %}" style="text-decoration:none">
-      <span class="logo"><img src="{% static 'linkedeye/img/logo-in.png' %}" alt=""></span>
-      <div><b>Linked<span>Eye</span></b><small>ITSM · Monitoring</small></div>
-    </a>
-    <nav class="nav" aria-label="Main">
-      {% for item in nav %}
+  <div class="shell rail-open" id="shell">
+    <aside class="side" id="side">
+      <a class="brand" href="{% url 'dashboard' %}" style="text-decoration:none">
+        <span class="logo"><img src="{% static 'linkedeye/img/logo-in.png' %}" alt=""></span>
+        <div><b>Linked<span>Eye</span></b><small>ITSM · Monitoring</small></div>
+      </a>
+      <nav class="nav" aria-label="Main">
+        {% for item in nav %}
         {% if item.children %}
-          <details class="{% if item.open %}on{% endif %}">
-            <summary>{% icon item.icon 20 %}<span class="lbl">{{ item.label }}</span>{% icon "chevron-right" 15 "chev" %}</summary>
-            <div class="sub">{% for c in item.children %}<a href="{{ c.href }}" class="{% if c.active %}on{% endif %}">{{ c.label }}</a>{% endfor %}</div>
-          </details>
+        <details class="{% if item.open %}on{% endif %}">
+          <summary>{% icon item.icon 20 %}<span class="lbl">{{ item.label }}</span>{% icon "chevron-right" 15 "chev" %}
+          </summary>
+          <div class="sub">{% for c in item.children %}<a href="{{ c.href }}" class="{% if c.active %}on{% endif %}">{{
+              c.label }}</a>{% endfor %}</div>
+        </details>
         {% else %}
-          <a href="{{ item.href }}" class="{% if item.active %}on{% endif %}">{% icon item.icon 20 %}<span class="lbl">{{ item.label }}</span>{% if item.chev %}{% icon "chevron-right" 15 "chev" %}{% endif %}</a>
+        <a href="{{ item.href }}" class="{% if item.active %}on{% endif %}">{% icon item.icon 20 %}<span class="lbl">{{
+            item.label }}</span>{% if item.chev %}{% icon "chevron-right" 15 "chev" %}{% endif %}</a>
         {% endif %}
-      {% endfor %}
-    </nav>
-    <div class="side-bottom">
-      <div class="side-foot">LinkedEye v{{ le_version }} · full-stack observability<div class="ok">System operational</div></div>
-      {% if le_clients|length > 1 or le_client == "unassigned" %}<form class="site-pick" method="get" action="{{ request.path }}">{% icon "users" 20 %}<select name="client" data-autosubmit aria-label="Client"><option value="">All Clients</option>{% for c in le_clients %}<option value="{{ c.pk }}"{% if le_client == c.pk|stringformat:"s" %} selected{% endif %}>{{ c.name }}</option>{% endfor %}</select>{% if le_site %}<input type="hidden" name="site" value="{{ le_site }}">{% endif %}</form>{% endif %}
-      <form class="site-pick" method="get" action="{{ request.path }}">{% icon "map-pin" 20 %}<select name="site" data-autosubmit aria-label="Site"><option value="">All Sites</option>{% for s in le_sites %}<option value="{{ s }}"{% if s == le_site %} selected{% endif %}>{{ s }}</option>{% endfor %}</select>{% if le_client %}<input type="hidden" name="client" value="{{ le_client }}">{% endif %}</form>
-      <details class="user-menu">
-        <summary class="user">
-          <span class="avatar">{% icon "user" 20 %}</span>
-          <div><b>{{ user.get_full_name|default:user.get_username|capfirst }}</b><small>{{ le_role }}</small></div>
-          {% icon "chevron-down" 18 "t-mute" %}
-        </summary>
-        <div class="menu">
-          {% if le_profile_url %}<a href="{{ le_profile_url }}">{% icon "user" 16 %}My profile</a>{% endif %}
-          <a href="{{ le_admin_url }}">{% icon "settings" 16 %}Administration</a>
-          <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button type="submit">{% icon "logout" 16 %}Sign out</button></form>
-          <div class="ver">Version {{ le_version }}</div>
+        {% endfor %}
+      </nav>
+      <div class="side-bottom">
+        <div class="side-foot">LinkedEye v{{ le_version }} · full-stack observability<div class="ok">System operational
+          </div>
         </div>
-      </details>
-    </div>
-  </aside>
+        {% if le_clients|length > 1 or le_client == "unassigned" %}
+        <form class="site-pick" method="get" action="{{ request.path }}">
+          {% icon "users" 20 %}
+          <select name="client" data-autosubmit aria-label="Client">
+            <option value="">All Clients</option>
+            {% for c in le_clients %}
+            <option value="{{ c.pk }}"{% if c.pk|stringformat:"s" == le_client %} selected{% endif %}>{{ c.name }}
+            </option>
+            {% endfor %}
+          </select>
+          {% if le_site %}<input type="hidden" name="site" value="{{ le_site }}">{% endif %}
+        </form>
+        {% endif %}
+        <form class="site-pick" method="get" action="{{ request.path }}">
+          {% icon "map-pin" 20 %}
+          <select name="site" data-autosubmit aria-label="Site">
+            <option value="">All Sites</option>
+            {% for s in le_sites %}
+            <option value="{{ s }}"{% if s == le_site %} selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+          </select>
+          {% if le_client %}<input type="hidden" name="client" value="{{ le_client }}">{% endif %}
+        </form>
+        <details class="user-menu">
+          <summary class="user">
+            <span class="avatar">{% icon "user" 20 %}</span>
+            <div><b>{{ user.get_full_name|default:user.get_username|capfirst }}</b><small>{{ le_role }}</small></div>
+            {% icon "chevron-down" 18 "t-mute" %}
+          </summary>
+          <div class="menu">
+            {% if le_profile_url %}<a href="{{ le_profile_url }}">{% icon "user" 16 %}My profile</a>{% endif %}
+            <a href="{{ le_admin_url }}">{% icon "settings" 16 %}Administration</a>
+            <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button type="submit">{% icon "logout" 16 %}Sign out</button></form>
+            <div class="ver">Version {{ le_version }}</div>
+          </div>
+        </details>
+      </div>
+    </aside>
   <div class="scrim" id="scrim" data-scrim hidden></div>
-  <div class="main">
-    <header class="top">
-      <button class="icon-btn menu-btn" type="button" aria-label="Toggle menu" aria-controls="side" aria-expanded="false" data-toggle-menu>{% icon "menu" 20 %}</button>
-      <form class="search" action="{% url 'search' %}" role="search">{% icon "search" 17 %}<input type="search" name="q" value="{{ request.GET.q|default:'' }}" placeholder="Search devices, domains, tickets, IPs, or runbooks…" aria-label="Search"></form>
-      <div class="spacer"></div>
-      <button class="icon-btn hide-sm" type="button" data-toggle-theme aria-label="Switch theme" title="Switch light/dark theme"></button>
-      <a class="icon-btn" href="{% url 'urlchecker:index' %}?status=down" title="{{ le_problem_count }} check(s) need attention" aria-label="Problems">{% icon "bell" 21 %}{% if le_problem_count %}<span class="count">{{ le_problem_count }}</span>{% endif %}</a>
-      <a class="icon-btn solid hide-sm" href="{% url 'coming_soon' 'help' %}" aria-label="Help">{% ficon "help" 24 %}</a>
-      <a class="icon-btn hide-sm" href="{{ le_admin_url }}" aria-label="Administration">{% icon "settings" 22 %}</a>
-    </header>
-    <main class="page" id="main" tabindex="-1">
-      {% block crumbs %}{% endblock %}
-      {% if messages %}<ul class="messages">{% for m in messages %}<li class="{{ m.tags }}">{{ m }}</li>{% endfor %}</ul>{% endif %}
-      {% block content %}{% endblock %}
-    </main>
+    <div class="main">
+      <header class="top">
+        <button class="icon-btn menu-btn" type="button" aria-label="Toggle menu" aria-controls="side"
+          aria-expanded="false" data-toggle-menu>{% icon "menu" 20 %}</button>
+        <form class="search" action="{% url 'search' %}" role="search">{% icon "search" 17 %}<input type="search"
+            name="q" value="{{ request.GET.q|default:'' }}"
+            placeholder="Search devices, domains, tickets, IPs, or runbooks…" aria-label="Search"></form>
+        <div class="spacer"></div>
+        <button class="icon-btn hide-sm" type="button" data-toggle-theme aria-label="Switch theme"
+          title="Switch light/dark theme"></button>
+        <a class="icon-btn" href="{% url 'urlchecker:index' %}?status=down"
+          title="{{ le_problem_count }} check(s) need attention" aria-label="Problems">
+          {% icon "bell" 21 %}{% if le_problem_count %}<span class="count">{{ le_problem_count }}</span>{% endif %}
+        </a>
+        <a class="icon-btn solid hide-sm" href="{% url 'coming_soon' 'help' %}" aria-label="Help">{% ficon "help" 24
+          %}</a>
+        <a class="icon-btn hide-sm" href="{{ le_admin_url }}" aria-label="Administration">{% icon "settings" 22 %}</a>
+      </header>
+      <main class="page" id="main" tabindex="-1">
+        {% block crumbs %}{% endblock %}
+        {% if messages %}<ul class="messages">{% for m in messages %}<li class="{{ m.tags }}">{{ m }}</li>{% endfor %}
+        </ul>{% endif %}
+        {% block content %}{% endblock %}
+      </main>
+    </div>
   </div>
-</div>
-<script src="{% static 'linkedeye/charts.js' %}"></script>
-<script src="{% static 'linkedeye/app.js' %}"></script>
-{% block scripts %}{% endblock %}
+  <script src="{% static 'linkedeye/charts.js' %}"></script>
+  <script src="{% static 'linkedeye/app.js' %}"></script>
+  {% block scripts %}{% endblock %}
 </body>
+
 </html>

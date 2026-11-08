@@ -1,0 +1,28 @@
+{% load le %}
+<div class="nw-fabric-band" data-layer="{{ row.spec.key }}">
+  <header class="nw-fabric-band-h">
+    <span class="nw-fabric-band-icon">{% icon row.spec.icon 18 %}</span>
+    <span><strong>{{ row.spec.title }}</strong> — {{ row.spec.subtitle }}</span>
+    {% if row.has_counts %}
+    <span class="nw-fabric-band-counts">
+      <span class="chip ok">{{ row.counts.up }} up</span>
+      <span class="chip crit">{{ row.counts.down }} down</span>
+      <span class="chip mute">{{ row.counts.unk }} unk</span>
+    </span>
+    {% endif %}
+  </header>
+  {% if row.has_counts %}
+  <div class="nw-fabric-nodes {{ row.spec.rack_class|yesno:'nw-fabric-tiers,' }}">
+    {% for item in row.nodes %}
+    <a class="nw-fabric-node st-{{ item.status }} {{ row.spec.rack_class }}" href="{{ item.detail_url }}" data-pk="{{ item.pk }}" title="{{ item.type_display }} · {{ item.mgmt_ip }}">
+      <span class="nw-fabric-node-icon">{% icon item.type_icon 20 %}</span>
+      <span class="nw-fabric-node-name">{{ item.name }}</span>
+      <span class="nw-fabric-node-ip mono">{{ item.mgmt_ip }}</span>
+      <span class="nw-fabric-node-badge">{% badge item.status %}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="nw-fabric-zero">No devices in this layer for the selected site.</p>
+  {% endif %}
+</div>

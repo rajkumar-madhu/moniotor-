@@ -24,6 +24,7 @@
       <button class="btn" type="button" disabled title="Hypervisor control is read-only">{% icon "cloud" 16 %}VMware</button>
       <button class="btn" type="button" disabled title="Hypervisor control is read-only">{% icon "terminal" 16 %}Linux</button>
       {% endif %}
+      {% if fabric_url %}<a class="btn ghost-primary" href="{{ fabric_url }}">{% icon "network" 16 %}Fabric map</a>{% endif %}
       {% if topology_url %}<a class="btn" href="{{ topology_url }}">{% icon "share" 16 %}Open in Topology</a>{% endif %}
       {% if can_operate and device.enabled %}<form method="post" action="{% url 'network:check' device.pk %}">{% csrf_token %}<button class="btn" type="submit">{% icon "radar" 16 %}Check now</button></form>{% endif %}
       <details class="row-menu nw-more"><summary class="btn" aria-label="More actions">{% icon "more" 16 %}More</summary>
@@ -42,6 +43,7 @@
       {% else %}<span class="nw-tag tone-warn" title="Set LINKEDEYE_PROMETHEUS_URL (Administration → Integrations) so charts can load from Prometheus.">{% icon "activity" 13 %}Metrics (Prometheus offline)</span>{% endif %}{% endif %}
       {% for t in device.tag_list %}<span class="nw-tag">{% icon "tag" 13 %}{{ t }}</span>{% endfor %}
       {% if device.environment %}<span class="nw-tag tone-info">{% icon "globe" 13 %}{{ device.get_environment_display }}</span>{% endif %}
+      {% if fabric_layer_label %}<span class="nw-tag tone-purple">{% icon "network" 13 %}{{ fabric_layer_label }}</span>{% endif %}
     </div>
   </div>
 </div>

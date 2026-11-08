@@ -35,10 +35,27 @@
   // filters that submit on change
   document.querySelectorAll('[data-autosubmit]').forEach(s => s.addEventListener('change', () => s.form.submit()));
 
-  // hamburger: pin the icon rail open on desktop, slide it in on phones (with a scrim behind it)
+  const RAIL_KEY = 'linkedeye-rail-pinned';
+  const shell = document.getElementById('shell');
   const side = document.getElementById('side');
-  const scrim = document.getElementById('scrim');
   const menuBtn = document.querySelector('[data-toggle-menu]');
+  const pinRail = pinned => {
+    if (!shell) return;
+    shell.classList.toggle('rail-open', pinned);
+    if (menuBtn) menuBtn.setAttribute('aria-expanded', String(pinned));
+    try { localStorage.setItem(RAIL_KEY, pinned ? '1' : '0'); } catch (_) { /* private mode */ }
+  };
+  if (shell && window.innerWidth > 860) {
+    let pinned = true;
+    try {
+      const saved = localStorage.getItem(RAIL_KEY);
+      if (saved === '0') pinned = false;
+      if (saved === '1') pinned = true;
+    } catch (_) { /* ignore */ }
+    pinRail(pinned);
+  }
+  // hamburger: pin the icon rail open on desktop, slide it in on phones (with a scrim behind it)
+  const scrim = document.getElementById('scrim');
   const setDrawer = open => {
     if (!side) return;
     side.classList.toggle('open', open);
@@ -54,8 +71,8 @@
     const btn = e.target.closest('[data-toggle-menu]');
     if (!btn) return;
     if (window.innerWidth > 860) {
-      btn.setAttribute('aria-expanded', String(document.getElementById('shell').classList.toggle('rail-open')));
-    } else {
+      pinRail(!shell.classList.contains('rail-open'));
+    } else if (side) {
       setDrawer(!side.classList.contains('open'));
       if (side.classList.contains('open')) { const first = side.querySelector('a[href]'); if (first) first.focus(); }
     }
