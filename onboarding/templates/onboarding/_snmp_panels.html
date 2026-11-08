@@ -1,0 +1,58 @@
+{% load le static ob_intake %}{# SNMP panels of the credentials step: exporter address, login form, device results. #}
+{% if run.kind == "device" or sn.devices %}
+<div class="panel">
+  <div class="panel-h"><h2>{% icon "network" 18 %} Network devices over SNMP</h2>
+    <small>{% if sn.exporter %}Read through the SNMP exporter at <b class="ob-wrap">{{ sn.exporter }}</b>{% else %}The SNMP exporter address is not set{% endif %}</small></div>
+  {% if sn.can_set_exporter %}
+  <form class="ob-inline" method="post" action="{% url 'onboarding:snmp_exporter' run.pk %}">{% csrf_token %}
+    <div class="field"><label for="exp-url">SNMP exporter address</label>
+      <input id="exp-url" type="text" name="exporter_url" value="{{ sn.exporter }}" placeholder="http://snmp-exporter:9116" autocomplete="off" inputmode="url"></div>
+    <button class="btn" type="submit">{% icon "check" 16 %}Save address</button>
+  </form>
+  {% elif not sn.exporter %}<p class="ob-note">An administrator for all sites sets the SNMP exporter address (it is shared by every site), or set LINKEDEYE_SNMP_EXPORTER_URL.</p>{% endif %}
+</div>
+
+{% if can_manage %}
+{% if not snmp_form %}{% new_snmp_form as snmp_form %}{% endif %}
+<form class="panel" method="post" action="{% url 'onboarding:snmp_save' run.pk %}" autocomplete="off" data-snmp-form>{% csrf_token %}
+  <div class="panel-h"><h2>SNMP community or v3 login</h2><small>Stored encrypted · attached to every network device of this run</small></div>
+  {% for e in snmp_form.non_field_errors %}<p class="err">{{ e }}</p>{% endfor %}
+  <div class="form-grid">
+    {% include "administration/_field.html" with f=snmp_form.name %}
+    {% include "administration/_field.html" with f=snmp_form.version %}
+    <div class="ob-contents" data-for="v2c">{% include "administration/_field.html" with f=snmp_form.community full=1 %}</div>
+    <fieldset class="ob-sub" data-for="v3"><h3>SNMP v3 login</h3>
+      {% include "administration/_field.html" with f=snmp_form.username %}
+      {% include "administration/_field.html" with f=snmp_form.security_level %}
+      <div class="ob-contents" data-for="auth">{% include "administration/_field.html" with f=snmp_form.auth_protocol %}{% include "administration/_field.html" with f=snmp_form.auth_password %}</div>
+      <div class="ob-contents" data-for="priv">{% include "administration/_field.html" with f=snmp_form.priv_protocol %}{% include "administration/_field.html" with f=snmp_form.priv_password %}</div>
+    </fieldset>
+    {% include "administration/_field.html" with f=snmp_form.module %}
+    {% include "administration/_field.html" with f=snmp_form.auth_profile %}
+    {% include "administration/_field.html" with f=snmp_form.notes %}
+    {% include "administration/_field.html" with f=snmp_form.apply_to %}
+    <div class="field full ob-foot">
+      <button class="btn primary" type="submit">{% icon "lock" 16 %}Store SNMP login</button>
+    </div>
+  </div>
+  <details class="ob-facts"><summary class="btn sm">The exporter profile to add to snmp.yml</summary>
+    <p class="ob-note">The SNMP exporter holds the login in its own <code>auths:</code> block (it cannot take it per request). A stored secret is never shown, so the placeholders stay.</p>
+    <pre class="ob-snippet">{{ sn.snippet_v2c }}</pre><pre class="ob-snippet">{{ sn.snippet_v3 }}</pre></details>
+</form>
+{% endif %}
+
+<div class="panel">
+  <div class="panel-h"><h2>Check the devices now</h2><small>Asks the SNMP exporter to walk each device (sysName, sysDescr, sysLocation, interfaces)</small>
+    {% if can_manage %}<div class="right"><form method="post" action="{% url 'onboarding:snmp_test' run.pk %}">{% csrf_token %}<button class="btn primary" type="submit"{% if not sn.devices %} disabled{% endif %}>{% icon "radar" 16 %}Test SNMP now</button></form></div>{% endif %}</div>
+  <div class="table-wrap dense"><table>
+    <thead><tr><th>Device</th><th>State</th><th>What it reported</th></tr></thead>
+    <tbody>{% for d in sn.devices %}<tr>
+      <td><b class="ob-wrap">{{ d.target.hostname }}</b>{% if d.target.address %}<small class="t-mute ob-wrap"> · {{ d.target.address }}</small>{% endif %}<br><small class="t-mute">{{ d.settings.version }} · {{ d.settings.module }}</small></td>
+      <td><span class="badge {{ d.target.tone }}">{{ d.target.get_state_display }}</span>{% if d.target.last_error %}<br><small class="t-mute ob-wrap">{{ d.target.last_error|truncatechars:160 }}</small>{% endif %}</td>
+      <td class="ob-wrap">{% if d.snmp %}<b>{{ d.snmp.sysName|default:"unnamed" }}</b> · {{ d.snmp.interfaces|default_if_none:"0" }} interface(s)<br>
+        <small class="t-mute">{{ d.snmp.sysDescr|default:"—"|truncatechars:90 }}</small><br><small class="t-mute">{{ d.snmp.sysLocation|default:"no location" }}</small>{% else %}<span class="t-mute">—</span>{% endif %}</td>
+    </tr>{% empty %}<tr><td colspan="3" class="empty">No network device on this run yet: add targets of type “Network device” on the Targets step.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+<script src="{% static 'onboarding/intake.js' %}" defer></script>
+{% endif %}

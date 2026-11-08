@@ -1,4 +1,4 @@
-{% extends "core/base.html" %}{% load le static telemetry_tags %}
+{% extends "core/base.html" %}{% load le static telemetry_tags ob_nav %}
 {% block title %}Infrastructure{% endblock %}
 {% block page_css %}<link rel="stylesheet" href="{% static 'telemetry/page.css' %}">{% endblock %}
 {% block crumbs %}{% include "telemetry/_crumbs.html" with crumb_here="Infrastructure" %}{% endblock %}
@@ -12,6 +12,7 @@
     <a class="btn" href="?{{ query.urlencode }}{% if query.urlencode %}&amp;{% endif %}format=csv">{% icon "download" 17 %}Export</a>
     <a class="btn" href="?{{ query.urlencode }}{% if query.urlencode %}&amp;{% endif %}refresh=1">{% icon "refresh" 17 %}Refresh</a>
     {% endif %}
+    {% can_onboard_any as ob_ok %}{% if ob_ok %}<a class="btn" href="{% url 'onboarding:new' %}?kind=server" title="Hand over a server login and get its metrics and logs">{% icon "plus" 17 %}Onboard a server</a>{% endif %}
     <a class="btn" href="{% url 'telemetry:fleet' %}">{% icon "grid" 17 %}Fleet home</a>
     <a class="btn primary" href="{% url 'telemetry:explorer' %}">{% icon "analytics" 17 %}Metrics Explorer</a>
   </div>

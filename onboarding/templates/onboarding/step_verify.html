@@ -1,0 +1,69 @@
+{% extends "onboarding/_step_base.html" %}{% load le static onboarding_servers %}
+{% block page_css %}{{ block.super }}<link rel="stylesheet" href="{% static 'onboarding/servers.css' %}">{% endblock %}
+{% block step %}
+<div class="panel">
+  <div class="panel-h"><h2>Verify reachability</h2><small>Nothing is probed until you press the button</small></div>
+  <p>LinkedEye checks each target now and reports DNS, the TCP port, whether an exporter answers on <code>/metrics</code> (and which one), whether the stored credential is accepted, and the host facts it found. For servers with an SSH credential it also logs in to read the hostname, OS, kernel, CPUs, memory and whether an exporter is already installed. All probing goes through the SSRF-guarded probe policy, and each SSH host key is pinned on first connect.</p>
+  {% if can_manage %}<form method="post" action="{% url 'onboarding:step' run.pk 'verify' %}" class="ob-foot">{% csrf_token %}
+    <button class="btn primary" type="submit" name="action" value="verify">{% icon "radar" 16 %}Verify {{ summary.total }} target{{ summary.total|pluralize }} now</button>
+    <button class="btn" type="submit" name="action" value="next">Continue{% icon "chevron-right" 16 %}</button>
+  </form>{% endif %}
+</div>
+<div class="panel">
+  <div class="panel-h"><h2>What was found</h2></div>
+  {% include "onboarding/_targets.html" %}
+  <div class="table-wrap dense ob-facts"><table>
+    <thead><tr><th>Host</th><th>OS / kernel</th><th>CPU</th><th>Memory</th><th>Exporter</th><th>Metrics URL</th></tr></thead>
+    <tbody>{% for t in targets %}
+      <tr><td><b>{{ t.hostname }}</b></td>
+        <td>{{ t.facts.os|default:"—" }}{% if t.facts.kernel %} · {{ t.facts.kernel }}{% endif %}</td>
+        <td class="num">{{ t.facts.cpus|default:"—" }}</td>
+        <td class="num">{% if t.facts.memory_mb %}{{ t.facts.memory_mb }} MB{% else %}—{% endif %}</td>
+        <td>{{ t.facts.exporter|default:"—" }}{% if t.facts.exporter_version %} {{ t.facts.exporter_version }}{% endif %}</td>
+        <td class="num">{{ t.metrics_url }}</td></tr>
+    {% empty %}<tr><td colspan="6" class="empty">No targets yet.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+{% for t in targets %}{% if t.facts.attempts and forloop.counter <= 25 %}
+<div class="panel">
+  <div class="ob-hostcard">
+    <div class="ob-hostcard-h"><h3>{{ t.hostname }}</h3><span class="badge {{ t.tone }}">{{ t.get_state_display }}</span>
+      <small class="t-mute">{{ t.get_target_type_display }} · {{ t.instance }}{% if t.facts.verified_at %} · verified {{ t.facts.verified_at|slice:"11:16" }} UTC{% endif %}{% if t.facts.duration_ms %} · {{ t.facts.duration_ms }} ms{% endif %}</small></div>
+    <div class="ob-checks">
+      {% if t.facts.dns is True %}<span class="chip ok">{% icon "check" 13 %} DNS resolves</span>{% elif t.facts.dns is False %}<span class="chip crit">{% icon "x-circle" 13 %} DNS / policy</span>{% else %}<span class="chip mute">DNS —</span>{% endif %}
+      {% if t.facts.tcp is True %}<span class="chip ok">{% icon "check" 13 %} Port {{ t.port }} open</span>{% elif t.facts.tcp is False %}<span class="chip warn">{% icon "x-circle" 13 %} Port {{ t.port }} closed</span>{% else %}<span class="chip mute">Port —</span>{% endif %}
+      {% if t.facts.metrics_ok %}<span class="chip ok">{% icon "check" 13 %} {{ t.facts.exporter|default:"Metrics" }}{% if t.facts.exporter_version %} {{ t.facts.exporter_version }}{% endif %}</span>{% else %}<span class="chip warn">{% icon "x-circle" 13 %} No exporter answering</span>{% endif %}
+      {% if t.facts.creds_accepted is True %}<span class="chip ok">{% icon "key" 13 %} Exporter login accepted</span>{% elif t.facts.creds_accepted is False %}<span class="chip crit">{% icon "key" 13 %} Exporter login rejected</span>{% endif %}
+      {% if t.facts.ssh == "ok" %}<span class="chip ok">{% icon "terminal" 13 %} SSH as {{ t.facts.ssh_user }}</span>
+      {% elif t.facts.ssh == "auth" %}<span class="chip crit">{% icon "terminal" 13 %} SSH login rejected</span>
+      {% elif t.facts.ssh == "hostkey_changed" %}<span class="chip crit">{% icon "shield-alert" 13 %} SSH host key changed</span>
+      {% elif t.facts.ssh == "unavailable" %}<span class="chip mute">{% icon "terminal" 13 %} SSH support not installed</span>
+      {% elif t.facts.ssh == "no_credential" %}<span class="chip mute">{% icon "terminal" 13 %} No SSH credential</span>
+      {% elif t.facts.ssh %}<span class="chip warn">{% icon "terminal" 13 %} SSH: {{ t.facts.ssh }}</span>{% endif %}
+    </div>
+    {% if t.facts.ssh == "hostkey_changed" %}<p class="ob-note crit" role="alert">{% icon "shield-alert" 15 %} {{ t.facts.ssh_error }}</p>
+    {% elif t.facts.ssh_error and t.facts.ssh != "skipped" %}<p class="ob-note warn">{% icon "alert" 15 %} {{ t.facts.ssh_error }}</p>{% endif %}
+    {% if t.last_error and t.facts.ssh != "hostkey_changed" %}<p class="ob-note warn">{% icon "alert" 15 %} {{ t.last_error }}</p>{% endif %}
+    {% if t.facts.warning %}<p class="ob-note warn">{% icon "alert" 15 %} {{ t.facts.warning }}</p>{% endif %}
+    {% if t.facts.note %}<p class="ob-note">{% icon "info" 15 %} {{ t.facts.note }}</p>{% endif %}
+    <dl class="kv">
+      <dt>Hostname</dt><dd>{{ t.facts.hostname|default:"—" }}</dd>
+      <dt>OS</dt><dd>{{ t.facts.os|default:"—" }}{% if t.facts.kernel %} · kernel {{ t.facts.kernel }}{% endif %}{% if t.facts.arch %} · {{ t.facts.arch }}{% endif %}</dd>
+      <dt>CPU / memory</dt><dd>{% if t.facts.cpus %}{{ t.facts.cpus }} CPU{{ t.facts.cpus|pluralize }}{% else %}—{% endif %} · {% if t.facts.memory_mb %}{{ t.facts.memory_mb }} MB{% else %}—{% endif %}</dd>
+      <dt>Exporter</dt><dd>{% if t.facts.exporter %}{{ t.facts.exporter }} {{ t.facts.exporter_version }}{% elif t.facts.exporter_installed %}installed on the host ({{ t.facts.exporter_service|default:"not running" }}){% if t.facts.exporter_installed_version %}, version {{ t.facts.exporter_installed_version }}{% endif %}{% else %}none found{% endif %}</dd>
+      <dt>Facts from</dt><dd>{{ t.facts.facts_source|default:"—" }}{% if t.facts.ip %} · address {{ t.facts.ip }}{% endif %}</dd>
+      {% if t.facts.ssh_host_key %}<dt>SSH host key</dt><dd class="ob-hk">{{ t.facts.ssh_host_key_type }} {{ t.facts.ssh_host_key }} <span class="t-mute">(pinned)</span></dd>{% endif %}
+    </dl>
+    <details class="ob-probes"><summary>Every probe attempt ({{ t.facts.attempts|length }})</summary>
+      <div class="table-wrap dense"><table>
+        <thead><tr><th>Probe</th><th>Result</th><th class="num">ms</th><th>Detail</th></tr></thead>
+        <tbody>{% for a in t.facts.attempts %}<tr>
+          <td>{{ a.probe }}</td>
+          <td>{% if a.ok %}<span class="t-ok">OK</span>{% else %}<span class="t-crit">failed</span>{% endif %}</td>
+          <td class="num">{{ a.ms }}</td><td class="t-mute">{{ a.detail }}</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </details>
+  </div>
+</div>
+{% endif %}{% endfor %}
+{% endblock %}

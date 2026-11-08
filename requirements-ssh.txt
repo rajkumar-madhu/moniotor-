@@ -1,0 +1,6 @@
+# Optional extra: SSH fact-gathering and exporter install during onboarding.
+#   pip install -r requirements-ssh.txt
+# LinkedEye imports paramiko lazily: without it the onboarding wizard still works and shows the
+# copy-paste install command instead of offering to install over SSH.
+-r requirements.txt
+paramiko>=3.4,<6

@@ -914,6 +914,8 @@ SITE_NAME_FIELDS = [
     ("dcim", "Rack", "site", "Racks"),
     ("dcim", "CoolingUnit", "site", "Cooling units"),
     ("compute", "Cluster", "site", "Compute clusters"),
+    ("onboarding", "OnboardingRun", "site", "Onboarding runs"),
+    ("onboarding", "Credential", "site", "Stored credentials"),
     ("k8s", "KubeCluster", "site", "Kubernetes clusters"),
     ("k8s", "Namespace", "site", "Kubernetes namespaces"),
     ("k8s", "ClientProfile", "site", "Kubernetes client profiles"),

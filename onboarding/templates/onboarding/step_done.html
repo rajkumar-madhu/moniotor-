@@ -1,0 +1,33 @@
+{% extends "onboarding/_step_base.html" %}{% load le static ob_done %}
+{% block page_css %}{{ block.super }}<link rel="stylesheet" href="{% static 'onboarding/done.css' %}">{% endblock %}
+{% block step %}
+{% done_blocks as blocks %}
+<div class="panel">
+  <div class="panel-h"><h2>{% if run.status == 'complete' %}Onboarding complete{% else %}Finish the run{% endif %}</h2>
+    <small>{{ summary.live }} of {{ summary.total }} target{{ summary.total|pluralize }} live</small></div>
+  <p>Each host below is already on the fleet overview, Infrastructure, its own full metrics page, the metrics explorer, the logs view, its CMDB record and its alerts, with no further action. A place that has no data yet says so, and why.</p>
+  {% if run.finished_at %}<p class="hint">Completed {{ run.finished_at|short_dt }}.</p>{% endif %}
+  {% if can_manage and run.status != 'complete' %}<form method="post" action="{% url 'onboarding:step' run.pk 'done' %}" class="ob-foot">{% csrf_token %}
+    <button class="btn primary" type="submit" name="action" value="finish">{% icon "check" 16 %}Mark this run complete</button>
+  </form>{% endif %}
+</div>
+{% for block in blocks %}
+<div class="panel" id="host-{{ block.target.pk }}">
+  <div class="panel-h"><h2>{{ block.target.hostname }}</h2>
+    <small><code>{{ block.target.instance }}</code> · <span class="badge {{ block.target.tone }}">{{ block.target.get_state_display }}</span>
+      {% if block.applicable %} · {{ block.with_data }} of {{ block.applicable }} places have data{% endif %}</small></div>
+  {% if not block.prometheus %}<p class="hint">{% icon "alert" 14 %} Prometheus did not answer, so the metric pages are shown as not checked.</p>{% endif %}
+  <ul class="ob-places">{% for i in block.items %}
+    <li data-place="{{ i.key }}">
+      <span class="ob-place"><a href="{{ i.href }}">{% icon i.icon 15 %}{{ i.label }}</a><small>{{ i.note }}</small></span>
+      <span class="badge {{ i.tone }}">{{ i.state_label }}</span>
+    </li>{% endfor %}</ul>
+  {% if block.target.first_sample_at %}<p class="hint">First sample at {{ block.target.first_sample_at|short_dt }}.</p>{% endif %}
+</div>
+{% empty %}<div class="panel"><p class="empty">This run has no targets.</p></div>{% endfor %}
+{% if module_links %}<div class="panel">
+  <div class="panel-h"><h2>Everything for this run</h2><small>The whole site, not just these hosts</small></div>
+  <div class="ob-links">{% for label, href, icon_name in module_links %}
+    <a class="btn" href="{{ href }}">{% icon icon_name 16 %}{{ label }}</a>{% endfor %}</div>
+</div>{% endif %}
+{% endblock %}

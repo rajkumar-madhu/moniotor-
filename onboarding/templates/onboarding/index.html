@@ -1,0 +1,62 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}Onboarding{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'onboarding/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "onboarding/_crumbs.html" %}{% endblock %}
+{% block content %}
+<div class="pg-ob">
+<div class="head">
+  <div class="glyph">{% icon "radar" 44 %}</div>
+  <div><h1>Onboarding</h1><p>Onboard a site, a server, a network device or Prometheus — LinkedEye then gathers and shows everything for that target by itself</p></div>
+  <div class="actions">
+    <a class="btn" href="{% url 'onboarding:sd_page' %}">{% icon "plug" 17 %}Service discovery</a>
+    <a class="btn" href="{% url 'onboarding:export' %}">{% icon "download" 17 %}Export CSV</a>
+    {% if can_start %}<a class="btn primary" href="{% url 'onboarding:new' %}">{% icon "plus" 17 %}New onboarding run</a>{% endif %}
+  </div>
+</div>
+
+{% include "onboarding/_vault_warning.html" %}
+{% if not sd_configured %}<div class="panel ob-warn"><p>{% icon "alert" 16 %} Prometheus service discovery has no token yet. <a href="{% url 'onboarding:sd_page' %}">Generate one and paste the scrape_config</a> once; after that every onboarded target is picked up with no config edit.</p></div>{% endif %}
+
+<section class="kpis" aria-label="Onboarding summary">
+  <div class="kpi"><div class="tile s-info">{% icon "radar" 24 %}</div><div><div class="label">Runs</div><div class="value">{{ n_total }}</div><div class="sub">all time</div></div></div>
+  <div class="kpi"><div class="tile s-warn">{% icon "clock" 24 %}</div><div><div class="label">In progress</div><div class="value">{{ n_open }}</div><div class="sub">resumable</div></div></div>
+  <div class="kpi"><div class="tile s-ok">{% icon "check-circle" 24 %}</div><div><div class="label">Complete</div><div class="value">{{ n_complete }}</div><div class="sub">everything shows</div></div></div>
+  <div class="kpi"><div class="tile s-crit">{% icon "x-circle" 24 %}</div><div><div class="label">Failed</div><div class="value">{{ n_failed }}</div><div class="sub">needs a look</div></div></div>
+  <div class="kpi"><div class="tile s-purple">{% icon "gauge" 24 %}</div><div><div class="label">Live targets</div><div class="value">{{ n_live }}</div><div class="sub">first samples landed</div></div></div>
+  <div class="kpi"><div class="tile s-mute">{% icon "plug" 24 %}</div><div><div class="label">Served to Prometheus</div><div class="value">{{ n_sd }}</div><div class="sub">service discovery</div></div></div>
+</section>
+
+<section class="panel">
+  <div class="panel-h"><h2>Runs</h2><div class="right"><small>{{ page.paginator.count }} total</small></div></div>
+  <form class="toolbar" method="get" action="{% url 'onboarding:index' %}">
+    <div class="search">{% icon "search" 16 %}<input type="search" name="q" value="{{ q }}" placeholder="Hostname…" aria-label="Search hostnames"></div>
+    <select name="status" data-autosubmit aria-label="Status"><option value="">Any status</option>{% for v, l in statuses %}<option value="{{ v }}"{% if status == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <select name="kind" data-autosubmit aria-label="Kind"><option value="">Any kind</option>{% for v, l in kinds %}<option value="{{ v }}"{% if kind == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <select name="site" data-autosubmit aria-label="Site"><option value="">Any site</option>{% for s in sites %}<option value="{{ s }}"{% if site == s %} selected{% endif %}>{{ s }}</option>{% endfor %}</select>
+    <button class="btn sm" type="submit">Filter</button>
+  </form>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Run</th><th>Kind</th><th>Site</th><th>Client</th><th>Step</th><th>Status</th><th class="num">Targets</th><th class="num">Live</th><th>Started</th><th></th></tr></thead>
+    <tbody>{% for r in rows %}
+      <tr>
+        <td><a href="{% url 'onboarding:step' r.pk r.step %}">#{{ r.pk }}</a></td>
+        <td>{{ r.get_kind_display }}</td>
+        <td>{{ r.site|default:"—" }}</td>
+        <td>{{ r.client.name|default:"—" }}</td>
+        <td>{{ r.step }}</td>
+        <td><span class="badge {{ r.tone }}">{{ r.get_status_display }}</span></td>
+        <td class="num">{{ r.summary.total }}</td>
+        <td class="num">{{ r.summary.live }}</td>
+        <td title="{{ r.created_at|date:'Y-m-d H:i' }}">{{ r.created_at|short_dt }}</td>
+        <td class="row-actions">
+          <a class="btn sm" href="{% url 'onboarding:step' r.pk r.step %}">{% if r.can_manage and not r.is_finished %}Resume{% else %}Open{% endif %}</a>
+          <a class="btn icon sm" href="{% url 'onboarding:log' r.pk %}" aria-label="Run log for #{{ r.pk }}" title="Run log">{% icon "list" 15 %}</a>
+          {% if r.can_manage %}<form method="post" action="{% url 'onboarding:run_delete' r.pk %}" onsubmit="return confirm('Delete onboarding run #{{ r.pk }}? Its targets leave Prometheus service discovery; CMDB, device and exporter records stay.')">{% csrf_token %}<button class="btn icon red sm" type="submit" aria-label="Delete run #{{ r.pk }}" title="Delete">{% icon "trash" 15 %}</button></form>{% endif %}
+        </td>
+      </tr>
+    {% empty %}<tr><td colspan="10" class="empty">No onboarding runs yet.{% if can_start %} <a href="{% url 'onboarding:new' %}">Start one</a>.{% endif %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% include "core/_pager.html" %}
+</section>
+</div>
+{% endblock %}

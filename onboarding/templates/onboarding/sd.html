@@ -1,0 +1,73 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}Prometheus service discovery{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'onboarding/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "onboarding/_crumbs.html" with here="Service discovery" %}{% endblock %}
+{% block content %}
+<div class="pg-ob">
+<div class="head">
+  <div class="glyph">{% icon "plug" 44 %}</div>
+  <div><h1>Prometheus service discovery</h1><p>Paste one <code>scrape_config</code> into Prometheus. From then on every onboarded target is picked up on the next discovery cycle, with no further config edit.</p></div>
+  <div class="actions"><a class="btn" href="{% url 'onboarding:index' %}">{% icon "chevron-left" 17 %}Onboarding</a></div>
+</div>
+
+{% include "onboarding/_vault_warning.html" %}
+
+<section class="kpis" aria-label="Service discovery summary">
+  <div class="kpi"><div class="tile s-info">{% icon "server" 24 %}</div><div><div class="label">Targets served</div><div class="value">{{ n_targets }}</div><div class="sub">enabled and scrape-ready</div></div></div>
+  <div class="kpi"><div class="tile {% if token_row %}s-ok{% else %}s-warn{% endif %}">{% icon "key" 24 %}</div><div><div class="label">Token</div><div class="value">{% if token_row %}Set{% else %}None{% endif %}</div><div class="sub">{% if token_row %}{{ token_row.rotated_at|default:token_row.created_at|short_dt }}{% else %}generate one{% endif %}</div></div></div>
+  <div class="kpi"><div class="tile s-mute">{% icon "refresh" 24 %}</div><div><div class="label">Rate limit</div><div class="value">{{ rate_limit }}</div><div class="sub">per {{ rate_window }} s per source</div></div></div>
+  <div class="kpi"><div class="tile s-purple">{% icon "activity" 24 %}</div><div><div class="label">Recent fetches</div><div class="value">{{ fetches|length }}</div><div class="sub">last 10 recorded</div></div></div>
+</section>
+
+{% if fresh_token %}
+<section class="panel ob-fresh" role="alert">
+  <div class="panel-h"><h2>{% icon "key" 18 %} Your new token — copy it now</h2><small>Shown once; a stored secret is never rendered again</small></div>
+  <pre class="log" id="ob-token">{{ fresh_token }}</pre>
+</section>
+{% endif %}
+
+<section class="grid g-main">
+  <div class="stack">
+    <div class="panel">
+      <div class="panel-h"><h2>scrape_config to paste</h2><small>prometheus.yml</small></div>
+      <pre class="log">{{ scrape_config }}</pre>
+      {% if not fresh_token %}<p class="hint">{% if token_row %}The token is stored encrypted and is never shown again. Rotate it below to get a fresh one you can paste.{% else %}Generate a token first; it is shown once, right here.{% endif %}</p>{% endif %}
+      <dl class="kv"><dt>Endpoint</dt><dd class="num">{{ sd_url }}</dd><dt>Format</dt><dd>Prometheus <code>http_sd_configs</code></dd></dl>
+    </div>
+    <div class="panel">
+      <div class="panel-h"><h2>What the endpoint returns</h2><small>first {{ payload_sample|length }} of {{ n_targets }}</small></div>
+      <div class="table-wrap dense"><table>
+        <thead><tr><th>Target</th><th>job</th><th>site</th><th>client</th><th>env</th><th>le_target</th></tr></thead>
+        <tbody>{% for entry in payload_sample %}
+          <tr><td><code>{{ entry.targets.0 }}</code></td><td>{{ entry.labels.job }}</td><td>{{ entry.labels.site|default:"—" }}</td><td>{{ entry.labels.client|default:"—" }}</td><td>{{ entry.labels.env }}</td><td>{{ entry.labels.le_target }}</td></tr>
+        {% empty %}<tr><td colspan="6" class="empty">No enabled target is ready to be scraped yet.</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </div>
+    <div class="panel">
+      <div class="panel-h"><h2>Recorded fetches</h2><small>when, from where, how many targets</small></div>
+      <div class="table-wrap dense"><table>
+        <thead><tr><th>Time</th><th>Source</th><th class="num">Targets</th><th>Result</th><th>Agent</th></tr></thead>
+        <tbody>{% for f in fetches %}
+          <tr><td title="{{ f.fetched_at|date:'Y-m-d H:i:s' }}">{{ f.fetched_at|short_dt }}</td><td>{{ f.source_ip|default:"—" }}</td><td class="num">{{ f.target_count }}</td>
+            <td><span class="badge {% if f.result == 'ok' %}ok{% elif f.result == 'denied' %}crit{% else %}warn{% endif %}">{{ f.get_result_display }}</span></td>
+            <td class="t-mute">{{ f.user_agent|default:"—"|truncatechars:40 }}</td></tr>
+        {% empty %}<tr><td colspan="5" class="empty">Prometheus has not fetched the endpoint yet.</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </div>
+  </div>
+  <div class="stack">
+    <form class="panel" method="post" action="{% url 'onboarding:sd_token' %}">{% csrf_token %}
+      <div class="panel-h"><h2>Token</h2></div>
+      <p>The bearer token lives in the credential vault, encrypted at rest. Rotating it replaces the value in place — update Prometheus with the new token straight away.</p>
+      <div class="ob-foot"><button class="btn primary" type="submit">{% icon "refresh" 16 %}{% if token_row %}Rotate token{% else %}Generate token{% endif %}</button></div>
+    </form>
+    <div class="panel">
+      <div class="panel-h"><h2>Targets served</h2></div>
+      <ul class="ob-feed">{% for t in targets %}
+        <li><span class="badge {{ t.tone }}">{{ t.get_state_display }}</span><span class="ob-feed-txt">{{ t.instance }}</span><small>{{ t.run.site }}</small></li>
+      {% empty %}<li class="empty">Nothing yet.</li>{% endfor %}</ul>
+    </div>
+  </div>
+</section>
+</div>
+{% endblock %}

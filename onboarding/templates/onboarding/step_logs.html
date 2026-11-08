@@ -1,0 +1,72 @@
+{% extends "onboarding/_step_base.html" %}{% load le static ob_logs %}
+{% block page_css %}{{ block.super }}<link rel="stylesheet" href="{% static 'onboarding/servers.css' %}"><link rel="stylesheet" href="{% static 'onboarding/logs.css' %}">{% endblock %}
+{% block step %}
+{% log_ingest as ing %}
+{% log_statuses run targets as ls %}
+<div class="panel">
+  <div class="panel-h"><h2>Logs</h2><small>Vector, pre-filled with the log-ingest URL, token and this host's labels</small></div>
+  <p>LinkedEye writes the log shipper configuration for each host: the usual journald and file sources for its operating system, the <code>host</code> and <code>site</code> labels, the ingest address and the token. Install Vector on the host, paste the file, start it, and this page confirms the lines are arriving (it looks at the last 5 minutes).</p>
+  {% if not ing.enabled %}<p class="t-warn" role="alert">{% icon "alert" 15 %} Log ingest is switched off: no log-ingest token is set on the server. Set <code>LINKEDEYE_LOG_INGEST_TOKEN</code>{% if ing.rotate_url %} (or save one on the <a href="{{ ing.rotate_url }}">Integrations page</a>){% endif %}, restart, then generate the configuration.</p>
+  {% else %}<div class="ob-logs-top">
+    <span>Endpoint <code>{{ ing.url }}</code></span>
+    {% if ing.rotate_url %}<a class="btn" href="{{ ing.rotate_url }}">{% icon "key" 16 %}Rotate the log-ingest token</a>{% endif %}
+  </div>
+  <p class="hint">Rotating the token stops every shipper that still carries the old one; generate the configuration again afterwards and paste the new file on each host.</p>{% endif %}
+  <p class="hint">Promtail is not offered: it speaks only the Loki push protocol, which the LinkedEye ingest endpoint does not accept. Vector, Fluent Bit (http output, JSON) or any agent that can POST JSON works.</p>
+  {% if can_manage %}<form method="post" action="{% url 'onboarding:step' run.pk 'logs' %}" class="ob-foot">{% csrf_token %}
+    <button class="btn primary" type="submit" name="action" value="logs"{% if not ing.enabled %} disabled{% endif %}>{% icon "logs" 16 %}Generate shipper configuration</button>
+    <button class="btn" type="submit" name="action" value="next">Continue{% icon "chevron-right" 16 %}</button>
+  </form>{% endif %}
+</div>
+{% if fresh_logs %}<div class="panel ob-fresh" role="alert" data-ob-logs-fresh><p>{% icon "key" 16 %} {% if token_shown %}The configuration below contains the log-ingest token. It is shown on this page only: copy it now. A reload shows the placeholder <code>&lt;LOG_INGEST_TOKEN&gt;</code> instead.{% else %}The configuration below carries the placeholder <code>&lt;LOG_INGEST_TOKEN&gt;</code>. The ingest token is shared by every site, so an administrator of all sites has to give it to you; replace the placeholder with it before starting Vector.{% endif %}</p></div>{% endif %}
+{% for t in targets %}{% with st=ls|get_item:t.pk %}
+<div class="panel" id="logs-{{ t.pk }}">
+  <div class="panel-h"><h2>{{ t.hostname }}</h2>
+    <small>{{ t.get_target_type_display }}</small>
+    <div class="right">{% if st and not st.applicable %}<span class="badge mute">not applicable</span>
+      {% elif st.arriving %}<span class="badge ok">{% icon "check-circle" 14 %}lines arriving</span>
+      {% else %}<span class="badge warn">still waiting</span>{% endif %}</div></div>
+
+  {% if st and not st.applicable %}<p class="empty">{{ st.note }}</p>
+  {% else %}
+  <div class="ob-logs-grid">
+    <div class="ob-logs-stat"><b>{{ st.lines|default:0 }}</b><small>lines in the last 5 minutes</small></div>
+    <div class="ob-logs-stat"><b>{% if st.last_seen %}{{ st.last_seen|short_dt }}{% else %}—{% endif %}</b><small>last line received</small></div>
+    <div class="ob-logs-stat"><b>{{ t.hostname }}</b><small>host label to look for</small></div>
+  </div>
+
+  {% if t.facts.logs.error %}<p class="t-crit" role="alert">{% icon "alert" 15 %} {{ t.facts.logs.error }}</p>{% endif %}
+  {% if t.facts.logs.note %}<p class="t-warn">{{ t.facts.logs.note }}</p>{% endif %}
+  {% for pk, text in fresh_logs.items %}{% if pk == t.pk %}<div class="ob-cmd"><button type="button" class="btn sm ob-copy" data-copy-target="cfg-{{ t.pk }}">Copy</button><pre class="log ob-logs-cfg" id="cfg-{{ t.pk }}">{{ text }}</pre></div>{% endif %}{% endfor %}
+  {% if not fresh_logs %}{% if t.facts.logs.config %}<details><summary>Shipper configuration (token shown as a placeholder)</summary><div class="ob-cmd"><button type="button" class="btn sm ob-copy" data-copy-target="cfg-{{ t.pk }}">Copy</button><pre class="log ob-logs-cfg" id="cfg-{{ t.pk }}">{{ t.facts.logs.config }}</pre></div></details>
+  {% else %}<p class="empty">No configuration generated yet for this host. Press <b>Generate shipper configuration</b>.</p>{% endif %}{% endif %}
+  {% if st.arriving %}
+    <div class="table-wrap dense ob-logs-samples"><table>
+      <thead><tr><th>Time</th><th>Level</th><th>Source</th><th>Message</th></tr></thead>
+      <tbody>{% for l in st.samples %}
+        <tr><td class="num">{{ l.ts|short_dt }}</td><td><span class="badge {{ l.tone }}">{{ l.level }}</span></td><td>{{ l.source }}</td><td class="msg">{{ l.message }}</td></tr>
+      {% empty %}<tr><td colspan="4" class="empty">Lines are arriving; the newest ones are not available to show.</td></tr>{% endfor %}</tbody>
+    </table></div>
+    <p class="hint"><a href="{% url 'observe:logs' %}?q={{ t.hostname|urlencode }}">Open this host's logs{% icon "chevron-right" 14 %}</a></p>
+  {% else %}
+    {% if can_manage and t.facts.logs.config %}<span data-ob-logs-wait hidden></span>{% endif %}
+    <p>No lines from <b>{{ t.hostname }}</b> have arrived in the last 5 minutes. <span id="ob-logs-note" class="t-mute"></span></p>
+    {% if st.nearby %}<p class="t-warn">{% icon "alert" 15 %} Lines <i>are</i> arriving for this site from other host labels: {% for h in st.nearby %}<code>{{ h }}</code>{% if not forloop.last %}, {% endif %}{% endfor %}. If one of them is this machine, the <code>host</code> value in the shipper differs from the name onboarded here; fix one of the two.</p>{% endif %}
+    <details open><summary>Troubleshooting</summary>
+      <ol class="ob-trouble">
+        <li>Is the shipper running? On Linux: <code>systemctl status vector</code> and <code>journalctl -u vector -n 50</code>. Run <code>vector validate /etc/vector/vector.toml</code> to check the file.</li>
+        <li>Did you paste the file the page generated, with the token in it? A <b>401</b> in the Vector log means the token is wrong or was rotated since: generate the configuration again.</li>
+        <li>A <b>503</b> means log ingest is switched off on the server (no <code>LINKEDEYE_LOG_INGEST_TOKEN</code>).</li>
+        <li>Can the host reach <code>{{ ing.url }}</code>? Check outbound HTTPS from the host and that its firewall or proxy allows it: <code>curl -sS -o /dev/null -w "%{http_code}" -X POST {{ ing.url }}</code> should answer 401 (reachable, no token), not time out.</li>
+        <li>The shipper reads new lines only (it starts at the end of each file). Generate some: <code>logger "linkedeye test"</code>, then wait a few seconds.</li>
+        <li>Files must be readable by the Vector user (for example the <code>adm</code> group for <code>/var/log/syslog</code>), and the host clock should be close to the console's.</li>
+        {% if t.target_type == "device" %}<li>The device must send syslog to the collector running Vector (UDP 514) and the collector must allow it through its firewall.</li>{% endif %}
+        {% if t.target_type == "k8s_node" %}<li>Run Vector as a DaemonSet with the node's <code>/var/log</code> mounted read-only and a service account that can list pods.</li>{% endif %}
+      </ol></details>
+  {% endif %}
+
+  {% endif %}
+</div>
+{% endwith %}{% empty %}<div class="panel"><p class="empty">No targets yet.</p></div>{% endfor %}
+{% endblock %}
+{% block scripts %}<script src="{% static 'onboarding/servers.js' %}" defer></script><script src="{% static 'onboarding/logs.js' %}" defer></script>{% endblock %}

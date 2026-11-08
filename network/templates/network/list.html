@@ -1,4 +1,4 @@
-{% extends "core/base.html" %}{% load le static network_tags %}
+{% extends "core/base.html" %}{% load le static network_tags ob_nav %}
 {% block title %}{{ title }}{% endblock %}
 {% block page_css %}<link rel="stylesheet" href="{% static 'network/page.css' %}"><link rel="stylesheet" href="{% static 'network/device-card.css' %}">{% endblock %}
 {% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'network:all' %}">Network Devices</a>{% if device_type %}{% icon "chevron-right" 14 %}<span>{{ title }}</span>{% else %}{% icon "chevron-right" 14 %}<span>All Devices</span>{% endif %}</nav>{% endblock %}
@@ -14,6 +14,7 @@
     <a class="btn ghost-primary" href="{% url 'network:discovery' %}">{% icon "radar" 17 %}Run Discovery</a>
     <a class="btn primary" href="{{ create_url }}">{% icon "plus" 17 %}Add Device</a>
     {% endif %}
+    {% can_onboard_any as ob_ok %}{% if ob_ok %}<a class="btn" href="{% url 'onboarding:new' %}?kind=device" title="Hand over an SNMP login and get its interfaces, traffic and logs">{% icon "radar" 17 %}Onboard devices</a>{% endif %}
   </div>
 </div>
 

@@ -1,0 +1,32 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}Run log · Onboarding #{{ run.pk }}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'onboarding/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "onboarding/_crumbs.html" with here="Run log" %}{% endblock %}
+{% block content %}
+<div class="pg-ob">
+<div class="head">
+  <div class="glyph">{% icon "list" 44 %}</div>
+  <div><h1>Run log · #{{ run.pk }}</h1><p>{{ run.get_kind_display }} · {{ run.site|default:"no site" }} · <span class="badge {{ run.tone }}">{{ run.get_status_display }}</span> · {{ summary.total }} target{{ summary.total|pluralize }}</p></div>
+  <div class="actions">
+    <a class="btn" href="{% url 'onboarding:step' run.pk run.step %}">{% icon "arrow-right" 17 %}Back to the wizard</a>
+    <a class="btn" href="{% url 'onboarding:index' %}">{% icon "chevron-left" 17 %}All runs</a>
+  </div>
+</div>
+{% include "onboarding/_rail.html" %}
+<section class="panel">
+  <div class="panel-h"><h2>Every step</h2><small>No step log line ever contains a secret</small></div>
+  <div class="table-wrap dense"><table>
+    <thead><tr><th>Time</th><th>Step</th><th>Status</th><th>Target</th><th>Detail</th><th class="num">Duration</th></tr></thead>
+    <tbody>{% for e in rows %}
+      <tr><td title="{{ e.created_at|date:'Y-m-d H:i:s' }}">{{ e.created_at|short_dt }}</td>
+        <td>{{ e.step }}</td>
+        <td><span class="badge {{ e.tone }}">{{ e.get_status_display }}</span></td>
+        <td>{{ e.target.hostname|default:"—" }}</td>
+        <td>{{ e.detail }}</td>
+        <td class="num">{% if e.duration_ms %}{{ e.duration_ms|ms }}{% else %}—{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="6" class="empty">Nothing logged yet.</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% include "core/_pager.html" %}
+</section>
+</div>
+{% endblock %}

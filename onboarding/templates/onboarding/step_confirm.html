@@ -1,0 +1,53 @@
+{% extends "onboarding/_step_base.html" %}{% load le ob_done %}
+{% block step %}
+<div class="panel">
+  <div class="panel-h"><h2>Register and confirm</h2><small>Join service discovery, then wait for the first samples</small></div>
+  <p>Activation creates or links the CMDB record, the network device or compute server, the exporter row and service-discovery membership — idempotently, so a host that is already known links to the existing records instead of creating new ones.</p>
+  {% if not sd_configured %}<p class="t-warn">{% icon "alert" 15 %} No service-discovery token has been generated yet. <a href="{% url 'onboarding:sd_page' %}">Generate one</a> and paste the scrape_config into Prometheus once.</p>{% endif %}
+  {% if can_manage %}<form method="post" action="{% url 'onboarding:step' run.pk 'confirm' %}" class="ob-foot">{% csrf_token %}
+    <button class="btn primary" type="submit" name="action" value="activate">{% icon "check-circle" 16 %}Activate {{ summary.total }} target{{ summary.total|pluralize }}</button>
+    <button class="btn" type="submit" name="action" value="check">{% icon "refresh" 16 %}Check for samples now</button>
+    <button class="btn" type="submit" name="action" value="next">Continue{% icon "chevron-right" 16 %}</button>
+    {% if run.status == 'failed' %}<button class="btn" type="submit" name="action" value="reopen">{% icon "refresh" 16 %}Reopen run</button>
+    {% else %}<button class="btn" type="submit" name="action" value="fail">{% icon "x-circle" 16 %}Mark failed</button>{% endif %}
+  </form>{% endif %}
+</div>
+{% activation_rows as act_rows %}
+<div class="panel" id="ob-activation">
+  <div class="panel-h"><h2>What activation wired up</h2><small>Created or linked for each target, with no duplicates on a re-run</small></div>
+  <div class="table-wrap dense"><table>
+    <thead><tr><th>Host</th><th>CMDB item</th><th>Device or server</th><th>Exporter</th><th>Service discovery</th></tr></thead>
+    <tbody>{% for r in act_rows %}
+      <tr>
+        <td><b>{{ r.target.hostname }}</b>{% if r.created %}<br><small class="t-mute">created {{ r.created|join:", " }}</small>{% endif %}{% if r.linked %}<br><small class="t-mute">linked {{ r.linked|join:", " }}</small>{% endif %}</td>
+        <td>{% if r.ci_url %}<a href="{{ r.ci_url }}">{{ r.ci.name }}</a><br><small class="t-mute"><code>{{ r.ci.prometheus_instance|default:"no instance" }}</code></small>{% else %}<span class="t-mute">not yet</span>{% endif %}</td>
+        <td>{% if r.device_url %}<a href="{{ r.device_url }}">{{ r.device.name }}</a>{% elif r.target.target_type == 'device' or r.target.target_type == 'k8s_node' %}<span class="t-mute">not yet</span>{% else %}<span class="t-mute">not needed</span>{% endif %}</td>
+        <td>{% if r.exporter_url %}<a href="{{ r.exporter_url }}">{{ r.exporter.name }}</a>{% else %}<span class="t-mute">not yet</span>{% endif %}</td>
+        <td>{% if r.target.served %}<span class="chip teal">served</span>{% elif not r.target.enabled %}<span class="chip">held back</span>{% else %}<span class="chip mute">after activation</span>{% endif %}</td>
+      </tr>
+      {% for w in r.warnings %}<tr><td colspan="5" class="t-warn">{% icon "alert" 14 %} {{ w }}</td></tr>{% endfor %}
+    {% empty %}<tr><td colspan="5" class="empty">No targets yet.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+<div class="panel">
+  <div class="panel-h"><h2>Prometheus scrape_config</h2><small>Paste once; targets then appear on the next discovery cycle</small></div>
+  <pre class="log">{{ scrape_config }}</pre>
+  <p class="hint">The token is shown only when it is generated or rotated — a stored secret is never rendered. <a href="{% url 'onboarding:sd_page' %}">Service discovery page</a></p>
+</div>
+<div class="panel" id="ob-live" data-poll-url="{{ poll_url }}"{% if can_manage %} data-poll="1"{% endif %}>
+  <div class="panel-h"><h2>Waiting for the first samples</h2><small id="ob-live-note">Checks Prometheus for <code>up == 1</code> every 10 s while this page is open</small></div>
+  <div class="table-wrap dense"><table>
+    <thead><tr><th>Host</th><th>Scrape target</th><th>State</th><th>First sample</th></tr></thead>
+    <tbody>{% for t in targets %}
+      <tr data-target="{{ t.pk }}"><td><b>{{ t.hostname }}</b></td><td><code>{{ t.instance }}</code></td>
+        <td><span class="badge {{ t.tone }}" data-field="state">{{ t.get_state_display }}</span></td>
+        <td class="num" data-field="first">{% if t.first_sample_at %}{{ t.first_sample_at|short_dt }}{% else %}—{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="4" class="empty">No targets yet.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+<div class="panel">
+  <div class="panel-h"><h2>Targets</h2></div>
+  {% include "onboarding/_targets.html" %}
+</div>
+{% endblock %}
+{% block scripts %}{% load static %}<script src="{% static 'onboarding/confirm.js' %}" defer></script>{% endblock %}

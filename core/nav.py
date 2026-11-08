@@ -93,7 +93,11 @@ NAV = [
     ]},
     {"label": "Analytics", "icon": "analytics", "url": "reports:analytics", "chev": True},
     {"label": "Reports", "icon": "clipboard", "url": "reports:index", "chev": True},
-    {"label": "Administration", "icon": "settings", "url": "administration:index", "chev": True},
+    {"label": "Administration", "icon": "settings", "children": [
+        {"label": "Settings", "url": "administration:index"},
+        {"label": "Onboarding", "url": "onboarding:index"},
+        {"label": "Service Discovery", "url": "onboarding:sd_page"},
+    ]},
     {"label": "Service Desk", "icon": "headset", "children": [
         {"label": "Tickets", "url": "servicedesk:tickets"},
         {"label": "Incidents", "url": "servicedesk:incidents"},

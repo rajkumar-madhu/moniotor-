@@ -29,6 +29,20 @@
   </ol>
 </section>
 
+<section class="panel" aria-labelledby="sd-h">
+  <div class="panel-h"><h2 id="sd-h">Prometheus service discovery</h2>
+    <div class="right"><a class="btn sm" href="{% url 'onboarding:sd_page' %}">Token and fetch record{% icon "chevron-right" 13 %}</a></div></div>
+  <p class="adm-onboard-intro">Paste this once into <code>prometheus.yml</code>. Every target you onboard is then scraped on Prometheus&rsquo;s next discovery cycle, with no further config edit. The bearer token is generated (and rotated) on the service discovery page, where it is shown once.</p>
+<pre class="log">scrape_configs:
+  - job_name: linkedeye-sd
+    http_sd_configs:
+      - url: {{ request.scheme }}://{{ request.get_host }}{% url 'onboarding:sd_targets' %}
+        refresh_interval: 60s
+        authorization:
+          type: Bearer
+          credentials: &lt;token from the service discovery page&gt;</pre>
+</section>
+
 <section class="adm-int-grid">
   {% for it in items %}
   <article class="panel adm-int{% if not it.configured %} off{% endif %}" id="{{ it.key }}">

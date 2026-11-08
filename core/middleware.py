@@ -4,7 +4,9 @@ from django.urls import reverse
 
 PUBLIC_PREFIXES = ("/welcome/", "/accounts/login/", "/accounts/verify-otp/", "/accounts/resend-otp/", "/static/", "/healthz",
                    # machine-to-machine endpoints; they authenticate with their own bearer token
-                   "/api/v1/alertmanager/", "/api/v1/logs/")
+                   "/api/v1/alertmanager/", "/api/v1/logs/",
+                   # Prometheus http_sd (onboarding.sd): bearer token from the credential vault
+                   "/api/sd/")
 
 
 class LoginRequiredMiddleware:
