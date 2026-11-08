@@ -118,15 +118,18 @@ def save_result(check, r, now):
     return status
 
 
-def run_checks(items, workers=None):
+def run_checks(items, workers=None, now=None):
     """Probe the checks in parallel, then store every result on this thread. Returns statuses in order.
-    `workers` overrides settings.PROBE_WORKERS (interactive bulk runs use more, to bound the request time)."""
+    `workers` overrides settings.PROBE_WORKERS (interactive bulk runs use more, to bound the request time).
+    `now` is the time the results are stamped with: the scheduler passes the time of its pass, so last_checked_at
+    is not pushed forward by the batch's own duration (the next pass one interval later would then find the
+    check not quite due and run it a tick late, every time)."""
     items = list(items)
     if not items:
         return []
+    now = now or timezone.now()   # before the probes run, not after the slowest one timed out
     with ThreadPoolExecutor(max_workers=max(1, min(workers or settings.PROBE_WORKERS, len(items)))) as pool:
         raw = list(pool.map(_probe, items))
-    now = timezone.now()
     out = []
     for c, r in zip(items, raw):
         try:
@@ -145,7 +148,7 @@ def run_due(now=None):
         due = [c for c in TcpCheck.objects.filter(tenant_key=tenant(), enabled=True) if c.is_due(now)]
         due.sort(key=lambda c: c.last_checked_at or now - timedelta(days=3650))
         due = due[:MAX_PER_PASS]
-        statuses = run_checks(due)
+        statuses = run_checks(due, now=now)
         if not due:
             return None
         down = sum(1 for s in statuses if s == Status.DOWN)

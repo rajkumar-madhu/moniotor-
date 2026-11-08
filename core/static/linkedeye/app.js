@@ -66,7 +66,8 @@
   const applyTheme = t => {
     document.documentElement.setAttribute('data-theme', t);
     document.documentElement.style.backgroundColor = t === 'dark' ? '#0f1419' : '#f3f4f6';
-    localStorage.setItem(THEME_KEY, t);
+    // blocked site data (private window) throws here: the theme still applies, it is just not remembered
+    try { localStorage.setItem(THEME_KEY, t); } catch (e) { /* not remembered */ }
     if (themeBtn) {
       themeBtn.innerHTML = t === 'light' ? moon : sun;
       themeBtn.title = t === 'light' ? 'Switch to dark theme' : 'Switch to light theme';

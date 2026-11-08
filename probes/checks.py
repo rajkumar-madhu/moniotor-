@@ -43,6 +43,7 @@ USER_AGENT = "LinkedEye-Probe/1.0"
 ALWAYS_BLOCKED = [ipaddress.ip_network(n) for n in (
     "0.0.0.0/8", "169.254.0.0/16", "224.0.0.0/4", "240.0.0.0/4", "255.255.255.255/32",
     "::/128", "fe80::/10", "ff00::/8",
+    "::/96",   # deprecated IPv4-compatible IPv6 (::127.0.0.1): some stacks still map it to the embedded IPv4 address
 )]
 # RFC 5737 and RFC 3849. Recent CPython reports these as is_private (IANA special-purpose)
 # and not is_global; they are documentation space, not RFC 1918 private networks.
@@ -125,7 +126,11 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
 
     def connect(self):
         sock = socket.create_connection((self._ip, self.port), self.timeout)
-        self.sock = self._probe_sock = self._context.wrap_socket(sock, server_hostname=self.host)
+        # The handshake is a separate step so the deadline watchdog can already shut this socket down while it runs:
+        # a peer that trickles its TLS records must not hold the caller open for several socket timeouts.
+        tls = self._context.wrap_socket(sock, server_hostname=self.host, do_handshake_on_connect=False)
+        self.sock = self._probe_sock = tls
+        tls.do_handshake()
 
 
 class _Deadline:
@@ -241,6 +246,148 @@ def http_check(url, method="GET", timeout=None, follow_redirects=True, expected_
     except (OSError, http.client.HTTPException, ValueError) as e:
         res.error = f"{type(e).__name__}: {e}"
     res.response_ms = round((time.monotonic() - start) * 1000, 1)
+    return res
+
+
+@dataclass
+class FetchResult:
+    ok: bool = False
+    status: int = None
+    body: bytes = b""
+    content_type: str = ""           # the server's claim, lower-cased, parameters stripped; never trusted by callers
+    final_url: str = None
+    ip: str = None
+    error: str = ""
+    redirects: list = field(default_factory=list)
+
+
+def _open_connection(scheme, host, ip, port, timeout):
+    """The pinned connection for one hop (one place to replace in tests so no socket is opened)."""
+    if scheme == "https":
+        return _PinnedHTTPSConnection(host, ip, port, timeout, ssl.create_default_context())
+    return _PinnedHTTPConnection(host, ip, port, timeout)
+
+
+UNREACHABLE = ("Blocked by probe policy: the host name could not be resolved to a public internet address "
+               "(private, internal and unresolvable names are never fetched).")
+
+
+def fetch_bytes(url, max_bytes, timeout=None, accept="*/*", accepted_types=None, https_only=True, ports=(443,),
+                user_agent=None, type_limits=None):
+    """Download one resource (GET) under the same SSRF policy as http_check. Meant for assets such as product photos.
+
+    * https only (and only the listed ports) unless `https_only` is False; every redirect is re-validated, so a
+      redirect to http, to another port or into a blocked range is refused;
+    * URLs that carry credentials (user:password@host) are refused;
+    * the body is read in chunks and refused as soon as it passes `max_bytes` (a Content-Length above it is refused
+      before any body is read); compressed responses are refused, so nothing is ever inflated;
+    * `timeout` is an overall deadline for connect, TLS, headers, body and redirects (the _Deadline watchdog),
+      so a peer that trickles bytes cannot hold the caller open;
+    * `accepted_types`: when given, a response whose Content-Type is not in the set is refused. This is only an early
+      filter; callers must still check the bytes themselves.
+    * `type_limits`: {content type: byte cap}. When given, a response whose Content-Type is not a key is refused and the
+      body cap is the one for its type (`max_bytes` is then only the default for callers that leave this out). It lets
+      one request accept a small web page, a larger PDF or a small image without reading a big page just to find out.
+    * `user_agent`: the product token sent (default: the probe agent). Callers say honestly who they are; nothing here
+      imitates a browser.
+    Returns a FetchResult; failures are reported in `error`, never raised."""
+    timeout = timeout or settings.PROBE_TIMEOUT
+    res = FetchResult()
+    deadline = time.monotonic() + timeout
+    current = url
+    try:
+        for hop in range(MAX_REDIRECTS + 1):
+            parts = urlsplit(current)
+            if not parts.hostname or parts.scheme not in ("http", "https"):
+                raise ValueError("unsupported URL (use an https:// address)")
+            if https_only and parts.scheme != "https":
+                raise ValueError("only https:// addresses are accepted")
+            if parts.username or parts.password:
+                raise ValueError("addresses that carry a user name or password are not accepted")
+            port = parts.port or (443 if parts.scheme == "https" else 80)
+            if ports and port not in ports:
+                raise ValueError(f"only port {', '.join(str(p) for p in ports)} is accepted")
+            ip = resolve_allowed(parts.hostname, port)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise socket.timeout()
+            conn = _open_connection(parts.scheme, parts.hostname, ip, port, remaining)
+            path = parts.path or "/"
+            if parts.query:
+                path += "?" + parts.query
+            watchdog = _Deadline(remaining, lambda c=conn: getattr(c, "_probe_sock", None))
+            redirect = None
+            try:
+                conn.request("GET", path, headers={"User-Agent": user_agent or USER_AGENT, "Accept": accept,
+                                                   "Accept-Encoding": "identity", "Connection": "close"})
+                if watchdog.expired:
+                    raise socket.timeout()
+                resp = conn.getresponse()
+                res.ip, res.status, res.final_url = ip, resp.status, current
+                location = resp.getheader("Location")
+                if resp.status in (301, 302, 303, 307, 308) and location:
+                    if hop >= MAX_REDIRECTS:
+                        raise ValueError("too many redirects")
+                    redirect = urljoin(current, location)
+                else:
+                    if resp.status != 200:
+                        raise ValueError(f"the server answered HTTP {resp.status}")
+                    encoding = (resp.getheader("Content-Encoding") or "identity").strip().lower()
+                    if encoding not in ("", "identity"):
+                        raise ValueError("compressed responses are not accepted")
+                    res.content_type = (resp.getheader("Content-Type") or "").split(";")[0].strip().lower()
+                    cap = max_bytes
+                    if type_limits is not None:
+                        if res.content_type not in type_limits:
+                            raise ValueError(f"the server sent {res.content_type[:40] or 'no content type'}, which is not an accepted file type")
+                        cap = type_limits[res.content_type]
+                    elif accepted_types is not None and res.content_type not in accepted_types:
+                        raise ValueError(f"the server sent {res.content_type[:40] or 'no content type'}, which is not an accepted image type")
+                    length = resp.getheader("Content-Length")
+                    if length and length.strip().isdigit() and int(length) > cap:
+                        raise ValueError(f"the file is larger than the {cap // 1024} KB limit")
+                    chunks, total = [], 0
+                    while True:
+                        chunk = resp.read(min(65536, cap + 1 - total))
+                        if watchdog.expired:
+                            raise socket.timeout()
+                        if not chunk:
+                            break
+                        chunks.append(chunk)
+                        total += len(chunk)
+                        if total > cap:
+                            raise ValueError(f"the file is larger than the {cap // 1024} KB limit")
+                    res.body = b"".join(chunks)
+            except Exception:
+                if watchdog.expired:  # whatever the shutdown surfaced as, report it as the timeout it is
+                    raise socket.timeout() from None
+                raise
+            finally:
+                watchdog.cancel()
+                conn.close()
+            if redirect is None:
+                break
+            res.redirects.append(current)
+            current = redirect
+        res.ok = True
+    except (ProbeBlocked, socket.gaierror):
+        # One message for "refused by the policy" and "does not resolve", and no address in it: otherwise the error
+        # text tells a caller which internal host names exist and what they resolve to.
+        res.error = UNREACHABLE
+    except ssl.SSLCertVerificationError as e:
+        res.error = f"TLS certificate invalid: {e.verify_message or e}"
+    except ssl.SSLError as e:
+        res.error = f"TLS error: {e.reason or e}"
+    except socket.timeout:
+        res.error = f"Timed out after {timeout:g}s"
+    except ConnectionRefusedError:
+        res.error = "Connection refused"
+    except ValueError as e:
+        res.error = str(e)
+    except (OSError, http.client.HTTPException) as e:
+        res.error = f"{type(e).__name__}: {e}"
+    if not res.ok:
+        res.body = b""
     return res
 
 

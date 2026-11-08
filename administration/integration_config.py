@@ -101,6 +101,34 @@ def prometheus_timeout():
     return float(_pick("prometheus", "timeout", "PROMETHEUS_TIMEOUT", settings.PROMETHEUS_TIMEOUT, cast=float))
 
 
+def _flag(slug, field, default=False):
+    v = _slug(slug).get(field)
+    if v in (None, ""):
+        return default
+    return str(v).lower() in ("1", "true", "yes", "on")
+
+
+# ---- Prometheus discovery (telemetry.discovery). Console-only: no environment fallback. ----
+def prometheus_site_label():
+    """Target label discovery reads the site from. Default "site"."""
+    return (_slug("prometheus").get("site_label") or "").strip() or "site"
+
+
+def prometheus_autocreate_ci():
+    """Create a CMDB configuration item for every newly discovered node / Windows host."""
+    return _flag("prometheus", "autocreate_ci")
+
+
+def prometheus_autocreate_devices():
+    """Create a network device for every newly discovered SNMP target."""
+    return _flag("prometheus", "autocreate_devices")
+
+
+def prometheus_autoregister_exporters():
+    """Register every newly discovered scrape target in the Exporters inventory."""
+    return _flag("prometheus", "autoregister_exporters")
+
+
 def alertmanager_webhook_token():
     return _pick("alertmanager", "token", "ALERTMANAGER_WEBHOOK_TOKEN", "") or ""
 

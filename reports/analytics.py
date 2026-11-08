@@ -37,7 +37,9 @@ class Window:
         today = timezone.localdate(self.now)
         self.dates = [today - timedelta(days=days - 1 - i) for i in range(days)]
         self.start = timezone.make_aware(datetime.combine(self.dates[0], time.min))
-        self.prev_start = self.start - timedelta(days=days)
+        # the current window is (days - 1) full days plus the elapsed part of today; the previous window it is
+        # compared with must be exactly as long, or every "change" shows a false drop early in the day
+        self.prev_start = self.start - (self.now - self.start)
         every = 1 if days <= 7 else (5 if days <= 30 else 14)
         self.labels = [d.strftime("%d %b") for d in self.dates]
         self.x_every = every

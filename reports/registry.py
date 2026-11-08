@@ -17,7 +17,7 @@ from django.db.models import Aggregate, Avg, Count, F, FloatField, Max, Q, Windo
 from django.db.models.functions import Mod, RowNumber
 from django.utils import timezone
 
-from core.access import can, scope_by_site, visible_sites
+from core.access import can, can_on, scope_by_site, visible_sites
 
 MAX_ROWS = 50_000
 
@@ -66,9 +66,11 @@ class Report:
             return False
 
     def allowed(self, user):
-        if not can(user, self.perm):
-            return False
-        return not self.all_sites or visible_sites(user) is None
+        if self.all_sites:
+            # rows cannot be site-scoped: the permission is needed on every site (can_on with site None), so an
+            # admin of one site who merely views every site does not qualify (same rule as the admin console)
+            return can_on(user, self.perm, None) and visible_sites(user) is None
+        return can(user, self.perm)
 
 
 class Unavailable(Exception):

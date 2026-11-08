@@ -1,0 +1,62 @@
+{% extends "core/base.html" %}{% load le static network_tags %}
+{% block title %}Devices missing a photo{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'network/page.css' %}"><link rel="stylesheet" href="{% static 'network/device-card.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'network:all' %}">Network Devices</a>{% icon "chevron-right" 14 %}<span>Devices missing a photo</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-network nw-photos">
+<div class="head">
+  <div class="glyph bg-info">{% icon "image" 30 %}</div>
+  <div><h1>Devices missing a photo</h1><p>Devices that still show a drawn illustration, grouped by vendor and model: one datasheet covers every device of a model.</p></div>
+  <div class="actions">
+    {% if can_admin %}<a class="btn" href="{% url 'network:catalog' %}">{% icon "list" 17 %}Product catalog</a>{% endif %}
+    <a class="btn" href="{% url 'network:all' %}">{% icon "network" 17 %}All devices</a>
+  </div>
+</div>
+
+<section class="kpis nw-kpis" aria-label="Photo coverage">
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-ok">{% icon "image" 22 %}</div><div class="kpi-body"><div class="label">With a real photo</div><div class="value">{{ ov.with_photo }}{% if ov.total %} <span class="delta t-ok">{{ pct }}%</span>{% endif %}</div></div></div><div class="sub">Stored from a datasheet, upload or catalog</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-warn">{% icon "template" 22 %}</div><div class="kpi-body"><div class="label">Illustration only</div><div class="value">{{ ov.illustration_only }}</div></div></div><div class="sub">A generic drawing, not the real hardware</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "search" 22 %}</div><div class="kpi-body"><div class="label">Models still missing</div><div class="value">{{ ov.models_missing }}</div></div></div><div class="sub">Vendor + model with no photo yet</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-mute">{% icon "box" 22 %}</div><div class="kpi-body"><div class="label">Catalog photos ready</div><div class="value">{{ ov.catalog_applicable }}</div></div></div><div class="sub">Devices a catalog photo fits right now</div></div>
+</section>
+
+{% if ov.catalog_applicable %}
+<div class="nw-alert info" role="status">{% icon "info" 16 %}<span><b>{{ ov.catalog_applicable }} device{{ ov.catalog_applicable|pluralize }} can use a photo that is already in your catalog.</b></span>
+  <form method="post" action="{% url 'network:photo_apply_catalog' %}" class="right">{% csrf_token %}<input type="hidden" name="all" value="1"><button class="btn sm primary" type="submit">{% icon "check" 14 %}Apply catalog photos to {{ ov.catalog_applicable }} device{{ ov.catalog_applicable|pluralize }}</button></form></div>
+{% endif %}
+
+<section class="panel">
+  <div class="panel-h"><h2>Models without a photo ({{ ov.models_missing }})</h2></div>
+  {% if ov.groups %}
+  <div class="table-wrap dense"><table class="ph-table">
+    <thead><tr><th>Model</th><th class="num">Devices</th><th>Which</th><th>Catalog</th><th>Actions</th></tr></thead>
+    <tbody>
+    {% for g in ov.groups %}
+      <tr>
+        <td><div class="dc-cell">{% if g.catalog_row %}<div class="dc dc-thumb"><div class="dc-photo has-photo"><span class="dc-zoom"><img src="{{ g.catalog_row.image.url }}" alt="" width="{{ g.catalog_row.image.width }}" height="{{ g.catalog_row.image.height }}" loading="lazy"></span></div></div>{% else %}<div class="dc dc-thumb"><div class="dc-photo is-art"><span class="dc-zoom">{% icon "image" 20 %}</span></div></div>{% endif %}<span class="nm-text"><b>{{ g.vendor }}</b> {{ g.model }}</span></div></td>
+        <td class="num" data-label="Devices">{{ g.count }}</td>
+        <td class="t-mute small ph-which">{{ g.names }}</td>
+        <td>{% if g.catalog_count %}<form method="post" action="{% url 'network:photo_apply_catalog' %}">{% csrf_token %}<input type="hidden" name="vendor" value="{{ g.vendor }}"><input type="hidden" name="model" value="{{ g.model }}"><button class="btn sm" type="submit">{% icon "check" 14 %}Apply catalog photo to {{ g.catalog_count }} device{{ g.catalog_count|pluralize }}</button></form>{% else %}<span class="t-mute">No catalog photo</span>{% endif %}</td>
+        <td><a class="btn sm ghost-primary" href="{% url 'network:photo_find' %}?{{ g.query }}">{% icon "search" 14 %}Get photo from datasheet</a></td>
+      </tr>
+    {% endfor %}
+    </tbody></table></div>
+  {% else %}
+  <p class="empty">{% if ov.total %}{% if ov.unnamed %}Every device with a vendor and model has a photo.{% else %}Every device has a real photo.{% endif %}{% else %}There are no devices you can change yet.{% endif %}</p>
+  {% endif %}
+</section>
+
+{% if ov.unnamed %}
+<section class="panel">
+  <div class="panel-h"><h2>Set a vendor and model first ({{ ov.unnamed|length }})</h2><span class="right t-mute small">A datasheet is found by vendor and model, so these cannot be searched yet.</span></div>
+  <div class="table-wrap dense"><table>
+    <thead><tr><th>Device</th><th>Vendor</th><th>Model</th><th>Actions</th></tr></thead>
+    <tbody>{% for d in ov.unnamed|slice:":25" %}
+      <tr><td><a href="{{ d.get_absolute_url }}">{{ d.name }}</a></td><td>{{ d.vendor|default:"–" }}</td><td>{{ d.model|default:"–" }}</td>
+        <td><a class="btn icon blue" href="{% url 'network:edit' d.pk %}" title="Edit" aria-label="Edit {{ d.name }}">{% icon "edit" 15 %}</a></td></tr>
+    {% endfor %}</tbody></table></div>
+</section>
+{% endif %}
+<p class="nw-note">Virtual machines are not listed: they have no hardware datasheet. LinkedEye ships no vendor photos; you are responsible for having the right to use the images you add.</p>
+</div>
+{% endblock %}

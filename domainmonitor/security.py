@@ -264,12 +264,14 @@ def evaluate(data, now=None):
     else:
         ro = h.get("content-security-policy-report-only")
         add("csp", False, "Only Content-Security-Policy-Report-Only is sent" if ro else "Header missing")
+    # a proxy and the app often both add these headers; repeated values arrive merged as "v1, v2"
     xfo = h.get("x-frame-options", "")
+    xfo_values = [v.strip().upper() for v in xfo.split(",")] if xfo.strip() else []
     frame_anc = "frame-ancestors" in csp.lower()
-    add("x_frame_options", xfo.strip().upper() in ("DENY", "SAMEORIGIN") or frame_anc,
+    add("x_frame_options", (bool(xfo_values) and all(v in ("DENY", "SAMEORIGIN") for v in xfo_values)) or frame_anc,
         f"X-Frame-Options: {xfo}" if xfo else ("CSP frame-ancestors" if frame_anc else "Header missing"))
-    xcto = h.get("x-content-type-options", "")
-    add("x_content_type_options", xcto.strip().lower() == "nosniff", xcto or "Header missing")
+    xcto = h.get("x-content-type-options", "")   # browsers use the first value
+    add("x_content_type_options", xcto.split(",")[0].strip().lower() == "nosniff", xcto or "Header missing")
     rp = h.get("referrer-policy", "")
     rp_last = rp.split(",")[-1].strip().lower() if rp else ""
     add("referrer_policy", bool(rp) and rp_last not in WEAK_REFERRER, rp or "Header missing")

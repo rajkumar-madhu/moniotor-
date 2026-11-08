@@ -15,7 +15,9 @@ import ssl
 import threading
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
 from datetime import timedelta
+from importlib import import_module
 from urllib.parse import urlsplit, urlunsplit
 
 from django.conf import settings
@@ -250,11 +252,72 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-_st2_opener = urllib.request.build_opener(_NoRedirect)
+def _watchdog(seconds, sock_of):
+    """A wall-clock deadline for one HTTP exchange (connect, headers and body together). The socket timeout only
+    bounds each operation, so a peer trickling one byte per timeout window would otherwise hold the caller open –
+    and rules run inside emit(), on the probe loop or a request thread."""
+    from probes.checks import _Deadline
+    return _Deadline(seconds, sock_of)
+
+
+def _remember_st2_sock(sock):
+    socks = getattr(_state, "st2_socks", None)
+    if socks is not None:
+        socks.append(sock)
+
+
+class _St2HTTPConnection(http.client.HTTPConnection):
+    def connect(self):
+        super().connect()
+        _remember_st2_sock(self.sock)
+
+
+class _St2HTTPSConnection(http.client.HTTPSConnection):
+    def connect(self):
+        super().connect()
+        _remember_st2_sock(self.sock)
+
+
+class _St2HTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_St2HTTPConnection, req)
+
+
+class _St2HTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_St2HTTPSConnection, req, context=self._context)
+
+
+_st2_opener = urllib.request.build_opener(_NoRedirect, _St2HTTPHandler, _St2HTTPSHandler)
 
 
 def _st2_open(req, timeout=ST2_TIMEOUT):
     return _st2_opener.open(req, timeout=timeout)
+
+
+@contextmanager
+def _st2_deadline(timeout):
+    """Bound a whole StackStorm exchange made inside the block by `timeout` seconds: the connection the opener
+    makes in this thread is cut off when the budget is spent, and whatever error that surfaces as is reported as
+    the timeout it is. Yields the watchdog; callers check `.expired` after reading the body."""
+    socks = []
+    _state.st2_socks = socks
+    watchdog = _watchdog(timeout, lambda: socks[-1] if socks else None)
+    try:
+        yield watchdog
+    except Exception:
+        if watchdog.expired:
+            raise socket.timeout(f"timed out after {timeout:g}s") from None
+        raise
+    finally:
+        watchdog.cancel()
+        _state.st2_socks = None
+
+
+def _check_deadline(watchdog, timeout):
+    """After a body read: a partial body cut short by the watchdog is a timeout, not a response."""
+    if watchdog.expired:
+        raise socket.timeout(f"timed out after {timeout:g}s")
 
 
 def valid_trigger(trigger):
@@ -287,19 +350,22 @@ def trigger_stackstorm(trigger, payload, triggered_by="", rule=None, event=None,
             headers["St2-Api-Key"] = settings.STACKSTORM_API_KEY
         req = urllib.request.Request(url, data=body, headers=headers, method="POST")
         try:
-            with _st2_open(req, timeout=ST2_TIMEOUT) as r:  # operator-configured URL; redirects are refused
-                code = r.status
-                raw = r.read(MAX_RESPONSE)
-        except urllib.error.HTTPError as e:
-            raw = b""
-            try:
-                raw = e.read(MAX_RESPONSE)
-            except Exception:
-                pass
-            err = f"StackStorm returned HTTP {e.code}"
-            if 300 <= e.code < 400:
-                err += " (redirect not followed; set LINKEDEYE_STACKSTORM_URL to the final URL)"
-            return _finish(ex, "failed", http_status=e.code, response=raw, error=err)
+            with _st2_deadline(ST2_TIMEOUT) as watchdog:
+                try:
+                    with _st2_open(req, timeout=ST2_TIMEOUT) as r:  # operator-configured URL; redirects are refused
+                        code = r.status
+                        raw = r.read(MAX_RESPONSE)
+                except urllib.error.HTTPError as e:
+                    raw = b""
+                    try:
+                        raw = e.read(MAX_RESPONSE)
+                    except Exception:
+                        pass
+                    err = f"StackStorm returned HTTP {e.code}"
+                    if 300 <= e.code < 400:
+                        err += " (redirect not followed; set LINKEDEYE_STACKSTORM_URL to the final URL)"
+                    return _finish(ex, "failed", http_status=e.code, response=raw, error=err)
+                _check_deadline(watchdog, ST2_TIMEOUT)
         except (urllib.error.URLError, TimeoutError, socket.timeout, OSError) as e:
             return _finish(ex, "failed", error=f"StackStorm unreachable: {getattr(e, 'reason', e)}")
         if 200 <= code < 300:
@@ -319,7 +385,8 @@ def test_stackstorm():
         headers["St2-Api-Key"] = settings.STACKSTORM_API_KEY
     req = urllib.request.Request(stackstorm_endpoint(), headers=headers, method="GET")
     try:
-        with _st2_open(req, timeout=ST2_TIMEOUT) as r:  # operator-configured URL; redirects are refused
+        # operator-configured URL; redirects are refused and the exchange is bounded as a whole
+        with _st2_deadline(ST2_TIMEOUT), _st2_open(req, timeout=ST2_TIMEOUT) as r:
             return True, f"StackStorm answered HTTP {r.status}."
     except urllib.error.HTTPError as e:
         if 300 <= e.code < 400:
@@ -379,7 +446,7 @@ class _PinnedHTTP(http.client.HTTPConnection):
         self._ip = ip
 
     def connect(self):
-        self.sock = socket.create_connection((self._ip, self.port), self.timeout)
+        self.sock = self._hook_sock = socket.create_connection((self._ip, self.port), self.timeout)
 
 
 class _PinnedHTTPS(http.client.HTTPSConnection):
@@ -389,21 +456,32 @@ class _PinnedHTTPS(http.client.HTTPSConnection):
 
     def connect(self):
         sock = socket.create_connection((self._ip, self.port), self.timeout)
-        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+        self.sock = self._hook_sock = self._context.wrap_socket(sock, server_hostname=self.host)
 
 
 def _post_pinned(parts, port, ip, body, timeout):
+    """POST and read up to MAX_RESPONSE bytes within `timeout` seconds overall; raises socket.timeout when the
+    peer has not delivered a complete response by then."""
     if parts.scheme == "https":
         conn = _PinnedHTTPS(parts.hostname, ip, port, timeout, ssl.create_default_context())
     else:
         conn = _PinnedHTTP(parts.hostname, ip, port, timeout)
     path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
+    # getresponse() may hand the socket to the response and drop conn.sock, so the watchdog reads _hook_sock
+    watchdog = _watchdog(timeout, lambda: getattr(conn, "_hook_sock", None))
     try:
         conn.request("POST", path, body=body, headers={"Content-Type": "application/json", "Accept": "application/json",
                                                         "User-Agent": "LinkedEye-Automation/1.0"})
         resp = conn.getresponse()
-        return resp.status, resp.read(MAX_RESPONSE)
+        out = resp.status, resp.read(MAX_RESPONSE)
+        _check_deadline(watchdog, timeout)
+        return out
+    except Exception:
+        if watchdog.expired:  # whatever the shutdown surfaced as, report it as the timeout it is
+            raise socket.timeout(f"timed out after {timeout:g}s") from None
+        raise
     finally:
+        watchdog.cancel()
         conn.close()
 
 
@@ -621,8 +699,42 @@ def _get_model(label):
         raise ApplyError({"__all__": f"The module that provides {label} is not installed."}) from None
 
 
+# The owning module's ModelForm for each record a template can create: applying a template must follow the same
+# rules as the module's own create page (host spelling, http/https only, degraded < timeout, name uniqueness, …).
+MODULE_FORMS = {"urlchecker.UrlCheck": "urlchecker.forms.UrlCheckForm", "tcpcheck.TcpCheck": "tcpcheck.forms.TcpCheckForm"}
+
+
+def _module_form(model):
+    path = MODULE_FORMS.get(model._meta.label)
+    if not path:
+        return None
+    module, _, name = path.rpartition(".")
+    try:
+        return getattr(import_module(module), name)
+    except (ImportError, AttributeError):
+        return None
+
+
+def _validate_with_module_form(form_class, obj):
+    """Run the module's form over the record (its defaults included, as the module's page would) and return the
+    cleaned instance. Raises ApplyError with the form's messages, keyed by its field names."""
+    data = {name: getattr(obj, name) for name in form_class._meta.fields}
+    form = form_class(data)
+    if form.is_valid():
+        return form.save(commit=False)
+    errs = {}
+    for key, msgs in form.errors.items():
+        text = " ".join(str(m) for m in msgs)
+        errs[key] = f"{errs[key]} {text}" if key in errs else text
+    raise ApplyError(errs)
+
+
 def _create_checked(model, values):
     obj = model(tenant_key=tenant(), **values)
+    form_class = _module_form(model)
+    if form_class is not None:
+        obj = _validate_with_module_form(form_class, obj)
+        obj.tenant_key = tenant()
     try:
         obj.full_clean()
     except ValidationError as e:

@@ -1,0 +1,49 @@
+{% extends "core/base.html" %}{% load le static network_tags %}
+{% block title %}{% if row %}Edit catalog row{% else %}Add catalog photo{% endif %}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'network/page.css' %}"><link rel="stylesheet" href="{% static 'network/device-card.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'network:all' %}">Network Devices</a>{% icon "chevron-right" 14 %}<a href="{% url 'network:catalog' %}">Product catalog</a>{% icon "chevron-right" 14 %}<span>{% if row %}Edit{% else %}Add{% endif %}</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-network nw-formpage">
+<div class="head">
+  <div class="glyph bg-info">{% icon "image" 30 %}</div>
+  <div><h1>{% if row %}Edit catalog row{% else %}Add catalog photo{% endif %}</h1><p>Devices whose vendor and model match this row get its photo. LinkedEye does not bundle vendor photos; add yours here.</p></div>
+</div>
+<form method="post" class="panel nw-form" enctype="multipart/form-data" novalidate>{% csrf_token %}
+  {% for e in form.non_field_errors %}<p class="err">{{ e }}</p>{% endfor %}
+  <fieldset><legend>Match</legend>
+    <div class="form-grid nw-grid">
+      {% for f in form.visible_fields %}{% if f.name == "vendor" or f.name == "device_type" or f.name == "model_key" %}
+      <div class="field"><label for="{{ f.id_for_label }}">{{ f.label }}{% if f.field.required %} <span class="req">*</span>{% endif %}</label>{{ f }}{% if f.help_text %}<span class="hint">{{ f.help_text }}</span>{% endif %}{% for e in f.errors %}<span class="err">{{ e }}</span>{% endfor %}</div>
+      {% endif %}{% endfor %}
+    </div>
+    <p class="hint">Model match is case-insensitive: exact, then “starts with”, then “contains”. An empty model makes this the default photo for the vendor{% if form.instance.device_type %} and type{% endif %}.</p>
+  </fieldset>
+  <fieldset><legend>Photo</legend>
+    <div class="nw-photo-row">
+      <div class="nw-photo-now">
+        <div class="dc dc-thumb"><div class="dc-photo {% if row and row.image_id %}has-photo{% else %}is-art{% endif %}"><span class="dc-zoom">{% if row and row.image_id %}<img src="{{ row.image.url }}" alt="Current photo" width="{{ row.image.width }}" height="{{ row.image.height }}">{% else %}{% icon "image" 26 %}{% endif %}</span></div></div>
+        <p class="hint">{% if row and row.image_id %}Stored photo, {{ row.image.get_source_display|lower }}, {{ row.image.width }}×{{ row.image.height }} px. Upload or fetch another to replace it.{% else %}No stored photo yet.{% endif %}</p>
+        {% if row %}<p><a class="btn ghost-primary" href="{% url 'network:photo_find' %}?catalog={{ row.pk }}">{% icon "search" 16 %}Get photo from datasheet</a></p>{% endif %}
+      </div>
+      <div class="form-grid nw-grid nw-photo-fields">
+        {% for f in form.visible_fields %}{% if f.name == "image_file" or f.name == "image_url" %}
+        <div class="field full"><label for="{{ f.id_for_label }}">{{ f.label }}</label>{{ f }}{% if f.help_text %}<span class="hint">{{ f.help_text }}</span>{% endif %}{% for e in f.errors %}<span class="err">{{ e }}</span>{% endfor %}</div>
+        {% endif %}{% endfor %}
+      </div>
+    </div>
+  </fieldset>
+  <fieldset><legend>Reference</legend>
+    <div class="form-grid nw-grid">
+      {% for f in form.visible_fields %}{% if f.name == "product_page_url" or f.name == "notes" %}
+      <div class="field"><label for="{{ f.id_for_label }}">{{ f.label }}</label>{{ f }}{% for e in f.errors %}<span class="err">{{ e }}</span>{% endfor %}</div>
+      {% endif %}{% endfor %}
+    </div>
+  </fieldset>
+  <datalist id="cat-vendors">{% for v in vendors %}<option value="{{ v }}">{% endfor %}</datalist>
+  <div class="nw-form-foot">
+    <a class="btn" href="{% url 'network:catalog' %}">Cancel</a>
+    <button class="btn primary" type="submit">{% if row %}Save changes{% else %}Add to catalog{% endif %}</button>
+  </div>
+</form>
+</div>
+{% endblock %}

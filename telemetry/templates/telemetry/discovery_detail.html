@@ -1,0 +1,153 @@
+{% extends "core/base.html" %}{% load le static telemetry_tags %}
+{% block title %}{{ t.display_name }} – Discovery{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'telemetry/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "telemetry/_crumbs.html" with crumb_parent="Discovery" crumb_parent_url=discovery_url crumb_here=t.instance %}{% endblock %}
+{% block content %}
+<div class="pg-telemetry">
+<div class="head host-head">
+  <div class="glyph g-teal">{% icon t.icon 30 %}</div>
+  <div><h1>{{ t.display_name }}</h1>
+    <div class="meta">
+      <span class="chip {% if t.is_host %}purple{% else %}mute{% endif %}">{{ t.get_kind_display }}</span>
+      {% if t.missing_since %}{% badge "inactive" "Gone from Prometheus" %}{% else %}{% badge t.health %}{% endif %}
+      {% if t.is_ignored %}<span class="tag ex">Ignored</span>{% endif %}
+      <span class="tm-meta mono">{{ t.instance }}</span>
+      <span class="tm-meta">· job {{ t.job|default:"(none)" }} · {{ t.site }}</span>
+    </div></div>
+  <div class="actions">
+    {% if host_url %}<a class="btn primary" href="{{ host_url }}">{% icon "gauge" 17 %}Host metrics</a>{% endif %}
+    <a class="btn" href="{% url 'telemetry:discovery' %}">{% icon "chevron-left" 17 %}All targets</a>
+  </div>
+</div>
+
+{% if t.missing_since %}
+<p class="tm-note" role="status">{% icon "info" 15 %}<span>Prometheus has not listed this target since {{ t.missing_since|short_dt }}. The row is kept so its history and links survive a scrape-config change.</span></p>
+{% endif %}
+{% if t.last_error %}
+<p class="tm-note" role="alert">{% icon "alert" 15 %}<span>Last scrape error: {{ t.last_error }}</span></p>
+{% endif %}
+
+<section class="tm-kv-grid">
+  <div class="panel hm-kv"><div class="panel-h"><h2>Scrape Target</h2></div>
+    <dl class="kv">
+      <dt>Instance</dt><dd class="mono">{{ t.instance }}</dd>
+      <dt>Job</dt><dd>{{ t.job|default:"–" }}</dd>
+      <dt>Scrape pool</dt><dd>{{ t.scrape_pool|default:"–" }}</dd>
+      <dt>Scrape URL</dt><dd class="mono">{{ t.scrape_url|default:"–" }}</dd>
+      <dt>Health</dt><dd>{% badge t.health %}</dd>
+      <dt>Last scrape</dt><dd>{% if t.last_scrape %}{{ t.last_scrape|short_dt }} ({{ t.last_scrape|since }}){% else %}Never{% endif %}</dd>
+      {% if d.scrape.interval is not None %}<dt>Scrape interval</dt><dd>{{ d.scrape.interval|floatformat:"-3" }} s</dd>{% endif %}
+      {% if d.scrape.timeout is not None %}<dt>Scrape timeout</dt><dd>{{ d.scrape.timeout|floatformat:"-3" }} s</dd>{% endif %}
+      {% if d.scrape.duration is not None %}<dt>Last scrape took</dt><dd>{{ d.scrape.duration|floatformat:"-3" }} s</dd>{% endif %}
+      <dt>Detected kind</dt><dd>{{ t.get_kind_display }}</dd>
+      <dt>Site</dt><dd>{{ t.site }}{% if t.site_manual %} <span class="tag">set by an operator</span>{% else %}<span class="tm-meta"> · from the target label</span>{% endif %}</dd>
+      <dt>First seen</dt><dd>{{ t.first_seen|short_dt }} ({{ t.first_seen|since }})</dd>
+      <dt>Last seen</dt><dd>{{ t.last_seen|short_dt }} ({{ t.last_seen|since }})</dd>
+      <dt>State</dt><dd>{{ t.get_state_display }}</dd>
+    </dl></div>
+
+  <div class="panel hm-kv"><div class="panel-h"><h2>{% if t.kind == "snmp" %}Device{% elif t.kind == "kube_state" %}Cluster{% else %}Host{% endif %} Details</h2><div class="right tm-meta">From the exporter</div></div>
+    {% if d %}
+    <dl class="kv">
+      {% if d.hostname %}<dt>Hostname</dt><dd>{{ d.hostname }}</dd>{% endif %}
+      {% if d.address %}<dt>Address</dt><dd class="mono">{{ d.address }}</dd>{% endif %}
+      {% if d.ip %}<dt>IP address</dt><dd class="mono">{{ d.ip }}</dd>{% endif %}
+      {% if d.os %}<dt>Operating system</dt><dd>{{ d.os }}</dd>{% endif %}
+      {% if d.kernel %}<dt>Kernel</dt><dd>{{ d.kernel }}</dd>{% endif %}
+      {% if d.arch %}<dt>Architecture</dt><dd>{{ d.arch }}</dd>{% endif %}
+      {% if d.vendor %}<dt>Vendor</dt><dd>{{ d.vendor }}</dd>{% endif %}
+      {% if d.model %}<dt>Model</dt><dd>{{ d.model }}</dd>{% endif %}
+      {% if d.cores %}<dt>CPU cores</dt><dd>{{ d.cores }}</dd>{% endif %}
+      {% if d.memory_bytes %}<dt>Memory</dt><dd>{{ d.memory_bytes|hbytes }}</dd>{% endif %}
+      {% if d.boot_time %}<dt>Booted</dt><dd>{{ d.boot_time|from_unix|short_dt }} <span class="tm-meta">({{ d.boot_time|from_unix|since }})</span></dd>{% endif %}
+      {% if d.exporter_version %}<dt>Exporter version</dt><dd>{{ d.exporter_version }}</dd>{% endif %}
+      {% if d.cluster %}
+      {% if d.cluster.nodes is not None %}<dt>Kubernetes nodes</dt><dd>{{ d.cluster.nodes }}{% if d.cluster.nodes_ready is not None %} <span class="tm-meta">({{ d.cluster.nodes_ready }} ready)</span>{% endif %}</dd>{% endif %}
+      {% if d.cluster.pods is not None %}<dt>Pods</dt><dd>{{ d.cluster.pods }}{% if d.cluster.pods_running is not None %} <span class="tm-meta">({{ d.cluster.pods_running }} running)</span>{% endif %}</dd>{% endif %}
+      {% if d.cluster.namespaces is not None %}<dt>Namespaces</dt><dd>{{ d.cluster.namespaces }}</dd>{% endif %}
+      {% if d.cluster.deployments is not None %}<dt>Deployments</dt><dd>{{ d.cluster.deployments }}</dd>{% endif %}
+      {% endif %}
+      {% if d.sysName %}<dt>sysName</dt><dd>{{ d.sysName }}</dd>{% endif %}
+      {% if d.sysDescr %}<dt>sysDescr</dt><dd>{{ d.sysDescr }}</dd>{% endif %}
+      {% if d.sysLocation %}<dt>sysLocation</dt><dd>{{ d.sysLocation }}</dd>{% endif %}
+    </dl>
+    {% else %}
+    <div class="hm-missing">{% icon "info" 16 %}<span>This exporter does not publish host information. LinkedEye reads it from <code>node_uname_info</code>, <code>node_os_info</code>, <code>windows_cs_hostname</code> and <code>sysName</code>; a {{ t.get_kind_display }} target usually has none of them.</span></div>
+    {% endif %}
+  </div>
+</section>
+
+<section class="tm-kv-grid">
+  <div class="panel"><div class="panel-h"><h2>Inventory</h2></div>
+    <dl class="kv">
+      <dt>CMDB item</dt><dd>{% if t.ci %}<a href="{{ t.ci.get_absolute_url }}">{{ t.ci.name }}</a> <span class="tm-meta">· {{ t.ci.get_ci_type_display }} · {{ t.ci.site }}</span>{% else %}<span class="t-warn">Not in the CMDB</span>{% endif %}</dd>
+      <dt>Network device</dt><dd>{% if t.device %}<a href="{{ t.device.get_absolute_url }}">{{ t.device.name }}</a> <span class="tm-meta">· {{ t.device.get_device_type_display }}</span>{% else %}<span class="t-mute">–</span>{% endif %}</dd>
+      <dt>Exporter</dt><dd>{% if t.exporter %}<a href="{{ t.exporter.get_absolute_url }}">{{ t.exporter.name }}</a> <span class="tm-meta">· {{ t.exporter.exporter_type }}</span>{% else %}<span class="t-mute">Not registered</span>{% endif %}</dd>
+    </dl>
+    {% if can_act %}
+    <div class="tm-actions">
+      <form method="post" action="{% url 'telemetry:discovery_action' %}">{% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <input type="hidden" name="target" value="{{ t.pk }}">
+        <div class="tm-bulk">
+          {% if t.is_host and not t.ci %}<button class="btn sm primary" type="submit" name="action" value="add_to_cmdb">{% icon "database" 15 %}Add to CMDB</button>{% endif %}
+          {% if t.kind == "snmp" and not t.device %}<button class="btn sm primary" type="submit" name="action" value="create_device">{% icon "network" 15 %}Create device</button>{% endif %}
+          {% if t.is_ignored %}<button class="btn sm" type="submit" name="action" value="unignore">{% icon "eye" 15 %}Un-ignore</button>
+          {% else %}<button class="btn sm" type="submit" name="action" value="ignore">{% icon "pause" 15 %}Ignore</button>{% endif %}
+        </div>
+        <div class="tm-bulk">
+          <label class="tm-meta" for="set-site">Site</label>
+          <select id="set-site" name="site" aria-label="Site">{% for s in site_choices %}<option{% if s == t.site %} selected{% endif %}>{{ s }}</option>{% endfor %}</select>
+          <button class="btn sm" type="submit" name="action" value="set_site">{% icon "map-pin" 15 %}Set site</button>
+        </div>
+        {% if cis or devices %}
+        <div class="tm-bulk">
+          <label class="tm-meta" for="link-ci">Link to…</label>
+          {% if cis %}<select id="link-ci" name="ci" aria-label="CMDB item to link"><option value="">CMDB item…</option>{% for c in cis %}<option value="{{ c.pk }}">{{ c.name }}</option>{% endfor %}</select>{% endif %}
+          {% if devices %}<select name="device" aria-label="Device to link"><option value="">Device…</option>{% for dv in devices %}<option value="{{ dv.pk }}">{{ dv.name }}</option>{% endfor %}</select>{% endif %}
+          <button class="btn sm" type="submit" name="action" value="link">{% icon "link" 15 %}Link</button>
+        </div>
+        <p class="tm-limits">Linking also writes this instance into the record's “Prometheus instance” field when it is empty, so the live Monitoring pages find it too.</p>
+        {% endif %}
+      </form>
+    </div>
+    {% elif can_operate %}
+    <p class="tm-limits">{% icon "lock" 14 %} You need the operator role on {{ t.site }} to change this target's inventory.</p>
+    {% endif %}
+  </div>
+
+  <div class="panel"><div class="panel-h"><h2>Target Labels</h2><div class="right tm-meta">{{ t.label_items|length }} label{{ t.label_items|length|pluralize }}</div></div>
+    <dl class="tm-field-pairs tm-label-pairs" style="padding:0">
+      {% for k, v in t.label_items %}<dt>{{ k }}</dt><dd class="mono">{{ v }}</dd>{% empty %}<dt class="t-mute">No labels</dt><dd></dd>{% endfor %}
+    </dl>
+    {% if t.discovered_label_items %}
+    <details class="tm-disc-labels"><summary class="btn sm">{% icon "eye" 13 %} Discovered labels ({{ t.discovered_label_items|length }})</summary>
+      <dl class="tm-field-pairs tm-label-pairs" style="padding:0">
+        {% for k, v in t.discovered_label_items %}<dt>{{ k }}</dt><dd class="mono">{{ v }}</dd>{% endfor %}
+      </dl></details>
+    {% endif %}
+  </div>
+</section>
+
+{% if interfaces %}
+<div class="panel"><div class="panel-h"><h2>Interfaces ({{ interfaces|length }})</h2></div>
+  <div class="table-wrap dense tm-table"><table>
+    <thead><tr><th>Interface</th><th>MAC address</th><th>State</th><th class="num">Speed</th></tr></thead>
+    <tbody>{% for i in interfaces %}
+      <tr><td class="mono">{{ i.name|default:"–" }}</td><td class="mono">{{ i.mac|default:"–" }}</td>
+        <td>{% if i.operstate %}<span class="hm-state {% if i.operstate == 'up' %}ok{% elif i.operstate == 'down' %}crit{% endif %}">{{ i.operstate }}</span>{% else %}<span class="t-mute">–</span>{% endif %}</td>
+        <td class="num">{% if i.speed %}{{ i.speed|hrate }}{% else %}–{% endif %}</td></tr>
+    {% endfor %}</tbody></table></div></div>
+{% endif %}
+
+{% if filesystems %}
+<div class="panel"><div class="panel-h"><h2>Filesystems ({{ filesystems|length }})</h2></div>
+  <div class="table-wrap dense tm-table"><table>
+    <thead><tr><th>Mount point</th><th>Device</th><th>Type</th><th class="num">Size</th><th class="num">Available</th></tr></thead>
+    <tbody>{% for f in filesystems %}
+      <tr><td class="mono">{{ f.mountpoint|default:"–" }}</td><td class="mono">{{ f.device|default:"–" }}</td><td>{{ f.fstype|default:"–" }}</td>
+        <td class="num">{{ f.size_bytes|hbytes }}</td><td class="num">{% if f.avail_bytes is None %}–{% else %}{{ f.avail_bytes|hbytes }}{% endif %}</td></tr>
+    {% endfor %}</tbody></table></div></div>
+{% endif %}
+</div>
+{% endblock %}

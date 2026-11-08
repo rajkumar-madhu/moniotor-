@@ -10,3 +10,7 @@ whitenoise>=6.6,<7
 # Reads the Kubernetes client inventory workbook (k8s module); imported lazily, so the rest of the
 # app works without it and a CSV import needs nothing extra.
 openpyxl>=3.1,<4
+# Reads product photos out of vendor datasheet PDFs (network/datasheet_pdf.py). Pure Python, no compiler, no Pillow.
+# Floor: releases before 6.4 have published denial-of-service problems with crafted streams. Imported lazily:
+# without it the datasheet upload says how to install it and everything else works.
+pypdf>=6.4,<8

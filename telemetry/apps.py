@@ -11,3 +11,4 @@ class TelemetryConfig(AppConfig):
 
         from . import jobs
         register("telemetry.prune_alerts", 3600, jobs.prune_alerts)
+        register("telemetry.discovery", jobs.DISCOVERY_INTERVAL, jobs.discover_targets, budget=20)

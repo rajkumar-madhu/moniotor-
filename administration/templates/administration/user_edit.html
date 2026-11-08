@@ -76,7 +76,7 @@
       {% if is_self %}<p class="t-mute">You cannot deactivate your own account.</p>
       {% elif locked %}<p class="t-mute">Only a superuser can deactivate a superuser.</p>
       {% else %}
-        <form method="post" action="{% url 'administration:user_toggle_active' target.pk %}" data-confirm="{% if target.is_active %}Deactivate {{ target.username }}? They will be signed out and can no longer sign in.{% else %}Reactivate {{ target.username }}?{% endif %}">{% csrf_token %}
+        <form method="post" action="{% url 'administration:user_toggle_active' target.pk %}" data-confirm="{% if target.is_active %}Deactivate {{ target.username }}? They will be signed out and can no longer sign in.{% else %}Reactivate {{ target.username }}?{% endif %}">{% csrf_token %}<input type="hidden" name="active" value="{% if target.is_active %}0{% else %}1{% endif %}">
           {% if target.is_active %}<button class="btn adm-danger" type="submit">{% icon "pause" 15 %}Deactivate user</button>{% else %}<button class="btn primary" type="submit">{% icon "play" 14 %}Reactivate user</button>{% endif %}
         </form>
       {% endif %}

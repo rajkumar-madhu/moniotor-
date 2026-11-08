@@ -5,20 +5,14 @@
     <div class="right">
       <span class="seg" role="group" aria-label="Time range">
         {% for key, sec in perf_range_choices %}
-        <a href="?tab=performance&amp;perf_range={{ key }}{% if sample_mode %}&amp;sample=1{% endif %}"
+        <a href="?tab=performance&amp;perf_range={{ key }}"
            class="{% if perf_range == key %}on{% endif %}">{{ key }}</a>
         {% endfor %}
       </span>
     </div>
   </div>
-  {% if vm_perf_sample %}
-  <div class="nw-alert mute" role="status">{% icon "info" 16 %}<span>Showing <b>sample</b> time series. Point Prometheus at <code>node_exporter</code> and set the device Prometheus instance for live data.</span>
-    <a class="right" href="?tab=performance&amp;perf_range={{ perf_range }}">Live only</a>
-  </div>
-  {% elif not prometheus_on or not device.prometheus_instance %}
-  <div class="nw-alert mute" role="status">{% icon "info" 16 %}<span>{{ metrics_msg }}</span>
-    <a class="right" href="?tab=performance&amp;perf_range={{ perf_range }}&amp;sample=1">Show sample data</a>
-  </div>
+  {% if not prometheus_on or not device.prometheus_instance %}
+  <div class="nw-alert mute" role="status">{% icon "info" 16 %}<span><b>Not connected.</b> {{ metrics_msg }}</span></div>
   {% elif not vm_performance %}
   <div class="nw-empty sm">{% icon "activity" 28 %}<p>No guest time series returned for this window. Check that <code>node_exporter</code> metrics exist for <span class="mono">{{ device.prometheus_instance }}</span>.</p></div>
   {% endif %}
