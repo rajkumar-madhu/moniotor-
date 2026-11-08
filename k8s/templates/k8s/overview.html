@@ -1,0 +1,118 @@
+{% extends "core/base.html" %}{% load le static k8s_tags %}
+{% block title %}Kubernetes inventory{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'k8s/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "k8s/_crumbs.html" with section="Overview" %}{% endblock %}
+{% block content %}
+<div class="pg-k8s">
+<div class="head">
+  <div class="glyph bg-info">{% icon "hexagon" 30 %}</div>
+  <div><h1>Kubernetes inventory</h1>
+    <p>The client estate as the last read-only <code>kubectl</code> discovery recorded it{% if site_filter %} · {{ site_filter }}{% endif %}.
+      {% if last_run %}Imported from <a href="{{ last_run.get_absolute_url }}">{{ last_run.source_name }}</a>, {{ last_run.started_at|ago }}.{% endif %}</p></div>
+  <div class="actions">
+    <form method="get">{% include "k8s/_site_filter.html" %}</form>
+    {% if can_import %}<a class="btn primary" href="{% url 'k8s:import_inventory' %}">{% icon "upload" 17 %}Import workbook</a>{% endif %}
+  </div>
+</div>
+{% k8s_tabs "overview" %}
+
+{% if not imported %}
+<div class="panel"><div class="k8-empty" role="status">{% icon "upload" 32 %}
+  <p><b>No inventory has been imported yet.</b> This module holds the Kubernetes estate collected by a
+    read-only <code>kubectl</code> discovery and delivered as a workbook — clients, namespaces, nodes and
+    everything attached to them. Nothing is shown until a workbook is imported: the page never displays
+    made-up data.</p>
+  <p class="small">The workbook format and the commands that produce it are described in
+    <code>docs/IMPORT.md</code>. An import can also be run from the command line with
+    <code>manage.py import_k8s_inventory &lt;path&gt;</code>.</p>
+  {% if can_import %}<div class="btns"><a class="btn primary sm" href="{% url 'k8s:import_inventory' %}">{% icon "upload" 15 %}Import a workbook</a></div>
+  {% else %}<p class="small">Importing needs the admin role on every site.</p>{% endif %}
+</div></div>
+{% else %}
+
+<section class="kpis k8-kpis" aria-label="Summary">
+  <a class="kpi stacked kpi-link" href="{% url 'k8s:clients' %}"><div class="kpi-top"><div class="tile s-info">{% icon "users" 22 %}</div><div class="kpi-body"><div class="label">Clients</div><div class="value">{{ profiles.total|num }}</div></div></div><div class="sub">{{ profiles.linked|num }} linked to a LinkedEye client</div></a>
+  <a class="kpi stacked kpi-link" href="{% url 'k8s:namespaces' %}"><div class="kpi-top"><div class="tile {% if namespaces.review %}s-warn{% else %}s-ok{% endif %}">{% icon "layers" 22 %}</div><div class="kpi-body"><div class="label">Namespaces</div><div class="value">{{ namespaces.total|num }}</div></div></div><div class="sub">{% if namespaces.review %}{{ namespaces.review|num }} need review{% else %}All mapped to a client{% endif %}</div></a>
+  <a class="kpi stacked kpi-link" href="{% url 'k8s:nodes' %}"><div class="kpi-top"><div class="tile {% if nodes.not_ready %}s-crit{% else %}s-ok{% endif %}">{% icon "server" 22 %}</div><div class="kpi-body"><div class="label">Nodes</div><div class="value">{{ nodes.total|num }}</div></div></div><div class="sub">{{ nodes.control_plane|num }} control plane · {{ nodes.workers|num }} worker{% if nodes.not_ready %} · {{ nodes.not_ready }} not ready{% endif %}</div></a>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-purple">{% icon "app" 22 %}</div><div class="kpi-body"><div class="label">Workloads</div><div class="value">{{ extra.workloads.value|num }}</div></div></div><div class="sub">{% if extra.workloads.source %}From the {{ extra.workloads.source }}{% else %}Sheet not imported{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "share" 22 %}</div><div class="kpi-body"><div class="label">Services</div><div class="value">{{ extra.services.value|num }}</div></div></div><div class="sub">{% if extra.services.source %}From the {{ extra.services.source }}{% else %}Sheet not imported{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "link" 22 %}</div><div class="kpi-body"><div class="label">Ingresses</div><div class="value">{{ extra.ingresses.value|num }}</div></div></div><div class="sub">{% if extra.ingresses.source %}From the {{ extra.ingresses.source }}{% else %}Sheet not imported{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-mute">{% icon "hdd" 22 %}</div><div class="kpi-body"><div class="label">Volumes</div><div class="value">{{ extra.volumes.value|num }}</div></div></div><div class="sub">{% if storage_label %}{{ storage_label }} recorded{% elif extra.volumes.source %}From the {{ extra.volumes.source }}{% else %}Sheet not imported{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile {% if extra.issues.value %}s-crit{% else %}s-mute{% endif %}">{% icon "alert" 22 %}</div><div class="kpi-body"><div class="label">Open issues</div><div class="value">{{ extra.issues.value|num }}</div></div></div><div class="sub">{% if extra.issues.source %}From the {{ extra.issues.source }}{% else %}Sheet not imported{% endif %}</div></div>
+  <a class="kpi stacked kpi-link" href="{% url 'k8s:imports' %}"><div class="kpi-top"><div class="tile {% if last_run.status == 'failed' %}s-crit{% else %}s-ok{% endif %}">{% icon "upload" 22 %}</div><div class="kpi-body"><div class="label">Last import</div><div class="value" style="font-size:19px">{{ last_run.started_at|date:"d M H:i" }}</div></div></div><div class="sub">{{ last_run.total_rows|num }} rows · {{ last_run.get_status_display }}</div></a>
+</section>
+
+{% if unlinked %}
+<div class="k8-alert warn">{% icon "info" 16 %}<p><b>{{ unlinked }} workbook client{{ unlinked|pluralize }} {{ unlinked|pluralize:"is,are" }} not linked to a LinkedEye client.</b>
+  Linking them puts the Kubernetes estate behind the same client roll-ups as the rest of the console.
+  <a href="{% url 'k8s:clients' %}">Review the clients</a>.</p></div>
+{% endif %}
+
+<section class="grid g-main">
+  <div class="panel">
+    <div class="panel-h"><h2>Health by client</h2><small>Workbook status and roll-up health, side by side</small>
+      <div class="right"><a class="btn sm ghost-primary" href="{% url 'k8s:clients' %}">{% icon "users" 15 %}All clients</a></div></div>
+    {% if rollup %}
+    <div class="k8-rollup">
+      {% for row in rollup %}
+      <div class="k8-card {{ row.profile.worst_tone }}">
+        <h3><a href="{{ row.profile.get_absolute_url }}">{{ row.profile.display_name }}</a>
+          {% if row.profile.status != 'unknown' %}<span class="chip {{ row.profile.status_tone }}" title="Workbook status">{{ row.profile.get_status_display }}</span>{% endif %}
+          {% if row.profile.summary_only %}<span class="chip mute" title="Named by the roll-up sheet only">roll-up only</span>{% endif %}</h3>
+        <div class="meta">{% if row.profile.client_id %}Linked client{% else %}Not linked to a LinkedEye client{% endif %}{% if row.profile.primary_namespace %} · <code>{{ row.profile.primary_namespace }}</code>{% endif %}</div>
+        <div class="nums">
+          <div><b>{{ row.namespaces|num }}</b><span>Namespaces</span></div>
+          <div><b>{{ row.profile.app_count|num }}</b><span>Apps</span></div>
+          <div><b class="{% if row.profile.open_issues %}t-crit{% endif %}">{{ row.profile.open_issues|num }}</b><span>Issues</span></div>
+          <div><b>{{ row.profile.total_storage_bytes|bytes }}</b><span>Storage</span></div>
+        </div>
+        {% if row.review %}<p class="k8-note t-crit">{{ row.review }} namespace{{ row.review|pluralize }} need review</p>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}<p class="empty">No client rows in this site.</p>{% endif %}
+  </div>
+
+  <div class="stack">
+    <div class="panel">
+      <div class="panel-h"><h2>Clusters ({{ cluster_count }})</h2></div>
+      <div class="table-wrap dense"><table>
+        <thead><tr><th>Cluster</th><th class="num">Nodes</th><th class="num">Namespaces</th><th>Version</th></tr></thead>
+        <tbody>
+        {% for row in clusters %}
+          <tr{% if row.cluster.is_missing %} class="gone"{% endif %}>
+            <td><a href="{% url 'k8s:nodes' %}?cluster={{ row.cluster.pk }}">{{ row.cluster.name }}</a>
+              <div class="small t-mute">{{ row.cluster.site_label }}{% if row.cluster.compute_cluster_id %} · <a href="{{ row.cluster.compute_cluster.get_absolute_url }}">in Compute</a>{% endif %}</div></td>
+            <td class="num">{{ row.nodes|num }}</td><td class="num">{{ row.namespaces|num }}</td>
+            <td class="mono">{{ row.cluster.kubernetes_version|default:"–" }}</td>
+          </tr>
+        {% empty %}<tr><td colspan="4" class="empty">No clusters imported.</td></tr>{% endfor %}
+        </tbody></table></div>
+    </div>
+    <div class="panel">
+      <div class="panel-h"><h2>Capacity</h2><small>Sum over the nodes in view</small></div>
+      <div class="k8-stats">
+        <div class="cell"><b>{{ nodes.cpu_cores|floatformat:"-1" }}</b><span>CPU cores</span></div>
+        <div class="cell"><b>{{ memory_label|default:"–" }}</b><span>Memory</span></div>
+        <div class="cell"><b>{{ nodes.pods|num }}</b><span>Pod capacity</span></div>
+        <div class="cell"><b>{{ nodes.public|num }}</b><span>Public nodes</span></div>
+        <div class="cell"><b>{{ nodes.linked|num }}</b><span>Linked to a CI</span></div>
+        <div class="cell"><b class="{% if nodes.missing %}t-warn{% endif %}">{{ nodes.missing|num }}</b><span>No longer present</span></div>
+      </div>
+      <p class="k8-note">A dash means the discovery recorded no value for it — the workbook's
+        “not discovered” cells are never shown as data.</p>
+    </div>
+    {% if pending %}
+    <div class="panel">
+      <div class="panel-h"><h2>Not built yet</h2></div>
+      <p class="small" style="margin-top:0">These workbook sheets have no page in the console yet:
+        {% for t in pending %}<span class="chip mute">{{ t.label }}</span>{% if not forloop.last %} {% endif %}{% endfor %}</p>
+      <p class="k8-note">Their rows are counted on the import detail page as soon as a workbook with
+        those sheets is imported.</p>
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,66 @@
+{% extends "core/base.html" %}{% load le static k8s_tags %}
+{% block title %}Kubernetes namespaces{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'k8s/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "k8s/_crumbs.html" with section="Namespaces" %}{% endblock %}
+{% block content %}
+<div class="pg-k8s">
+<div class="head">
+  <div class="glyph bg-info">{% icon "layers" 30 %}</div>
+  <div><h1>Namespaces</h1><p>Which client each namespace belongs to, with the confidence and the evidence behind that mapping{% if site_filter %} · {{ site_filter }}{% endif %}.</p></div>
+  <div class="actions"><a class="btn" href="{% url 'k8s:namespaces_export' %}?{{ query.urlencode }}">{% icon "download" 17 %}Export CSV</a></div>
+</div>
+{% k8s_tabs "namespaces" %}
+
+<section class="kpis k8-kpis" aria-label="Summary">
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "layers" 22 %}</div><div class="kpi-body"><div class="label">Namespaces</div><div class="value">{{ totals.total|num }}</div></div></div><div class="sub">In the current filter</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile {% if totals.review %}s-crit{% else %}s-ok{% endif %}">{% icon "alert" 22 %}</div><div class="kpi-body"><div class="label">Review required</div><div class="value">{{ totals.review|num }}</div></div></div><div class="sub">{% if totals.review %}Their client is a guess, not a fact{% else %}Every namespace is mapped{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile {% if totals.linked %}s-ok{% else %}s-mute{% endif %}">{% icon "users" 22 %}</div><div class="kpi-body"><div class="label">Linked to a client</div><div class="value">{{ totals.linked|num }}</div></div></div><div class="sub">Matched to a LinkedEye client record</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile {% if totals.missing %}s-warn{% else %}s-mute{% endif %}">{% icon "clock" 22 %}</div><div class="kpi-body"><div class="label">No longer present</div><div class="value">{{ totals.missing|num }}</div></div></div><div class="sub">Gone from the newest snapshot</div></div>
+</section>
+
+{% if totals.review %}
+<div class="k8-alert crit">{% icon "alert" 16 %}<p><b>{{ totals.review }} namespace{{ totals.review|pluralize }} marked REVIEW REQUIRED.</b>
+  The discovery found no confident client pattern for them, so no client is claimed. They are highlighted in the
+  table below; confirm the owner before using them in a client report.</p></div>
+{% endif %}
+
+<div class="panel">
+  <div class="panel-h"><h2>Namespace mapping ({{ page.paginator.count }})</h2>
+    <div class="right"><a class="btn sm ghost-primary" href="{% url 'k8s:namespaces_export' %}?{{ query.urlencode }}">{% icon "download" 15 %}CSV</a></div></div>
+  <form class="toolbar compact" method="get">
+    {% if request.GET.per %}<input type="hidden" name="per" value="{{ request.GET.per }}">{% endif %}
+    <label class="search">{% icon "search" 16 %}<input type="search" name="q" value="{{ request.GET.q|default:'' }}" placeholder="Namespace, client or evidence…" aria-label="Search namespaces"></label>
+    <select name="status" data-autosubmit aria-label="Mapping status"><option value="">Any mapping</option>{% for v, l in statuses %}<option value="{{ v }}"{% if request.GET.status == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <select name="confidence" data-autosubmit aria-label="Confidence"><option value="">Any confidence</option>{% for v, l in confidences %}<option value="{{ v }}"{% if request.GET.confidence == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    {% if clients %}<select name="client" data-autosubmit aria-label="Client"><option value="">All clients</option>{% for c in clients %}<option value="{{ c }}"{% if request.GET.client == c %} selected{% endif %}>{{ c }}</option>{% endfor %}</select>{% endif %}
+    {% if environments %}<select name="environment" data-autosubmit aria-label="Environment"><option value="">All environments</option>{% for e in environments %}<option value="{{ e }}"{% if request.GET.environment == e %} selected{% endif %}>{{ e }}</option>{% endfor %}</select>{% endif %}
+    {% if clusters|length > 1 %}<select name="cluster" data-autosubmit aria-label="Cluster"><option value="">All clusters</option>{% for c in clusters %}<option value="{{ c.pk }}"{% if request.GET.cluster == c.pk|stringformat:"s" %} selected{% endif %}>{{ c.name }}</option>{% endfor %}</select>{% endif %}
+    {% include "k8s/_site_filter.html" %}
+    <a class="btn icon blue" href="{% url 'k8s:namespaces' %}" title="Clear filters" aria-label="Clear filters">{% icon "refresh" 16 %}</a>
+  </form>
+  <div class="table-wrap dense"><table>
+    <thead><tr><th>Namespace</th><th>Client</th><th>Environment</th><th>Confidence</th><th>Mapping</th><th>Evidence</th><th>Cluster</th><th>Site</th></tr></thead>
+    <tbody>
+    {% for ns in items %}
+      <tr class="{% if ns.needs_review %}review{% endif %}{% if ns.is_missing %} gone{% endif %}">
+        <td class="mono">{{ ns.name }}{% if ns.is_missing %} <span class="chip warn">gone</span>{% endif %}</td>
+        <td>{% if ns.client_id %}<a href="{% url 'k8s:clients' %}?q={{ ns.client.name|urlencode }}">{{ ns.client.name }}</a>
+          {% elif ns.client_label %}{{ ns.client_label }} <span class="chip mute" title="No LinkedEye client matched this name">unlinked</span>
+          {% else %}<span class="t-mute">not determined</span>{% endif %}</td>
+        <td>{{ ns.environment|default:"–" }}</td>
+        <td>{% if ns.confidence != 'unknown' %}<span class="chip {{ ns.confidence|tone_for }}">{{ ns.get_confidence_display }}</span>{% else %}–{% endif %}</td>
+        <td>{% if ns.needs_review %}<span class="chip crit">Review required</span>{% else %}<span class="chip {{ ns.mapping_status|tone_for }}">{{ ns.get_mapping_status_display }}</span>{% endif %}</td>
+        <td class="trunc" title="{{ ns.evidence }}">{{ ns.evidence|default:"–" }}</td>
+        <td>{{ ns.cluster.name }}</td>
+        <td>{{ ns.site_label }}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="8" class="empty">{% if filtered %}No namespaces match these filters.{% else %}No namespaces imported yet. <a href="{% url 'k8s:import_inventory' %}">Import a workbook</a>.{% endif %}</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  {% include "core/_pager.html" with pager_noun="namespaces" %}
+  <p class="k8-note">The client column shows the LinkedEye client when one was matched, otherwise the name the
+    workbook recorded. “Not determined” means the discovery found no client for it — it is never filled in with a guess.</p>
+</div>
+</div>
+{% endblock %}

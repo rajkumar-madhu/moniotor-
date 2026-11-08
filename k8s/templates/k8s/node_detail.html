@@ -1,0 +1,95 @@
+{% extends "core/base.html" %}{% load le static k8s_tags %}
+{% block title %}{{ node.hostname }}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'k8s/page.css' %}">{% endblock %}
+{% block crumbs %}{% url 'k8s:nodes' as list_url %}{% include "k8s/_crumbs.html" with section="Nodes" section_url=list_url leaf=node.hostname %}{% endblock %}
+{% block content %}
+<div class="pg-k8s">
+<div class="head">
+  <div class="glyph bg-info">{% icon "server" 30 %}</div>
+  <div><h1>{{ node.hostname }}
+      {% if node.is_control_plane %}<span class="chip purple">Control plane</span>{% endif %}
+      {% if node.exposure == 'public' %}<span class="chip warn">Public</span>{% endif %}
+      {% if node.is_missing %}<span class="chip crit">No longer in the snapshot</span>{% endif %}</h1>
+    <p>{{ node.cluster.name }} · {{ node.site_label }}{% if node.kubernetes_version %} · {{ node.kubernetes_version }}{% endif %}
+      {% if node.last_seen %} · last seen in the snapshot of {{ node.last_seen|short_dt }}{% endif %}</p></div>
+  <div class="actions"><a class="btn" href="{% url 'k8s:nodes' %}">{% icon "chevron-left" 17 %}All nodes</a></div>
+</div>
+{% k8s_tabs "nodes" %}
+
+<section class="grid g-main">
+  <div class="stack">
+    <div class="panel">
+      <div class="panel-h"><h2>Capacity</h2><small>As the discovery reported it</small></div>
+      <div class="table-wrap dense"><table>
+        <thead><tr><th>Resource</th><th>Capacity</th><th>Allocatable</th><th>Parsed</th></tr></thead>
+        <tbody>
+        {% for name, cap, alloc, parsed in capacity %}
+          <tr><td>{{ name }}</td><td class="mono">{{ cap|default:"–" }}</td><td class="mono">{{ alloc|default:"–" }}</td><td class="mono">{{ parsed|default:"–" }}</td></tr>
+        {% endfor %}
+        </tbody></table></div>
+      <p class="k8-note">“Parsed” is the value the console computed from the raw string, so sums and filters work;
+        the raw string is kept exactly as the workbook recorded it.</p>
+    </div>
+
+    <div class="panel">
+      <div class="panel-h"><h2>Labels ({{ node.label_pairs|length }})</h2></div>
+      {% if node.label_pairs %}
+      <div class="k8-pairs">{% for key, value in node.label_pairs %}<div><b>{{ key }}</b><span>{{ value|default:"—" }}</span></div>{% endfor %}</div>
+      {% else %}<p class="empty">No labels recorded.</p>{% endif %}
+    </div>
+
+    <div class="panel">
+      <div class="panel-h"><h2>Taints ({{ node.taints|length }})</h2></div>
+      {% if node.taints %}
+      <div class="table-wrap dense"><table>
+        <thead><tr><th>Key</th><th>Value</th><th>Effect</th></tr></thead>
+        <tbody>{% for t in node.taints %}<tr><td class="mono">{{ t.key|default:"–" }}</td><td class="mono">{{ t.value|default:"–" }}</td><td>{{ t.effect|default:"–" }}</td></tr>{% endfor %}</tbody>
+      </table></div>
+      {% else %}<p class="empty">No taints — this node accepts any workload that tolerates its labels.</p>{% endif %}
+    </div>
+  </div>
+
+  <div class="stack">
+    <div class="panel">
+      <div class="panel-h"><h2>Node</h2></div>
+      <dl class="kv">
+        <dt>Role</dt><dd>{{ node.get_role_display }}{% if node.role_raw and node.role_raw != node.get_role_display %} <span class="t-mute">({{ node.role_raw }})</span>{% endif %}</dd>
+        <dt>Internal IP</dt><dd class="mono">{{ node.internal_ip|default:"–" }}</dd>
+        <dt>External IP</dt><dd class="mono">{{ node.external_ip|default:"–" }}</dd>
+        <dt>Exposure</dt><dd>{{ node.get_exposure_display }}</dd>
+        <dt>OS</dt><dd>{{ node.os|default:"–" }}</dd>
+        <dt>Kernel</dt><dd class="mono">{{ node.kernel|default:"–" }}</dd>
+        <dt>Runtime</dt><dd class="mono">{{ node.container_runtime|default:"–" }}</dd>
+        <dt>Architecture</dt><dd class="mono">{{ node.architecture|default:"–" }}</dd>
+        <dt>Ready</dt><dd>{{ node.ready|yesno_dash }}</dd>
+        <dt>Schedulable</dt><dd>{{ node.schedulable|yesno_dash }}</dd>
+        <dt>Age</dt><dd>{% if node.age_days is not None %}{{ node.age_days|num }} days{% if node.age_raw %} <span class="t-mute">({{ node.age_raw }})</span>{% endif %}{% else %}–{% endif %}</dd>
+        <dt>Namespaces</dt><dd><a href="{% url 'k8s:namespaces' %}?cluster={{ node.cluster_id }}">{{ namespaces|num }} in this cluster</a></dd>
+      </dl>
+    </div>
+    <div class="panel">
+      <div class="panel-h"><h2>Linked records</h2></div>
+      <dl class="kv">
+        {% for label, obj in node.linked %}
+        <dt>{{ label }}</dt>
+        <dd>{% if obj %}{% if obj.get_absolute_url %}<a href="{{ obj.get_absolute_url }}">{{ obj }}</a>{% else %}{{ obj }}{% endif %}{% else %}<span class="t-mute">not linked</span>{% endif %}</dd>
+        {% endfor %}
+      </dl>
+      <p class="k8-note">An import links a node to a configuration item or device only on an exact match of the
+        host name, the Prometheus instance or the IP address — a near miss is left unlinked rather than guessed.</p>
+    </div>
+    <div class="panel">
+      <div class="panel-h"><h2>Provenance</h2></div>
+      <dl class="kv">
+        <dt>Cluster</dt><dd>{{ node.cluster.name }}{% if node.cluster.context %} <span class="t-mute">({{ node.cluster.context }})</span>{% endif %}</dd>
+        <dt>Discovered</dt><dd>{{ node.cluster.discovered_at|short_dt }}</dd>
+        <dt>First seen</dt><dd>{{ node.first_seen|short_dt }}</dd>
+        <dt>Last seen</dt><dd>{{ node.last_seen|short_dt }}</dd>
+        <dt>Missing since</dt><dd>{% if node.missing_since %}<span class="t-crit">{{ node.missing_since|short_dt }}</span>{% else %}–{% endif %}</dd>
+        <dt>Import</dt><dd>{% if node.import_run_id %}<a href="{{ node.import_run.get_absolute_url }}">{{ node.import_run.source_name }}</a>{% else %}–{% endif %}</dd>
+      </dl>
+    </div>
+  </div>
+</section>
+</div>
+{% endblock %}

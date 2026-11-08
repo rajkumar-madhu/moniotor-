@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     "ipam",
     "dcim",
     "compute",
+    "k8s",
 ]
 
 MIDDLEWARE = [

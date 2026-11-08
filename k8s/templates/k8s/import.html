@@ -1,0 +1,119 @@
+{% extends "core/base.html" %}{% load le static k8s_tags %}
+{% block title %}Import Kubernetes inventory{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'k8s/page.css' %}">{% endblock %}
+{% block crumbs %}{% url 'k8s:imports' as list_url %}{% include "k8s/_crumbs.html" with section="Imports" section_url=list_url leaf="Upload" %}{% endblock %}
+{% block content %}
+<div class="pg-k8s">
+<div class="head">
+  <div class="glyph bg-info">{% icon "upload" 30 %}</div>
+  <div><h1>Import inventory workbook</h1>
+    <p>Upload the Kubernetes client infrastructure workbook. The file is read first and the changes are shown
+      for review; nothing is written until you confirm.</p></div>
+  <div class="actions"><a class="btn" href="{% url 'k8s:imports' %}">{% icon "clock" 17 %}Import history</a></div>
+</div>
+{% k8s_tabs "imports" %}
+
+{% if result %}
+  {% if result.errors %}
+  <div class="k8-alert crit">{% icon "x-circle" 16 %}<div><b>{% if result.dry_run %}The file could not be read cleanly — nothing would be imported.{% else %}The import did not finish cleanly.{% endif %}</b>
+    <ul>{% for e in result.errors %}<li>{{ e }}</li>{% endfor %}</ul></div></div>
+  {% endif %}
+  {% if result.warnings %}
+  <div class="k8-alert warn">{% icon "alert" 16 %}<div><b>{{ result.warnings|length }} warning{{ result.warnings|length|pluralize }}.</b>
+    <ul>{% for w in result.warnings %}<li>{{ w }}</li>{% endfor %}</ul></div></div>
+  {% endif %}
+
+  <div class="panel">
+    <div class="panel-h"><h2>{% if result.dry_run %}What this import would change{% else %}What this import changed{% endif %}</h2>
+      <small>{{ result.source_name }}{% if result.site %} · filed under {{ result.site }}{% endif %}</small></div>
+    <div class="table-wrap dense k8-diff"><table>
+      <thead><tr><th>Sheet</th><th class="num">Rows</th><th class="num">New</th><th class="num">Changed</th><th class="num">No longer present</th><th class="num">Skipped</th></tr></thead>
+      <tbody>
+      {% for sheet, counts in result.rows %}
+        <tr><td class="mono">{{ sheet }}</td><td class="num">{{ counts.rows|num }}</td>
+          <td class="num">{% if counts.created %}<b class="t-ok">{{ counts.created|num }}</b>{% else %}0{% endif %}</td>
+          <td class="num">{% if counts.updated %}<b class="t-info">{{ counts.updated|num }}</b>{% else %}0{% endif %}</td>
+          <td class="num">{% if counts.missing %}<b class="t-warn">{{ counts.missing|num }}</b>{% else %}0{% endif %}</td>
+          <td class="num">{{ counts.skipped|num }}</td></tr>
+      {% empty %}<tr><td colspan="6" class="empty">No sheet in this file has an importer yet.</td></tr>{% endfor %}
+      </tbody>
+      <tfoot><tr><th>Total</th><th class="num">{{ result.total_rows|num }}</th><th class="num">{{ result.total_created|num }}</th>
+        <th class="num">{{ result.total_updated|num }}</th><th class="num">{{ result.total_missing|num }}</th><th class="num"></th></tr></tfoot>
+    </table></div>
+    {% if result.unknown_sheets %}
+    <p class="k8-note">No importer yet for: {% for s in result.unknown_sheets %}<code>{{ s }}</code> {% endfor %}— those sheets were read and skipped.</p>
+    {% endif %}
+    {% if result.missing_sheets %}
+    <p class="k8-note">Not in this file: {% for s in result.missing_sheets %}<code>{{ s }}</code> {% endfor %}— the records they own were left untouched.</p>
+    {% endif %}
+    {% if pending %}
+    <div class="k8-confirm">
+      <form method="post">{% csrf_token %}
+        <input type="hidden" name="action" value="confirm">
+        <input type="hidden" name="token" value="{{ pending.token }}">
+        <button class="btn primary" type="submit">{% icon "check" 15 %}Import {{ result.total_rows|num }} row{{ result.total_rows|pluralize }}</button>
+      </form>
+      <a class="btn" href="{% url 'k8s:import_inventory' %}">Cancel</a>
+      <span class="small t-mute">Nothing has been written yet. The file is held for 30 minutes.</span>
+    </div>
+    {% endif %}
+  </div>
+{% endif %}
+
+<section class="grid g-main">
+  <form method="post" enctype="multipart/form-data" class="panel" novalidate>{% csrf_token %}
+    <div class="panel-h"><h2>Workbook</h2></div>
+    {% for e in form.non_field_errors %}<p class="err t-crit">{{ e }}</p>{% endfor %}
+    <div class="form-grid">
+      <div class="field full"><label for="{{ form.file.id_for_label }}">{{ form.file.label }} <span class="req">*</span></label>
+        {{ form.file }}<span class="hint">{{ form.file.help_text }}</span>
+        {% for e in form.file.errors %}<span class="err">{{ e }}</span>{% endfor %}</div>
+      <div class="field"><label for="{{ form.site.id_for_label }}">{{ form.site.label }}</label>
+        {{ form.site }}<span class="hint">{{ form.site.help_text }}</span>
+        {% for e in form.site.errors %}<span class="err">{{ e }}</span>{% endfor %}</div>
+      <div class="field full"><label class="inline-check">{{ form.create_compute }} {{ form.create_compute.label }}</label>
+        <span class="hint">{{ form.create_compute.help_text }}</span></div>
+    </div>
+    <div class="k8-form-foot">
+      <a class="btn" href="{% url 'k8s:overview' %}">Cancel</a>
+      <button class="btn primary" type="submit">{% icon "eye" 15 %}Read file &amp; show changes</button>
+    </div>
+  </form>
+
+  <div class="stack">
+    <div class="panel">
+      <div class="panel-h"><h2>How it works</h2></div>
+      <ol class="small" style="margin:0;padding-left:18px">
+        <li>The file is read and checked. You see how many rows each sheet would create, change or retire.</li>
+        <li>Confirming writes the rows. An import is <b>idempotent</b>: importing the same workbook again changes nothing.</li>
+        <li>A row the new snapshot no longer contains is marked “no longer present” — never deleted, never silently kept as current.</li>
+      </ol>
+      <p class="k8-note">At most {{ max_mb }} MB. Accepted: the <code>.xlsx</code> workbook, or a <code>.zip</code>
+        of its sheets exported as CSV (same file names as the sheets).</p>
+    </div>
+    <div class="panel">
+      <div class="panel-h"><h2>What is stored</h2></div>
+      <p class="small" style="margin-top:0">The discovery is read-only and never reads a Secret's contents. This
+        module stores Kubernetes Secret <b>names</b> and namespaces only — there is no field anywhere in it that
+        could hold a secret value.</p>
+      <p class="small">Cells the collector could not fill (“NOT DISCOVERED”, “NOT APPLICABLE”, “MANUAL INPUT
+        REQUIRED”) mean <i>no value</i>: they are stored as empty and shown as a dash, never as data.</p>
+      <p class="k8-note">The sheet-by-sheet format and the <code>kubectl</code> commands that produce it are in
+        <code>docs/IMPORT.md</code>.</p>
+    </div>
+    {% if runs %}
+    <div class="panel">
+      <div class="panel-h"><h2>Recent imports</h2>
+        <div class="right"><a class="btn sm ghost-primary" href="{% url 'k8s:imports' %}">All</a></div></div>
+      <div class="table-wrap dense"><table>
+        <thead><tr><th>When</th><th>Source</th><th class="num">Rows</th><th>Status</th></tr></thead>
+        <tbody>{% for r in runs %}<tr><td><a href="{{ r.get_absolute_url }}">{{ r.started_at|short_dt }}</a></td>
+          <td class="trunc" title="{{ r.source_name }}">{{ r.source_name }}</td><td class="num">{{ r.total_rows|num }}</td>
+          <td>{% badge r.status %}</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </div>
+    {% endif %}
+  </div>
+</section>
+</div>
+{% endblock %}

@@ -36,6 +36,14 @@ NAV = [
         {"label": "Clusters", "url": "compute:clusters"},
         {"label": "Kubernetes", "url": "compute:kubernetes"},
     ]},
+    # Kubernetes client inventory (the k8s module): the imported estate, not live cluster health.
+    {"label": "Kubernetes", "icon": "hexagon", "children": [
+        {"label": "Overview", "url": "k8s:overview"},
+        {"label": "Clients", "url": "k8s:clients"},
+        {"label": "Namespaces", "url": "k8s:namespaces"},
+        {"label": "Nodes", "url": "k8s:nodes"},
+        {"label": "Imports", "url": "k8s:imports"},
+    ]},
     {"label": "IPAM", "icon": "grid", "children": [
         {"label": "Overview", "url": "ipam:overview"},
         {"label": "Subnets", "url": "ipam:subnets"},

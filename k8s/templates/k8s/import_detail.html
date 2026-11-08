@@ -1,0 +1,94 @@
+{% extends "core/base.html" %}{% load le static k8s_tags %}
+{% block title %}Import {{ run.started_at|date:"d M Y H:i" }}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'k8s/page.css' %}">{% endblock %}
+{% block crumbs %}{% url 'k8s:imports' as list_url %}{% include "k8s/_crumbs.html" with section="Imports" section_url=list_url leaf=run.source_name %}{% endblock %}
+{% block content %}
+<div class="pg-k8s">
+<div class="head">
+  <div class="glyph bg-info">{% icon "file-check" 30 %}</div>
+  <div><h1>{{ run.source_name }} {% badge run.status %}</h1>
+    <p>Imported {{ run.started_at|short_dt }}{% if run.uploaded_by %} by {{ run.uploaded_by.get_username }}{% else %} from the command line{% endif %}
+      · filed under {{ run.site|default:"All Sites" }}{% if run.duration_ms %} · took {{ run.duration_ms|floatformat:0 }} ms{% endif %}</p></div>
+  <div class="actions"><a class="btn" href="{% url 'k8s:imports' %}">{% icon "chevron-left" 17 %}All imports</a></div>
+</div>
+{% k8s_tabs "imports" %}
+
+{% if run.errors %}
+<div class="k8-alert crit">{% icon "x-circle" 16 %}<div><b>{{ run.errors|length }} error{{ run.errors|length|pluralize }}.</b>
+  <ul>{% for e in run.errors %}<li>{{ e }}</li>{% endfor %}</ul></div></div>
+{% endif %}
+{% if run.warnings %}
+<div class="k8-alert warn">{% icon "alert" 16 %}<div><b>{{ run.warnings|length }} warning{{ run.warnings|length|pluralize }}.</b>
+  <ul>{% for w in run.warnings %}<li>{{ w }}</li>{% endfor %}</ul></div></div>
+{% endif %}
+
+<section class="grid g-main">
+  <div class="stack">
+    <div class="panel">
+      <div class="panel-h"><h2>Sheets</h2><small>Rows read and what they changed</small></div>
+      <div class="table-wrap dense"><table>
+        <thead><tr><th>Sheet</th><th class="num">Rows</th><th class="num">New</th><th class="num">Changed</th><th class="num">No longer present</th><th class="num">Skipped</th></tr></thead>
+        <tbody>
+        {% for sheet, counts in sheets %}
+          <tr><td class="mono">{{ sheet }}</td><td class="num">{{ counts.rows|num }}</td><td class="num">{{ counts.created|num }}</td>
+            <td class="num">{{ counts.updated|num }}</td><td class="num">{{ counts.missing|num }}</td><td class="num">{{ counts.skipped|num }}</td></tr>
+        {% empty %}<tr><td colspan="6" class="empty">No sheets were imported.</td></tr>{% endfor %}
+        </tbody>
+        <tfoot><tr><th>Total</th><th class="num">{{ run.total_rows|num }}</th><th class="num"></th><th class="num"></th><th class="num"></th><th class="num"></th></tr></tfoot>
+      </table></div>
+    </div>
+
+    {% if resource_counts %}
+    <div class="panel">
+      <div class="panel-h"><h2>What the discovery counted</h2><small>From the raw-discovery sheet</small></div>
+      <div class="k8-stats">
+        {% for name, value in resource_counts %}<div class="cell"><b>{{ value|num }}</b><span>{{ name }}</span></div>{% endfor %}
+      </div>
+      <p class="k8-note">These are the cluster's own totals at discovery time. They can be larger than the rows
+        above when a sheet has no importer yet, or when the workbook summarised them.</p>
+    </div>
+    {% endif %}
+
+    {% if commands %}
+    <div class="panel">
+      <div class="panel-h"><h2>Commands the collector ran ({{ commands|length }})</h2><small>Read-only, by design</small></div>
+      <div class="table-wrap dense k8-cmds"><table>
+        <thead><tr><th>Step</th><th>Command</th><th class="num">Exit</th><th>Result</th></tr></thead>
+        <tbody>{% for c in commands %}<tr><td class="mono">{{ c.name }}</td><td class="mono trunc" title="{{ c.command }}">{{ c.command }}</td>
+          <td class="num">{% if c.return_code %}<span class="t-crit">{{ c.return_code }}</span>{% else %}0{% endif %}</td>
+          <td>{{ c.details|default:"–" }}</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="stack">
+    <div class="panel">
+      <div class="panel-h"><h2>Source</h2></div>
+      <dl class="kv">
+        <dt>File</dt><dd>{{ run.source_name }}</dd>
+        <dt>SHA-256</dt><dd class="mono" style="font-size:11px">{{ run.source_sha256|default:"–" }}</dd>
+        <dt>Started</dt><dd>{{ run.started_at|short_dt }}</dd>
+        <dt>Finished</dt><dd>{{ run.finished_at|short_dt }}</dd>
+        <dt>Status</dt><dd>{{ run.get_status_display }}</dd>
+        <dt>Site</dt><dd>{{ run.site|default:"All Sites" }}</dd>
+      </dl>
+      {% if run.notes %}<p class="k8-note">{{ run.notes }}</p>{% endif %}
+    </div>
+    {% if discovery_meta %}
+    <div class="panel">
+      <div class="panel-h"><h2>Discovery</h2></div>
+      <dl class="kv">{% for name, value in discovery_meta %}<dt>{{ name }}</dt><dd class="mono" style="font-size:11.5px">{{ value|default:"–" }}</dd>{% endfor %}</dl>
+    </div>
+    {% endif %}
+    {% if safety %}
+    <div class="panel">
+      <div class="panel-h"><h2>Safety</h2></div>
+      {% for s in safety %}<p class="small"><b>{{ s.name }}:</b> {{ s.note }}</p>{% endfor %}
+      <p class="k8-note">This module stores Secret names and namespaces only. No field in it can hold a secret value.</p>
+    </div>
+    {% endif %}
+  </div>
+</section>
+</div>
+{% endblock %}
