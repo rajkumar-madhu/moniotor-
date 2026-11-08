@@ -61,7 +61,7 @@ docker push registry.example.com/linkedeye:9.0
 
 | Build argument | Default | Purpose |
 |---|---|---|
-| `DB_EXTRAS` | `postgres` | Space-separated list of `requirements-<name>.txt` extras: `postgres` (psycopg 3 binary, no system libraries), `mysql` (mysqlclient; compiled in the build stage, `libmariadb3` at runtime), `images` (optional Pillow, see below). |
+| `DB_EXTRAS` | `postgres` | Space-separated list of `requirements-<name>.txt` extras: `postgres` (psycopg 3 binary, no system libraries), `mysql` (mysqlclient; compiled in the build stage, `libmariadb3` at runtime), `images` (optional Pillow, see below), `apm` (optional `redis` client so LinkedEye can read the APM toolkit's Redis keys, see below). |
 | `PYTHON_VERSION` | `3.12` | Base image `python:<version>-slim`. |
 | `VERSION`, `REVISION` | `9.0`, empty | OCI labels (`org.opencontainers.image.version` / `.revision`). |
 
@@ -72,6 +72,15 @@ it, it converts them to ordinary RGB photos (and shrinks photos over 2 MB / 4096
 `pip install -r requirements.txt -r requirements-images.txt` (Pillow 13.x wheels, no compiler or system packages). It is
 untrusted-file parsing code: keep it updated, and allow roughly 300 MB of memory headroom per worker process for the two
 concurrent conversions it permits. Details and the safety limits: [NETWORK.md](NETWORK.md#print-colour-datasheets-and-the-optional-image-library-networkimaging_pillowpy).
+
+**APM: reading the toolkit's Redis keys (optional `redis` package).** The APM module normally receives data pushed over HTTPS by the
+customer's cron scripts and needs nothing extra. A source can instead (or also) be read by LinkedEye from Redis; that needs the
+`redis` client: `docker build --build-arg DB_EXTRAS="postgres apm" ...` or `pip install -r requirements.txt -r requirements-apm.txt`.
+It is imported lazily: without it every other page and the push API work, and the source form says what to install. The Redis host
+goes through the probe network policy, so a private or loopback address must be listed in `LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS`;
+its password is stored in the credential vault (`LINKEDEYE_CREDENTIAL_KEY`). The job that reads Redis, the stale-source check and
+the retention job run in `manage.py run_probes`. The APM push API (`/api/apm/`) is a machine endpoint authenticated by a per-source
+bearer token; put it behind the same TLS reverse proxy as the console. Details: [APM.md](APM.md).
 
 Behind a TLS-intercepting proxy give pip your CA bundle as a build secret (never baked into a layer):
 `docker build --secret id=pip_ca,src=/etc/ssl/certs/corp-bundle.pem ...`
@@ -370,6 +379,8 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 | `LINKEDEYE_LOG_RETENTION_DAYS` | `14` | | Days of ingested log entries kept (Logs & Events). |
 | `LINKEDEYE_TELEMETRY_ALERT_RETENTION_DAYS` | `90` | | Days resolved Alertmanager alerts are kept. |
 | `LINKEDEYE_AUTOMATION_RETENTION_DAYS` | `90` | | Days of automation / StackStorm execution history kept. |
+| `LINKEDEYE_APM_RETENTION_DAYS` | `30` | | Days of APM adapter runs and status-change history kept (also capped per source). |
+| `LINKEDEYE_APM_LOG_RETENTION_DAYS` | `7` | | Days of APM execution logs kept (also capped per source). |
 | `LINKEDEYE_AGENT_API_KEY` | empty (retrieval-only) | yes | Bearer token for the OpenAI-compatible chat API used by Ops Agent. Empty: the page still answers from live records via tools. Never sent to the browser. |
 | `LINKEDEYE_AGENT_BASE_URL` | `https://api.openai.com/v1` | | Chat Completions base URL. Resolved through the probe SSRF policy (private/metadata ranges refused unless listed in `LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS`). Redirects are not followed. |
 | `LINKEDEYE_AGENT_MODEL` | `gpt-4o-mini` | | Chat model id sent to the provider. |

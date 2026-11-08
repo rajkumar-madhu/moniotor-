@@ -1,0 +1,69 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}{% if source %}Edit {{ source.name }}{% else %}Add an APM source{% endif %}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'apm/page.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'apm:index' %}">APM</a>{% icon "chevron-right" 14 %}<a href="{% url 'apm:sources' %}">Sources</a>{% icon "chevron-right" 14 %}<span>{% if source %}{{ source.name }}{% else %}New source{% endif %}</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-apm">
+<div class="head">
+  <div class="glyph">{% icon "plug" 30 %}</div>
+  <div><h1>{% if source %}{{ source.name }}{% else %}Add an APM source{% endif %}</h1><p>{% if source %}Settings, ingest token and optional Redis reading{% else %}A source is one monitored deployment. You get its ingest token on the next page, once.{% endif %}</p></div>
+</div>
+<div class="apm-formgrid">
+<form method="post" class="panel apm-form" novalidate>{% csrf_token %}
+  {% if form.non_field_errors %}<div class="apm-note crit" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+  {% if form.errors and not form.non_field_errors %}<div class="apm-note crit" role="alert">Please correct the highlighted field{{ form.errors|length|pluralize }}.</div>{% endif %}
+  <h2 class="apm-h2">Source</h2>
+  <div class="form-grid">
+    {% for f in form.main_fields %}
+    <div class="field{% if f.name == 'description' %} full{% endif %}{% if f.errors %} has-err{% endif %}"><label for="{{ f.id_for_label }}">{{ f.label }}{% if f.field.required and f.name != 'enabled' %} <span class="req">*</span>{% endif %}</label>{{ f }}{% if f.help_text %}<span class="hint">{{ f.help_text }}</span>{% endif %}{% for e in f.errors %}<span class="err" role="alert">{{ e }}</span>{% endfor %}</div>
+    {% endfor %}
+  </div>
+  <h2 class="apm-h2">Read the toolkit's Redis keys <small>optional</small></h2>
+  {% if not redis_ok %}<div class="apm-note warn">{% icon "info" 16 %}<span>The <code>redis</code> Python package is not installed on this server: install <code>requirements-apm.txt</code> and restart to turn this on. You can still save the settings, and pushing from the cron scripts works without it.</span></div>{% endif %}
+  <div class="form-grid">
+    {% for f in form.redis_fields %}
+    <div class="field{% if f.name == 'redis_poll' or f.name == 'clear_password' or f.name == 'redis_tls' %} check full{% endif %}{% if f.errors %} has-err{% endif %}">
+      {% if f.name == 'redis_poll' or f.name == 'clear_password' or f.name == 'redis_tls' %}<label class="inline-check">{{ f }} {{ f.label }}</label>
+      {% else %}<label for="{{ f.id_for_label }}">{{ f.label }}</label>{{ f }}{% endif %}
+      {% if f.name == 'redis_password' and form.has_password %}<span class="hint">A password is stored. Typing a new one replaces it.</span>{% endif %}
+      {% if f.help_text %}<span class="hint">{{ f.help_text }}</span>{% endif %}{% for e in f.errors %}<span class="err" role="alert">{{ e }}</span>{% endfor %}</div>
+    {% endfor %}
+  </div>
+  <div class="apm-form-foot"><a class="btn" href="{% url 'apm:sources' %}">Cancel</a><button class="btn primary" type="submit">{% if source %}Save changes{% else %}Create source{% endif %}</button></div>
+</form>
+
+<div class="apm-side">
+{% if source %}
+  <section class="panel">
+    <h2 class="apm-h2">Ingest token</h2>
+    <p class="small">Prefix <code>{{ source.token_prefix }}…</code>{% if source.token_rotated_at %} · issued {{ source.token_rotated_at|timesince }} ago{% endif %}. Only a salted hash is stored, so the token cannot be shown again.</p>
+    <form method="post" action="{% url 'apm:source_rotate' source.pk %}" data-confirm="Rotate the token? The current one stops working immediately and the producer must be updated.">{% csrf_token %}<button class="btn" type="submit">{% icon "key" 16 %}Rotate token</button></form>
+  </section>
+  <section class="panel">
+    <h2 class="apm-h2">Set up the producer</h2>
+    <pre class="apm-code">{{ setup }}</pre>
+    <p class="small t-mute">Copy <code>apm/clients/linkedeye_apm.py</code> next to the scripts. Full steps: <code>docs/APM.md</code>.</p>
+  </section>
+  <section class="panel">
+    <h2 class="apm-h2">Redis reading</h2>
+    <p class="small"><span class="chip {{ redis_state.0 }}">{{ redis_state.1 }}</span>{% if source.redis_last_polled_at %} last read {{ source.redis_last_polled_at|timesince }} ago{% endif %}</p>
+    {% if source.redis_last_error %}<p class="small t-crit">{{ source.redis_last_error }}</p>{% endif %}
+    {% if keys %}<p class="small t-mute">Keys: {% for k, key in keys %}<code>{{ key }}</code> {% endfor %}</p>{% endif %}
+    <form method="post" action="{% url 'apm:source_test_redis' source.pk %}">{% csrf_token %}<button class="btn" type="submit"{% if not redis_ok %} disabled title="Install requirements-apm.txt first"{% endif %}>{% icon "plug" 16 %}Test Redis connection</button></form>
+  </section>
+  <section class="panel">
+    <h2 class="apm-h2">Recent reports</h2>
+    {% if runs %}<div class="table-wrap dense"><table><thead><tr><th>Received</th><th>Kind</th><th class="num">Items</th><th class="num">Failed</th></tr></thead><tbody>{% for r in runs %}<tr><td>{{ r.received_at|date:"d-m-Y H:i:s" }}</td><td>{{ r.kind }}</td><td class="num">{{ r.total }}</td><td class="num">{{ r.failure }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="t-mute small">Nothing received yet.</p>{% endif %}
+  </section>
+  <section class="panel apm-danger">
+    <h2 class="apm-h2">Delete</h2>
+    <p class="small t-mute">Deletes this source with its adapters, history, processes and logs. The producer's pushes will be refused.</p>
+    <form method="post" action="{% url 'apm:source_delete' source.pk %}" data-confirm="Delete “{{ source.name }}” and all of its APM data? This cannot be undone.">{% csrf_token %}<button class="btn apm-btn-danger" type="submit">{% icon "trash" 16 %}Delete source</button></form>
+  </section>
+{% else %}
+  <section class="panel"><h2 class="apm-h2">How it works</h2><p class="small">After you create the source you get a token, shown once. Put it in the environment of the host that runs the cron scripts. The reference client <code>linkedeye_apm.py</code> pushes after each run; LinkedEye never connects into your hosts.</p></section>
+{% endif %}
+</div>
+</div>
+</div>
+{% endblock %}

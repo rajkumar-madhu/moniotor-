@@ -1,0 +1,7 @@
+# Optional extra: lets LinkedEye READ the APM toolkit's Redis keys itself (apm.redis_reader).
+#   pip install -r requirements-apm.txt
+# The package is imported lazily: without it APM still works (the cron scripts push over HTTPS) and the Source form
+# says what to install. Install it only when a source reads Redis. The Dockerfile installs it when built with
+# --build-arg DB_EXTRAS="postgres apm".
+-r requirements.txt
+redis>=5,<7

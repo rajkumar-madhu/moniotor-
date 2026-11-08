@@ -95,6 +95,29 @@ that already describe the same machine.
   "MULTIPLE / SEE NODE INVENTORY") mean *no value*: `k8s.parsing.clean()` normalises them to empty and the
   pages show a dash. See **docs/IMPORT.md** for the workbook format and the discovery commands.
 
+## APM (`apm`)
+
+Adapter status matrix, process status and execution logs from a customer's cron toolkit, pushed over HTTPS (or read from their
+Redis). Full description, API and setup: **docs/APM.md**.
+
+* **Pages** `apm:index` (`/apm/`), `apm:live` (JSON the page patches itself from), `apm:cell` (one adapter's detail as JSON),
+  `apm:cell_retry`, `apm:cell_rca`, `apm:cell_evidence`, `apm:export`, and the sources admin `apm:sources`, `apm:source_new`,
+  `apm:source_edit`, `apm:source_rotate`, `apm:source_toggle`, `apm:source_delete`, `apm:source_test_redis`. Sidebar group **APM**.
+* **Machine API** `/api/apm/ingest/`, `/api/apm/commands/`, `/api/apm/commands/<id>/done/`: per-source bearer token, no session, no
+  CSRF; `/api/apm/` is the one new entry in `core.middleware.PUBLIC_PREFIXES`.
+* **Service** `apm.services.ingest_matrix / ingest_table / ingest_logs` is the only way data enters (the push API, the Redis reader
+  `apm.redis_reader` and `seed_apm` all call it). Parsing and limits live in `apm.payloads`; the dashboard JSON in `apm.snapshot`.
+* **Site scoping** `apm.Source.site` is a site *name* and is listed in `administration.services.SITE_NAME_FIELDS`. Adapter cells,
+  runs, status history, processes, logs and retry requests carry no site: they belong to one source and are scoped through
+  `source__site` (a test keeps it that way).
+* **Events** `core.events.emit("apm", ...)` on an adapter or process going down and recovering (or a failing one dropping out of the report) (fingerprints
+  `apm:cell:<source>:<client>:<segment>` and `apm:process:<source>:<host>:<name>`) and when a source goes silent (`apm:source:<id>`).
+* **Cross-app** the credential vault (`core.secrets`, row in `onboarding.Credential`, referenced by id) for the Redis password; Service
+  Desk (`servicedesk.services.create_ticket`, lazily) for Generate RCA; `probes.checks.resolve_allowed` for the Redis host.
+* **Jobs** `apm.redis_poll` (60 s), `apm.stale` (60 s), `apm.retention` (6 h). Optional dependency: `redis` (`requirements-apm.txt`),
+  imported lazily.
+* **Seed** `manage.py seed_apm [--remove] [--rotate-token]`: synthetic, idempotent, no events.
+
 ## Cross-module interfaces
 
 Modules may depend on each other only through these names, imported lazily inside functions
