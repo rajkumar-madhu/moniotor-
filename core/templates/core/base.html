@@ -84,8 +84,7 @@
           <div class="menu">
             {% if le_profile_url %}<a href="{{ le_profile_url }}">{% icon "user" 16 %}My profile</a>{% endif %}
             <a href="{{ le_admin_url }}">{% icon "settings" 16 %}Administration</a>
-            <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button type="submit">{% icon "logout" 16
-                %}Sign out</button></form>
+            <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button type="submit">{% icon "logout" 16 %}Sign out</button></form>
             <div class="ver">Version {{ le_version }}</div>
           </div>
         </details>
