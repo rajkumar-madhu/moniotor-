@@ -12,6 +12,7 @@
     <a class="btn" href="?{{ query.urlencode }}{% if query.urlencode %}&amp;{% endif %}format=csv">{% icon "download" 17 %}Export</a>
     <a class="btn" href="?{{ query.urlencode }}{% if query.urlencode %}&amp;{% endif %}refresh=1">{% icon "refresh" 17 %}Refresh</a>
     {% endif %}
+    <a class="btn" href="{% url 'telemetry:fleet' %}">{% icon "grid" 17 %}Fleet home</a>
     <a class="btn primary" href="{% url 'telemetry:explorer' %}">{% icon "analytics" 17 %}Metrics Explorer</a>
   </div>
 </div>
@@ -63,7 +64,7 @@
     {% if filtered %}<a class="btn icon blue" href="{% url 'telemetry:infrastructure' %}" title="Clear filters" aria-label="Clear filters">{% icon "x" 16 %}</a>{% endif %}
   </form>
   <div class="table-wrap dense tm-table" style="margin-top:12px"><table>
-    <thead><tr><th>Host</th><th>Job</th><th>Health</th><th>CPU</th><th>Memory</th><th>Disk /</th><th class="num">Load 1m</th><th class="num">Net Rx</th><th class="num">Net Tx</th><th class="num">Uptime</th><th>CPU (1 h)</th><th></th></tr></thead>
+    <thead><tr><th>Host</th><th>Job</th><th>State</th><th>Health</th><th>CPU</th><th>Memory</th><th>Disk /</th><th class="num">Load 1m</th><th class="num">Net Rx</th><th class="num">Net Tx</th><th class="num">Uptime</th><th>CPU (1 h)</th><th></th></tr></thead>
     <tbody>
     {% for h in page %}
       <tr>
@@ -71,6 +72,7 @@
           {% if h.ci_name %}<span class="sub mono">{{ h.instance }}</span>{% endif %}
           {% if h.ci_url %}<span class="sub"><a href="{{ h.ci_url }}">CMDB</a>{% if h.site %} · {{ h.site }}{% endif %}</span>{% endif %}</td>
         <td>{{ h.job|default:"–" }}</td>
+        <td><a class="badge {{ h.state|state_tone }}" href="{% url 'telemetry:fleet' %}?state={{ h.state }}" title="Fleet home, filtered to {{ h.state|state_label }} hosts">{{ h.state|state_label }}</a></td>
         <td><span class="badge {{ h.health|health_tone }}">{{ h.health|health_label }}</span></td>
         {% grade "cpu" h.cpu as gc %}{% grade "memory" h.memory as gm %}{% grade "disk" h.disk as gd %}{% grade "load" h.load_per_core as gl %}
         <td><span class="metric"><span class="util"><i class="{{ gc }}" style="width:{{ h.cpu|clamp100 }}%"></i></span><span class="t-{{ gc }}">{{ h.cpu|pct1 }}</span></span></td>
@@ -84,7 +86,7 @@
         <td><a class="btn icon blue" href="{% url 'telemetry:host_detail' h.instance %}" title="Host details" aria-label="Details for {{ h.instance }}">{% icon "eye" 15 %}</a></td>
       </tr>
     {% empty %}
-      <tr><td colspan="12" class="empty">{% if error %}No data – see the error above.{% elif filtered %}No hosts match the filters.{% else %}Prometheus has no targets in a job matching <code>.*node.*</code>. Add node_exporter scrape jobs (for example <code>job_name: node</code>) to see hosts here.{% endif %}</td></tr>
+      <tr><td colspan="13" class="empty">{% if error %}No data – see the error above.{% elif filtered %}No hosts match the filters.{% else %}Prometheus has no targets in a job matching <code>.*node.*</code>. Add node_exporter scrape jobs (for example <code>job_name: node</code>) to see hosts here.{% endif %}</td></tr>
     {% endfor %}
     </tbody></table></div>
   {% include "core/_pager.html" with pager_noun="hosts" %}

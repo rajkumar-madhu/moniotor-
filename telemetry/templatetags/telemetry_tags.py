@@ -2,6 +2,7 @@ from django import template
 from django.utils.html import format_html
 
 from .. import fmt
+from ..fleet import STATE_LABEL, STATE_TONE
 from ..hosts import HEALTH_LABEL, HEALTH_TONE, grade as _grade
 from ..models import severity_tone
 from ..nagios import STATE_TONE
@@ -80,6 +81,17 @@ def health_label(h):
 @register.filter
 def health_tone(h):
     return HEALTH_TONE.get(h, "mute")
+
+
+@register.filter
+def state_label(s):
+    """live/down/stale/never_seen -> the label the Fleet and Infrastructure pages share."""
+    return STATE_LABEL.get(s, "Unknown")
+
+
+@register.filter
+def state_tone(s):
+    return STATE_TONE.get(s, "mute")
 
 
 @register.filter

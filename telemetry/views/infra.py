@@ -5,7 +5,7 @@ from django.shortcuts import render
 from core import prometheus
 from core.access import require, scope_by_site, visible_sites
 
-from .. import hosts as svc, hosts_full as full, palette as pal
+from .. import fleet, hosts as svc, hosts_full as full, palette as pal
 from ..fmt import finite, human_duration, human_rate
 from ..models import Alert
 from .common import csv_response, matches, paginate, perms, prom_context, query_without_page
@@ -57,6 +57,10 @@ def infrastructure(request):
                 sparks = svc.cpu_sparklines(use_cache=not refresh)
             except prometheus.PrometheusError as e:
                 ctx["spark_error"] = str(e)
+    # live / down / stale / never_seen comes from the same rule the Fleet page uses, so the two agree
+    tmap, tmap_error = fleet.node_target_map(use_cache=not refresh) if ctx["prom_configured"] else ({}, "")
+    fleet.annotate_states(hosts, tmap)
+    ctx["state_error"] = tmap_error
     _attach_cmdb(hosts)
     site = request.GET.get("site", "")
     hosts = [h for h in hosts if _site_ok(request.user, h["site"], site)]
@@ -69,9 +73,9 @@ def infrastructure(request):
 
     if request.GET.get("format") == "csv":
         return csv_response("infrastructure-hosts.csv",
-                            ["instance", "job", "cmdb_ci", "site", "health", "up", "cpu_pct", "memory_pct", "root_disk_pct",
-                             "load1", "cores", "net_rx_Bps", "net_tx_Bps", "uptime_s"],
-                            [[h["instance"], h["job"], h["ci_name"], h["site"], h["health"], h["up"],
+                            ["instance", "job", "cmdb_ci", "site", "state", "health", "up", "cpu_pct", "memory_pct",
+                             "root_disk_pct", "load1", "cores", "net_rx_Bps", "net_tx_Bps", "uptime_s"],
+                            [[h["instance"], h["job"], h["ci_name"], h["site"], h["state"], h["health"], h["up"],
                               _r(h.get("cpu")), _r(h.get("memory")), _r(h.get("disk")), _r(h.get("load1")),
                               _r(h.get("cores"), 0), _r(h.get("rx"), 0), _r(h.get("tx"), 0), _r(h.get("uptime"), 0)]
                              for h in rows])

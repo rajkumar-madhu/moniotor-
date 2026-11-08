@@ -1,5 +1,6 @@
 from .alerts import acknowledge, alert_detail, alert_list, unacknowledge  # noqa: F401
 from .explorer import delete_query, explorer, save_query  # noqa: F401
+from .fleet import fleet  # noqa: F401
 from .infra import host_detail, host_metrics, infrastructure  # noqa: F401
 from .nagios import nagios_status  # noqa: F401
 from .prom import prometheus_targets  # noqa: F401

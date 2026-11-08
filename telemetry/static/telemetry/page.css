@@ -249,3 +249,59 @@
   .pg-telemetry .hm-legend td.name { min-width: 64px; font-size: 11.5px; }
   .pg-telemetry .hm-legend td.num { font-size: 11px; padding-left: 2px; padding-right: 4px; }
 }
+
+/* ---------- fleet home: Netdata-style room overview (telemetry/fleet.html) ---------- */
+.pg-fleet .tile.s-teal { background: var(--info-bg); color: var(--teal); }
+.pg-fleet .fl-panel { display: flex; flex-direction: column; gap: 14px; }
+.pg-fleet .fl-total { display: flex; align-items: baseline; gap: 8px; }
+.pg-fleet .fl-total b { font: 600 34px/1 var(--serif); letter-spacing: -.02em; color: var(--ink); }
+.pg-fleet .fl-total span { color: var(--muted); font-size: 13px; }
+.pg-fleet .fl-total.sm b { font-size: 22px; }
+.pg-fleet .fl-bar-group { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.pg-fleet .fl-bar-label { color: var(--muted); font: 600 10px/1.3 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+/* stacked bar: every segment is a labelled link; the label hides itself when its segment gets too narrow */
+.pg-fleet .fl-bar { display: flex; height: 30px; border-radius: 8px; overflow: hidden; background: var(--line-soft); }
+.pg-fleet .fl-seg { display: flex; align-items: center; justify-content: center; min-width: 4px; overflow: hidden;
+  color: #fff; font-size: 12px; font-weight: 600; text-decoration: none; white-space: nowrap; }
+.pg-fleet .fl-seg + .fl-seg { box-shadow: inset 1px 0 0 rgba(255, 255, 255, .45); }
+.pg-fleet .fl-seg:hover { filter: brightness(1.08); text-decoration: none; }
+.pg-fleet .fl-seg-txt { padding: 0 8px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.pg-fleet .fl-keys { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.pg-fleet .fl-key { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); text-decoration: none; }
+.pg-fleet a.fl-key:hover { color: var(--ink); text-decoration: none; }
+.pg-fleet .fl-key i { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+.pg-fleet .fl-key b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.pg-fleet a.fl-key.on { color: var(--primary); font-weight: 600; }
+.pg-fleet .fl-note { margin: 2px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+.pg-fleet .fl-note .badge { font-size: 11.5px; }
+/* group-by / colour-by controls */
+.pg-fleet .fl-controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.pg-fleet .fl-ctl { display: inline-flex; align-items: center; gap: 6px; }
+.pg-fleet .fl-ctl > span { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.pg-fleet .fl-ctl select { height: 32px; }
+.pg-fleet .fl-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 10px; }
+/* status grid: one cell per host. 500 cells fit without scrolling; cells shrink on small screens. */
+.pg-fleet .fl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(16px, 1fr)); gap: 4px; margin: 0 0 4px; }
+.pg-fleet .fl-cell { height: 16px; border-radius: 50%; display: block; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .12); }
+.pg-fleet .fl-cell:hover { outline: 2px solid var(--ink); outline-offset: 1px; }
+.pg-fleet .fl-grid-head { display: flex; align-items: baseline; gap: 8px; margin: 12px 0 6px; border-top: 1px solid var(--line-soft); padding-top: 10px; }
+.pg-fleet .fl-grid-head:first-of-type { border-top: 0; padding-top: 0; margin-top: 0; }
+.pg-fleet .fl-grid-head span { font-weight: 600; font-size: 13px; }
+.pg-fleet .fl-grid-head b { color: var(--muted); font: 500 11.5px var(--mono); }
+/* alert leaderboard: one stacked bar per host */
+.pg-fleet .fl-leaders { display: flex; flex-direction: column; gap: 7px; }
+.pg-fleet .fl-leader { display: grid; grid-template-columns: minmax(90px, 160px) 1fr 34px; gap: 10px; align-items: center; font-size: 13px; }
+.pg-fleet .fl-leader .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.pg-fleet .fl-leader .track { display: flex; height: 14px; min-width: 2px; border-radius: 4px; overflow: hidden; background: var(--line-soft); }
+.pg-fleet .fl-leader .track i { display: block; height: 100%; }
+.pg-fleet .fl-leader .val { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+@media (max-width: 860px) {
+  .pg-fleet .fl-controls { width: 100%; }
+  .pg-fleet .fl-ctl { flex: 1 1 140px; }
+  .pg-fleet .fl-ctl select { flex: 1; min-width: 0; }
+  .pg-fleet .fl-grid { grid-template-columns: repeat(auto-fill, minmax(13px, 1fr)); gap: 3px; }
+  .pg-fleet .fl-cell { height: 13px; }
+  .pg-fleet .fl-total b { font-size: 28px; }
+  .pg-fleet .fl-leader { grid-template-columns: minmax(70px, 110px) 1fr 30px; }
+  .pg-fleet .head .actions .seg { order: -1; }
+}

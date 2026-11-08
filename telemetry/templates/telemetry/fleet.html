@@ -1,0 +1,191 @@
+{% extends "core/base.html" %}{% load le static telemetry_tags %}
+{% block title %}Fleet{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'telemetry/page.css' %}">{% endblock %}
+{% block crumbs %}{% include "telemetry/_crumbs.html" with crumb_here="Fleet" %}{% endblock %}
+{% block content %}
+<div class="pg-telemetry pg-fleet">
+<div class="head">
+  <div class="glyph">{% icon "grid" 30 %}</div>
+  <div><h1>Fleet</h1><p>Every host LinkedEye knows about, from Prometheus and the CMDB{% if prom_configured %} <span class="src">· {{ prom_host }}</span>{% endif %}</p></div>
+  <div class="actions">
+    <nav class="seg" aria-label="Alert time range">{% for k, l in ranges %}<a href="?{% if q_range.urlencode %}{{ q_range.urlencode }}&amp;{% endif %}range={{ k }}" class="{% if k == range_key %}on{% endif %}" title="{{ l }} (alert panels)">{{ k }}</a>{% endfor %}</nav>
+    <a class="btn" href="?{{ query.urlencode }}{% if query.urlencode %}&amp;{% endif %}format=csv">{% icon "download" 17 %}Export</a>
+    <a class="btn" href="?{{ query.urlencode }}{% if query.urlencode %}&amp;{% endif %}refresh=1">{% icon "refresh" 17 %}Refresh</a>
+    <a class="btn primary" href="{% url 'telemetry:infrastructure' %}">{% icon "server" 17 %}Infrastructure</a>
+  </div>
+</div>
+
+{% if not prom_configured %}
+  {% include "telemetry/_not_connected.html" with nc_title="Prometheus" nc_env="LINKEDEYE_PROMETHEUS_URL" nc_extra="(for example http://prometheus.internal:9090)" nc_keep=True nc_text="Host states, metrics, scrape targets and the series count all come from Prometheus. Until it is connected the fleet below is the CMDB inventory only: every host with a prometheus_instance reads as “Never seen”, and alerts still come from the Alertmanager receiver." %}
+{% elif errors %}
+  {% include "telemetry/_error.html" with err_title="Some fleet data is unavailable" err_message=error_text %}
+{% endif %}
+
+<section class="kpis tm-kpis" aria-label="Fleet counters">
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "server" 22 %}</div><div class="kpi-body"><div class="label">Hosts</div><div class="value">{{ counters.hosts }}</div></div></div><div class="sub">{{ counters.states.live }} live · {{ counters.states.down }} down</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-purple">{% icon "database" 22 %}</div><div class="kpi-body"><div class="label">Series</div><div class="value">{% if counters.series %}{{ counters.series|hnum }}{% else %}–{% endif %}</div></div></div><div class="sub tm-wrap">{% if counters.series %}Metrics available in the TSDB{% else %}Series count unavailable{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-ok">{% icon "radar" 22 %}</div><div class="kpi-body"><div class="label">Targets up</div><div class="value">{{ counters.targets_up }} <small>/ {{ counters.targets }}</small></div></div></div><div class="sub">{% if counters.targets_down %}<span class="t-crit">{{ counters.targets_down }} down</span> · {% endif %}{{ counters.target_pools }} scrape pool{{ counters.target_pools|pluralize }}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-crit">{% icon "flame" 22 %}</div><div class="kpi-body"><div class="label">Alerts firing</div><div class="value{% if counters.alerts_firing %} t-crit{% endif %}">{{ counters.alerts_firing }}</div></div></div><div class="sub tm-wrap">Right now · {{ alerts_on_hosts }} on a fleet host</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-teal">{% icon "map-pin" 22 %}</div><div class="kpi-body"><div class="label">Sites</div><div class="value">{{ counters.sites }}</div></div></div><div class="sub">{% if scoped %}Your sites{% else %}With at least one host{% endif %}</div></div>
+  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-warn">{% icon "help" 22 %}</div><div class="kpi-body"><div class="label">No CMDB item</div><div class="value">{{ counters.no_cmdb }}</div></div></div><div class="sub tm-wrap">Hosts without a configuration item</div></div>
+</section>
+
+<section class="grid g-2">
+  <div class="panel fl-panel">
+    <div class="panel-h"><h2>Hosts</h2><div class="right tm-meta">state is always “now”</div></div>
+    <div class="fl-total"><b>{{ hosts_total }}</b><span>host{{ hosts_total|pluralize }} in view</span></div>
+    <div class="fl-bar-group">
+      <div class="fl-bar-label">By state</div>
+      {% if state_bar %}<div class="fl-bar" role="list" aria-label="Hosts by state">{% for s in state_bar %}<a role="listitem" class="fl-seg" style="width:{{ s.pct }}%;background:{{ s.colour }};color:{{ s.ink }}" href="?{% if q_filter.urlencode %}{{ q_filter.urlencode }}&amp;{% endif %}state={{ s.key }}" title="{{ s.value }} {{ s.label }} · filter the hosts below">{% if s.wide %}<span class="fl-seg-txt">{{ s.label }} {{ s.value }}</span>{% endif %}</a>{% endfor %}</div>
+      <div class="fl-keys">{% for s in state_bar %}<a class="fl-key{% if filter_state == s.key %} on{% endif %}" href="?{% if q_filter.urlencode %}{{ q_filter.urlencode }}&amp;{% endif %}state={{ s.key }}"><i style="background:{{ s.colour }}"></i>{{ s.label }}<b>{{ s.value }}</b></a>{% endfor %}</div>
+      {% else %}<p class="empty">No hosts yet.</p>{% endif %}
+    </div>
+    <div class="fl-bar-group">
+      <div class="fl-bar-label">By environment</div>
+      {% if env_bar %}<div class="fl-bar" role="list" aria-label="Hosts by environment">{% for s in env_bar %}<a role="listitem" class="fl-seg" style="width:{{ s.pct }}%;background:{{ s.colour }};color:{{ s.ink }}" href="?{% if q_filter.urlencode %}{{ q_filter.urlencode }}&amp;{% endif %}env={{ s.key }}" title="{{ s.value }} {{ s.label }} · filter the hosts below">{% if s.wide %}<span class="fl-seg-txt">{{ s.label }} {{ s.value }}</span>{% endif %}</a>{% endfor %}</div>
+      <div class="fl-keys">{% for s in env_bar %}<a class="fl-key{% if filter_env == s.key %} on{% endif %}" href="?{% if q_filter.urlencode %}{{ q_filter.urlencode }}&amp;{% endif %}env={{ s.key }}"><i style="background:{{ s.colour }}"></i>{{ s.label }}<b>{{ s.value }}</b></a>{% endfor %}</div>
+      {% else %}<p class="empty">No environments recorded in the CMDB.</p>{% endif %}
+    </div>
+    <p class="fl-note">{% for s in states %}<span class="badge {{ s.tone }}">{{ s.label }}</span> {{ s.help }}{% if not forloop.last %} · {% endif %}{% endfor %}</p>
+  </div>
+
+  <div class="panel fl-panel">
+    <div class="panel-h"><h2>Active alerts</h2><div class="right"><a class="hm-explore" href="{% url 'telemetry:alertmanager' %}">Alert Manager {% icon "arrow-right" 14 %}</a></div></div>
+    <div class="fl-total"><b>{{ alert_split.total }}</b><span>firing now</span></div>
+    <div class="fl-bar-group">
+      <div class="fl-bar-label">By severity</div>
+      {% if alert_bar %}<div class="fl-bar" role="list" aria-label="Alerts by severity">{% for s in alert_bar %}<a role="listitem" class="fl-seg" style="width:{{ s.pct }}%;background:{{ s.colour }};color:{{ s.ink }}" href="{% url 'telemetry:alertmanager' %}{% if s.key == 'critical' %}?severity=critical{% elif s.key == 'warning' %}?severity=warning{% endif %}" title="{{ s.value }} {{ s.label }}">{% if s.wide %}<span class="fl-seg-txt">{{ s.label }} {{ s.value }}</span>{% endif %}</a>{% endfor %}</div>
+      <div class="fl-keys">{% for s in alert_bar %}<span class="fl-key"><i style="background:{{ s.colour }}"></i>{{ s.label }}<b>{{ s.value }}</b></span>{% endfor %}</div>
+      {% else %}<p class="empty">Nothing firing{% if window_total %} right now{% endif %}.</p>{% endif %}
+    </div>
+    <div class="fl-bar-group">
+      <div class="fl-bar-label">Received in the {{ range_label|lower }}</div>
+      <div class="fl-total sm"><b>{{ window_total }}</b><span>alert{{ window_total|pluralize }} seen in this window</span></div>
+      <p class="fl-note">Alertmanager history; the two panels below use the same window.</p>
+    </div>
+  </div>
+</section>
+
+<div class="panel">
+  <div class="panel-h"><h2>Node status</h2>
+    <div class="right">
+      <form class="fl-controls" method="get">
+        {% for k, v in q_grid.lists %}{% for item in v %}<input type="hidden" name="{{ k }}" value="{{ item }}">{% endfor %}{% endfor %}
+        <label class="fl-ctl"><span>Group by</span>
+          <select name="group" data-autosubmit aria-label="Group by">{% for k, l in groups %}<option value="{{ k }}"{% if group == k %} selected{% endif %}>{{ l }}</option>{% endfor %}</select></label>
+        <label class="fl-ctl"><span>Colour by</span>
+          <select name="colour" data-autosubmit aria-label="Colour by">{% for k, l in colours %}<option value="{{ k }}"{% if colour == k %} selected{% endif %}>{{ l }}</option>{% endfor %}</select></label>
+        <noscript><button class="btn sm" type="submit">Apply</button></noscript>
+      </form>
+    </div>
+  </div>
+  <div class="fl-legend" aria-label="Colour legend">{% for label, hue in legend %}<span class="fl-key"><i style="background:{{ hue }}"></i>{{ label }}</span>{% endfor %}</div>
+  {% if grid %}
+    {% for g in grid %}
+      {% if g.label %}<div class="fl-grid-head"><span>{{ g.label }}</span><b>{{ g.count }}</b></div>{% endif %}
+      <div class="fl-grid">{% for c in g.cells %}<a class="fl-cell" href="{{ c.url }}" style="background:{{ c.colour }}" title="{{ c.title }}" aria-label="{{ c.title }}"></a>{% endfor %}</div>
+    {% endfor %}
+    <p class="fl-note">{{ grid_shown }} of {{ hosts_total }} host{{ hosts_total|pluralize }} shown{% if filtered %} (filters applied){% endif %}{% if grid_capped %} · capped at {{ grid_shown }} cells{% endif %} · hover a cell for its host, state and value; click to open it</p>
+  {% else %}
+    <p class="empty">{% if filtered %}No hosts match the filters.{% elif prom_configured %}No hosts yet. Add node_exporter scrape jobs (a job name containing <code>node</code>) or set <code>prometheus_instance</code> on CMDB items.{% else %}No hosts yet – connect Prometheus or set <code>prometheus_instance</code> on CMDB items.{% endif %}</p>
+  {% endif %}
+</div>
+
+<section class="grid g-2">
+  <div class="panel">
+    <div class="panel-h"><h2>Hosts with the most alerts</h2><div class="right tm-meta">{{ range_label|lower }}</div></div>
+    {% if alert_leaders %}
+    <div class="fl-leaders">
+      {% for r in alert_leaders %}
+      <div class="fl-leader">
+        {% if r.url %}<a class="lbl" href="{{ r.url }}" title="{{ r.instance }}">{{ r.name }}</a>{% else %}<span class="lbl" title="{{ r.instance }}">{{ r.name }}</span>{% endif %}
+        <span class="track" style="width:{{ r.pct }}%" title="{{ r.critical }} critical · {{ r.warning }} warning · {{ r.other }} other">
+          {% if r.crit_pct %}<i style="width:{{ r.crit_pct }}%;background:var(--crit)"></i>{% endif %}
+          {% if r.warn_pct %}<i style="width:{{ r.warn_pct }}%;background:var(--chart-warn)"></i>{% endif %}
+          {% if r.other_pct %}<i style="width:{{ r.other_pct }}%;background:var(--chart-6)"></i>{% endif %}
+        </span>
+        <span class="val">{{ r.total }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    <p class="fl-note"><span class="fl-key"><i style="background:var(--crit)"></i>Critical</span><span class="fl-key"><i style="background:var(--chart-warn)"></i>Warning</span><span class="fl-key"><i style="background:var(--chart-6)"></i>Other</span> · bar length is the host's share of the busiest host</p>
+    {% else %}<p class="empty">No alerts in the {{ range_label|lower }}.</p>{% endif %}
+  </div>
+
+  <div class="panel">
+    <div class="panel-h"><h2>Top alerts</h2><div class="right tm-meta">{{ range_label|lower }}</div></div>
+    {% if top_alerts %}
+    <div class="table-wrap dense tm-table"><table>
+      <thead><tr><th>Alert</th><th>Instance</th><th class="num">Times</th><th class="num">Firing time</th></tr></thead>
+      <tbody>{% for a in top_alerts %}
+        <tr>
+          <td class="wrap"><a href="{% url 'telemetry:alertmanager' %}?alertname={{ a.alertname|urlencode }}">{{ a.alertname }}</a>
+            <span class="sub"><span class="sev t-{{ a.tone }}">{{ a.severity|default:"unknown" }}</span>{% if a.firing %} · {{ a.firing }} firing{% endif %}</span></td>
+          <td class="inst mono">{{ a.instance|default:"–" }}</td>
+          <td class="num">{{ a.occurrences }}</td>
+          <td class="num">{{ a.seconds|hduration }}</td>
+        </tr>
+      {% endfor %}</tbody></table></div>
+    {% else %}<p class="empty">No alerts in the {{ range_label|lower }}.</p>{% endif %}
+  </div>
+</section>
+
+<div class="panel">
+  <div class="panel-h"><h2>Sites</h2><div class="right tm-meta">per-site roll-up · alerts in the {{ range_label|lower }}</div></div>
+  {% if sites %}
+  <div class="table-wrap dense tm-table"><table>
+    <thead><tr><th>Site</th><th class="num">Hosts</th><th class="num">Live</th><th class="num">Down</th><th class="num">Stale</th><th class="num">Never seen</th><th class="num">Alerts</th><th class="num">Avg CPU</th><th class="num">Avg memory</th></tr></thead>
+    <tbody>{% for s in sites %}
+      <tr>
+        <td>{{ s.site }}</td>
+        <td class="num">{{ s.hosts }}</td>
+        <td class="num">{{ s.live }}</td>
+        <td class="num{% if s.down %} t-crit{% endif %}">{{ s.down }}</td>
+        <td class="num{% if s.stale %} t-warn{% endif %}">{{ s.stale }}</td>
+        <td class="num">{{ s.never_seen }}</td>
+        <td class="num">{{ s.alerts }}</td>
+        <td class="num">{{ s.avg_cpu|pct1 }}</td>
+        <td class="num">{{ s.avg_memory|pct1 }}</td>
+      </tr>
+    {% endfor %}</tbody></table></div>
+  {% else %}<p class="empty">No hosts yet.</p>{% endif %}
+</div>
+
+<div class="panel">
+  <div class="panel-h"><h2>Hosts ({{ page.paginator.count }})</h2>{% if filtered %}<div class="right"><a class="btn sm" href="?{{ q_filter.urlencode }}">{% icon "x" 15 %}Clear filters</a></div>{% endif %}</div>
+  <form class="toolbar tm-filters" method="get">
+    {% for k, v in q_table.lists %}{% for item in v %}<input type="hidden" name="{{ k }}" value="{{ item }}">{% endfor %}{% endfor %}
+    <label class="search">{% icon "search" 16 %}<input type="search" name="q" value="{{ request.GET.q }}" placeholder="Search host, CI, job, site, OS…" aria-label="Search hosts"></label>
+    <select name="state" data-autosubmit aria-label="State"><option value="">All States</option>{% for s in states %}<option value="{{ s.key }}"{% if filter_state == s.key %} selected{% endif %}>{{ s.label }} ({{ s.count }})</option>{% endfor %}</select>
+    <select name="env" data-autosubmit aria-label="Environment"><option value="">All Environments</option>{% for k, l in environments %}<option value="{{ k }}"{% if filter_env == k %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <select name="job" data-autosubmit aria-label="Job"><option value="">All Jobs</option>{% for j in jobs %}<option{% if request.GET.job == j %} selected{% endif %}>{{ j }}</option>{% endfor %}</select>
+  </form>
+  <div class="table-wrap dense tm-table" style="margin-top:12px"><table>
+    <thead><tr><th>Host</th><th>State</th><th>Site</th><th>Environment</th><th>Job</th><th>OS</th><th>CPU</th><th>Memory</th><th>Disk /</th><th class="num">Uptime</th><th class="num">Alerts</th><th></th></tr></thead>
+    <tbody>
+    {% for h in page %}
+      <tr>
+        <td><a class="host-name" href="{{ h.url }}">{{ h.name }}</a>
+          {% if h.ci_name %}<span class="sub mono">{{ h.instance }}</span>{% endif %}
+          {% if h.ci_url %}<span class="sub"><a href="{{ h.ci_url }}">CMDB</a>{% if h.owner %} · {{ h.owner }}{% endif %}</span>{% endif %}</td>
+        <td><span class="badge {{ h.state|state_tone }}" title="{{ h.state|state_label }}{% if h.last_scrape %} · last scrape {{ h.last_scrape|since }}{% endif %}">{{ h.state|state_label }}</span></td>
+        <td>{{ h.site|default:"–" }}{% if h.client %}<span class="sub">{{ h.client }}</span>{% endif %}</td>
+        <td>{{ h.environment_label }}</td>
+        <td>{{ h.job|default:"–" }}</td>
+        <td class="inst">{{ h.os|default:"–" }}</td>
+        {% grade "cpu" h.cpu as gc %}{% grade "memory" h.memory as gm %}{% grade "disk" h.disk as gd %}
+        <td><span class="metric"><span class="util"><i class="{{ gc }}" style="width:{{ h.cpu|clamp100 }}%"></i></span><span class="t-{{ gc }}">{{ h.cpu|pct1 }}</span></span></td>
+        <td><span class="metric"><span class="util"><i class="{{ gm }}" style="width:{{ h.memory|clamp100 }}%"></i></span><span class="t-{{ gm }}">{{ h.memory|pct1 }}</span></span></td>
+        <td><span class="metric"><span class="util"><i class="{{ gd }}" style="width:{{ h.disk|clamp100 }}%"></i></span><span class="t-{{ gd }}">{{ h.disk|pct1 }}</span></span></td>
+        <td class="num">{{ h.uptime|hduration }}</td>
+        <td class="num">{% if h.alerts_firing %}<span class="badge {% if h.alerts_critical %}crit{% else %}warn{% endif %}">{{ h.alerts_firing }}</span>{% else %}<span class="t-mute">0</span>{% endif %}</td>
+        <td><a class="btn icon blue" href="{{ h.url }}" title="Host details" aria-label="Details for {{ h.instance }}">{% icon "eye" 15 %}</a></td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="12" class="empty">{% if filtered %}No hosts match the filters.{% else %}No hosts yet.{% endif %}</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  {% include "core/_pager.html" with pager_noun="hosts" %}
+</div>
+</div>
+{% endblock %}

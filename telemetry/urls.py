@@ -5,6 +5,7 @@ from . import views
 app_name = "telemetry"
 
 urlpatterns = [
+    path("monitoring/fleet/", views.fleet, name="fleet"),
     path("monitoring/infrastructure/", views.infrastructure, name="infrastructure"),
     # before host_detail: <path:instance> would otherwise swallow ".../metrics/"
     path("monitoring/infrastructure/<path:instance>/metrics/", views.host_metrics, name="host_metrics"),
