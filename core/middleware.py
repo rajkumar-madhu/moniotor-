@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.contrib.auth.views import redirect_to_login
 from django.shortcuts import redirect
 from django.urls import reverse
 
@@ -29,7 +30,7 @@ class LoginRequiredMiddleware:
             if "/api/" in request.path:
                 from django.http import JsonResponse
                 return JsonResponse({"error": "authentication required"}, status=401)
-            return redirect(f"{reverse(settings.LOGIN_URL)}?next={request.get_full_path()}")
+            return redirect_to_login(request.get_full_path(), reverse(settings.LOGIN_URL))
         response = self.get_response(request)
         return response
 

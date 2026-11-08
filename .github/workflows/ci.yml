@@ -76,6 +76,19 @@ jobs:
       - name: Tests (PostgreSQL)
         run: python manage.py test --noinput --verbosity 1
 
+  dependency-audit:
+    # known-vulnerable releases inside the version ranges of requirements*.txt (docs/adr/0002 relies on this staying clean)
+    name: Dependency audit (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pip-audit
+      - name: pip-audit
+        run: pip-audit --strict -r requirements.txt -r requirements-postgres.txt -r requirements-images.txt -r requirements-apm.txt -r requirements-ssh.txt
+
   deploy-config:
     name: Deployment manifests
     runs-on: ubuntu-latest
@@ -134,6 +147,13 @@ jobs:
           cache-to: type=gha,mode=max,scope=linkedeye-${{ matrix.name }}
       - name: Image runs as the non-root user
         run: test "$(docker run --rm linkedeye:ci id -u)" = "10001"
+      - name: Image carries no legacy backend tree, secrets notes or docs
+        run: |
+          # .dockerignore keeps backend/ (SECRETS_AUDIT.md, Read.me, vault keys) and docs/ out; the two assets the
+          # console reads from the legacy tree stay
+          docker run --rm linkedeye:ci sh -c '
+            ! test -e /app/backend/SECRETS_AUDIT.md && ! test -e /app/backend/Read.me && ! test -d /app/docs &&
+            test -d /app/iframeGraphs && test -d /app/backend/template/DIRECT'
       - name: Database drivers
         run: |
           docker run --rm linkedeye:ci python -c "import psycopg; print('psycopg', psycopg.__version__)"

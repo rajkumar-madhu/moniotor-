@@ -225,6 +225,9 @@ class OnboardingTarget(models.Model):
     address = models.CharField(max_length=255, blank=True, default="")
     target_type = models.CharField(max_length=12, choices=TargetType.choices, default=TargetType.LINUX)
     port = models.PositiveIntegerField(default=9100)
+    #: how /metrics is reached: empty = https on port 443, http otherwise; set when the host was pasted as https://…
+    scheme = models.CharField(max_length=5, blank=True, default="", choices=[("", "Automatic"), ("http", "http"),
+                                                                              ("https", "https")])
     exporter_kind = models.CharField(max_length=40, blank=True, default="")
     credential = models.ForeignKey(Credential, on_delete=models.SET_NULL, null=True, blank=True,
                                    related_name="targets")
@@ -240,6 +243,8 @@ class OnboardingTarget(models.Model):
     exporter = models.ForeignKey("observe.Exporter", on_delete=models.SET_NULL, null=True, blank=True,
                                  related_name="onboarding_targets")
     first_sample_at = models.DateTimeField(null=True, blank=True)
+    #: set while an install over SSH runs on the host, so a second request (a retry after a timeout) cannot start another
+    install_lock_until = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -263,14 +268,18 @@ class OnboardingTarget(models.Model):
         return JOB_LABELS.get(self.target_type, "node")
 
     @property
+    def url_scheme(self):
+        """http or https for this target's /metrics (and its Prometheus API)."""
+        return self.scheme if self.scheme in ("http", "https") else ("https" if self.port == 443 else "http")
+
+    @property
     def metrics_url(self):
         host = (self.address or self.hostname or "").strip()
         if not host:
             return ""
         if ":" in host:
             host = f"[{host}]"
-        scheme = "https" if self.port == 443 else "http"
-        return f"{scheme}://{host}:{self.port}/metrics"
+        return f"{self.url_scheme}://{host}:{self.port}/metrics"
 
     @property
     def site(self):

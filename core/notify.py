@@ -16,10 +16,10 @@ event or when flush() is called (run_probes --once calls it before exiting). The
 import json
 import logging
 import os
+import ssl
 import threading
 import time
 import urllib.parse
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 from django.conf import settings
@@ -52,10 +52,56 @@ if hasattr(os, "register_at_fork"):
     os.register_at_fork(after_in_child=_reset_after_fork)
 
 
+def _connection(scheme, host, ip, port, timeout):
+    """The pinned connection to one webhook receiver (one place to replace in tests so no socket is opened)."""
+    from probes.checks import _PinnedHTTPConnection, _PinnedHTTPSConnection
+
+    if scheme == "https":
+        return _PinnedHTTPSConnection(host, ip, port, timeout, ssl.create_default_context())
+    return _PinnedHTTPConnection(host, ip, port, timeout)
+
+
 def _post(url, payload, timeout=5):
-    req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310 - URLs come from operator settings
-        return r.status
+    """POST the JSON payload to a webhook receiver under the probe SSRF policy.
+
+    http(s) only, no credentials in the URL, the host is resolved through probes.checks.resolve_allowed (link-local and
+    metadata ranges are always refused; private receivers must be listed in PROBE_ALLOWED_PRIVATE_CIDRS), the
+    connection is pinned to the validated address and redirects are never followed. Any non-2xx answer is a failure.
+    Error messages never contain the URL (Slack/Teams tokens live in the path)."""
+    from probes.checks import ProbeBlocked, resolve_allowed
+
+    try:
+        parts = urllib.parse.urlsplit(str(url or "").strip())
+        host, port = parts.hostname, parts.port
+    except ValueError:
+        raise ValueError("webhook URL is not valid") from None
+    if parts.scheme not in ("http", "https") or not host:
+        raise ValueError("webhook URL must be an http:// or https:// address")
+    if parts.username or parts.password:
+        raise ValueError("webhook URL must not carry a user name or password")
+    port = port or (443 if parts.scheme == "https" else 80)
+    try:
+        ip = resolve_allowed(host, port)
+    except ProbeBlocked as e:
+        raise OSError(f"webhook target refused by the probe policy: {e}") from None
+    path = parts.path or "/"
+    if parts.query:
+        path += "?" + parts.query
+    conn = _connection(parts.scheme, host, ip, port, timeout)
+    try:
+        conn.request("POST", path, body=json.dumps(payload).encode(),
+                     headers={"Content-Type": "application/json", "User-Agent": "LinkedEye-Notify/1.0"})
+        resp = conn.getresponse()
+        resp.read(65536)
+        status = resp.status
+    finally:
+        try:
+            conn.close()
+        except OSError:
+            pass
+    if not 200 <= status < 300:
+        raise OSError(f"webhook answered HTTP {status}")
+    return status
 
 
 def _log_url(url):
@@ -94,9 +140,16 @@ def _safe_error(url, e):
     return text
 
 
+def _subject(text):
+    """One header line: a title with a line break would make Django refuse the whole e-mail."""
+    return " ".join(str(text or "").split())[:200]
+
+
 def _send(payload, subject, text_body, html_body=None):
     """Send one notification to every configured channel. Returns how many channels accepted it. Never raises."""
     from administration import integration_config as ic
+
+    subject = _subject(subject)
 
     sent = 0
     hook_payload = dict(payload)

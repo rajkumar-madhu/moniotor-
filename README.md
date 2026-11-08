@@ -124,6 +124,13 @@ automation/      runbooks, StackStorm, event workflows, templates
 administration/  users & roles, sites, audit log, integrations, system health
 reports/         report library (CSV, preview, scheduled e-mail) and cross-module analytics
 agent/           Ops Agent: site-scoped threads, retrieval tools, optional model
+ipam/            IP address management
+dcim/            data centre inventory: racks, rooms, equipment
+compute/         compute & virtualization: hosts, VMs, host metrics
+onboarding/      onboarding wizard: sites, servers, devices, exporters, Prometheus discovery
+k8s/             Kubernetes inventory imported from the client workbook
+apm/             APM: adapter matrix, process status, execution logs
+architecture/    data centre architecture view (spine-leaf)
 hardware/        Server hardware over Redfish (Dell iDRAC, HPE iLO, read-only): the Hardware tab of a physical server, BMC endpoints, control requests (records only)
 hypervisor/      vCenter (read-only): VM detail tabs, datastores, VM-to-device matching, control requests (records only)
 docs/            structure, module contract, integration, deployment

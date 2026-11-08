@@ -33,6 +33,15 @@ deploy/*
 docker-compose*.yml
 Dockerfile
 
+# The legacy Global LinkedEye project (backend/: Read.me, SECRETS_AUDIT.md, vault keys, Keycloak / Vault compose files,
+# entrypoint.py) and the written docs are not used by the console and must not reach every registry that holds the image.
+# Kept on purpose: iframeGraphs/ (device front panels) and backend/template/DIRECT (onboarding templates), both read by
+# network/legacy_panels.py.
+backend/*
+!backend/template
+docs
+*.md
+
 # editor / OS noise
 .idea
 .vscode

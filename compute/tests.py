@@ -680,3 +680,57 @@ class K8sTests(Base):
         self.assertContains(r, "Prometheus is not connected")
         self.assertContains(r, "kube-state-metrics")
         self.assertContains(r, "kube_deployment_status_replicas_unavailable")
+
+
+# ---------------------------------------------------------------------------------------------- review fixes
+@PROM
+class PrometheusOutageTests(Base):
+    """ipam-dcim-compute-3: with Prometheus down the pages and the job make one slow call, not one per cluster."""
+
+    def setUp(self):
+        super().setUp()
+        for n in range(4):
+            Cluster.objects.create(tenant_key=T, name=f"k8s-extra-{n}", kind="kubernetes", site=MUM,
+                                   prometheus_selector=f'cluster="extra-{n}"')
+
+    def test_kubernetes_page_asks_prometheus_once(self):
+        c = self.login(self.operator)
+        down = PrometheusError("Prometheus unreachable: timed out")
+        with mock.patch("core.prometheus.query", side_effect=down) as q:
+            r = c.get(reverse("compute:kubernetes"))
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual(q.call_count, 1)                 # 5 clusters on the page, one failed call
+            self.assertContains(r, "unreachable")
+            c.get(reverse("compute:kubernetes"))
+            self.assertEqual(q.call_count, 1)                 # a second view within the outage window: none
+        cache.clear()
+        with mock.patch("core.prometheus.query", side_effect=k8s_rows):
+            r = c.get(reverse("compute:kubernetes"))
+        self.assertEqual(r.context["totals"]["live"], 1)       # recovers as soon as the window is over
+
+    def test_a_query_error_does_not_short_circuit(self):
+        c = self.login(self.operator)
+        with mock.patch("core.prometheus.query", side_effect=PrometheusError("parse error: bad expression")) as q:
+            c.get(reverse("compute:kubernetes"))
+        self.assertEqual(q.call_count, 5)
+
+    def test_job_stops_after_the_first_outage(self):
+        with mock.patch("core.prometheus.query", side_effect=PrometheusError("Prometheus unreachable: timed out")) as q:
+            out = jobs.collect_k8s()
+        self.assertEqual(q.call_count, 1)
+        self.assertIn("stopped early (Prometheus unreachable)", out)
+        self.assertTrue(Cluster.objects.exclude(k8s_error="").filter(kind="kubernetes").exists())
+
+    def test_job_time_budget(self):
+        with mock.patch("core.prometheus.query", side_effect=k8s_rows) as q, mock.patch.object(jobs, "MAX_SECONDS", -1):
+            out = jobs.collect_k8s()
+        self.assertIn("1 kubernetes cluster(s) collected", out)
+        self.assertIn("time budget spent", out)
+
+    def test_manual_collect_ignores_the_outage_window(self):
+        cache.set(k8s.OUTAGE_KEY, "Prometheus unreachable: x", 60)
+        c = self.login(self.operator)
+        with mock.patch("core.prometheus.query", side_effect=k8s_rows):
+            c.post(reverse("compute:cluster_refresh", args=[self.k8s.pk]), follow=True)
+        self.k8s.refresh_from_db()
+        self.assertEqual(self.k8s.k8s_state, "warning")

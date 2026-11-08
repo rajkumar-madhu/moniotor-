@@ -26,8 +26,8 @@ class WalkTests(OnboardingTestCase):
         run = OnboardingRun.objects.get()
         self.assertRedirects(resp, url(run, "targets"))
         self.assertEqual((run.site, run.status, run.tenant_key), ("Mumbai", RunStatus.DRAFT, "default"))
-        self.c.post(url(run, "targets"), {"action": "add", "hosts": "db-01\nweb-01:9100\napp-02, url, 9100",
-                                          "target_type": "url"})
+        self.c.post(url(run, "targets"), {"action": "add", "hosts": "db-01\nweb-01:9100\napp-02, linux, 9100",
+                                          "target_type": "linux"})
         self.assertEqual(run.targets.count(), 3)
         self.c.post(url(run, "credentials"), {"action": "save", "name": "m-ssh", "kind": "ssh_password",
                                               "username": "svc", "secret": SECRET, "apply_to": "all"})

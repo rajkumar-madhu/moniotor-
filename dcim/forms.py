@@ -222,6 +222,10 @@ class CoolingUnitForm(_Base):
                                                           "placeholder": 'e.g. crah_supply_celsius{unit="crah-01"}'}),
                    "return_query": forms.TextInput(attrs={"class": "mono", "autocapitalize": "off", "spellcheck": "false",
                                                           "placeholder": 'e.g. crah_return_celsius{unit="crah-01"}'})}
+        help_texts = {"supply_query": "Optional PromQL returning the supply air/water temperature in °C. "
+                                      "If it matches several sensors their mean is used.",
+                      "return_query": "Optional PromQL returning the return air/water temperature in °C. "
+                                      "If it matches several sensors their mean is used."}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

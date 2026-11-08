@@ -1,10 +1,13 @@
 import csv
 import hmac
 import io
+import json
+import logging
 from datetime import timedelta
 
 from django.conf import settings
 from django.contrib import messages
+from django.core.cache import cache
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
@@ -19,11 +22,18 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from core.access import can, require
-from core.audit import audit
+from core.audit import _ip, audit
 
 from . import services
 from .forms import ExporterForm, ImportForm
 from .models import CATEGORY_STYLE, EXPORTER_TYPES, Category, Exporter, ExporterStatus, LogLevel
+
+
+def _ingest_token():
+    """The log-ingest bearer token: the Administration > Integrations override, else LINKEDEYE_LOG_INGEST_TOKEN."""
+    from administration import integration_config as ic
+
+    return ic.log_ingest_token()
 
 PER_CHOICES = (10, 20, 50, 100)
 # a % change against a tiny previous period is noise (2 -> 400 lines = +19,900 %): only show it above these bases
@@ -174,7 +184,7 @@ def exporters(request):
         "recent_events": events.order_by("-occurred_at")[:8],
         "tail": [services.log_row(e) for e in logs.filter(ts__gte=now - timedelta(hours=1))[:12]],
         "tail_sources": tail_sources, "categories": Category.choices, "statuses": ExporterStatus.choices,
-        "sites": services.site_names(scope), "ingest_configured": bool(settings.LOG_INGEST_TOKEN),
+        "sites": services.site_names(scope, user=request.user), "ingest_configured": bool(_ingest_token()),
         **_perms(request),
     }
     return render(request, "observe/exporters.html", ctx)
@@ -208,7 +218,7 @@ def exporter_form(request, pk=None):
             initial["category"] = request.GET["category"]
         if request.GET.get("site"):
             initial["site"] = request.GET["site"]
-    form = ExporterForm(request.POST or None, instance=exp, initial=initial)
+    form = ExporterForm(request.POST or None, instance=exp, initial=initial, user=request.user)
     if request.method == "POST" and form.is_valid():
         site = form.cleaned_data.get("site", "")
         if not services.can_manage(request.user, "operate", site):
@@ -421,7 +431,7 @@ def _import_rows(request, text, update_existing):
             else:
                 data[field] = row.get(col, "")
         data["category"] = cat
-        form = ExporterForm(data, instance=existing)
+        form = ExporterForm(data, instance=existing, user=request.user)
         if data["site"] and data["site"] not in dict(form.fields["site"].choices):
             form.fields["site"].choices = list(form.fields["site"].choices) + [(data["site"], data["site"])]
         if not form.is_valid():
@@ -457,7 +467,7 @@ def _import_rows(request, text, update_existing):
 @require_GET
 def exporters_docs(request):
     return render(request, "observe/docs.html", {
-        "ingest_configured": bool(settings.LOG_INGEST_TOKEN),
+        "ingest_configured": bool(_ingest_token()),
         "ingest_url": request.build_absolute_uri(reverse("observe:log_ingest")),
         "retention_days": getattr(settings, "LOG_RETENTION_DAYS", 14),
         "max_entries": services.MAX_ENTRIES, "max_kb": services.MAX_BYTES // 1024,
@@ -572,10 +582,11 @@ def logs(request):
     ctx = {
         "page": page, "query": _query(request), "info": info, "ranges": services.RANGES, "levels": LogLevel.choices,
         "level_counts": level_counts, "level_total": sum(level_counts.values()), "sources": sources,
-        "sites": services.site_names(base.filter(ts__gte=now - timedelta(days=7)), services.exporters_for(request.user)),
+        "sites": services.site_names(base.filter(ts__gte=now - timedelta(days=7)), services.exporters_for(request.user),
+                                    user=request.user),
         "events": events.order_by("-occurred_at")[:15], "ev_sources": ev_sources, "severities": SEVERITIES,
         "ev_query": _query(request, "eseverity", "esource"),
-        "ingest_configured": bool(settings.LOG_INGEST_TOKEN),
+        "ingest_configured": bool(_ingest_token()),
         "retention_days": getattr(settings, "LOG_RETENTION_DAYS", 14),
         "level_links": _level_links(request, level_counts),
         "host_clear": _query(request, "host").urlencode(),
@@ -625,7 +636,8 @@ def logs_feed(request):
 @require_GET
 def logs_export(request):
     qs, _info = _filter_logs(request.GET, services.logs_for(request.user))
-    rows = ([e.ts.isoformat(), e.level, e.source, e.host, e.site, e.message, e.attributes or ""]
+    rows = ([e.ts.isoformat(), e.level, e.source, e.host, e.site, e.message,
+             json.dumps(e.attributes, ensure_ascii=False, separators=(",", ":"), default=str) if e.attributes else ""]
             for e in qs.order_by("-ts", "-id")[:EXPORT_LIMIT].iterator())
     return _stream_csv("logs.csv", ["ts", "level", "source", "host", "site", "message", "attributes"], rows)
 
@@ -673,6 +685,32 @@ def _api_error(text, status):
     return JsonResponse({"error": text}, status=status)
 
 
+log = logging.getLogger("linkedeye.observe")
+AUTH_FAIL_LIMIT = 30         # failed token checks per source address per minute, then 429 (LOG_INGEST_AUTH_FAIL_LIMIT)
+RATE_PER_MINUTE = 600        # accepted-token requests per source address per minute, then 429 (LOG_INGEST_RATE_PER_MINUTE)
+
+
+def _counter(key, window=60):
+    """Fixed-window counter in the cache; returns the new value (0 when the cache is unusable: never blocks shippers)."""
+    try:
+        if cache.add(key, 1, window):
+            return 1
+        try:
+            return cache.incr(key)
+        except ValueError:
+            cache.set(key, 1, window)
+            return 1
+    except Exception:  # noqa: BLE001
+        log.warning("log ingest rate limiting unavailable", exc_info=True)
+        return 0
+
+
+def _too_many(text):
+    resp = _api_error(text, 429)
+    resp["Retry-After"] = "60"
+    return resp
+
+
 @csrf_exempt
 def log_ingest(request):
     """POST /api/v1/logs/ with `Authorization: Bearer <LINKEDEYE_LOG_INGEST_TOKEN>`.
@@ -681,15 +719,25 @@ def log_ingest(request):
         resp = _api_error("Use POST", 405)
         resp["Allow"] = "POST"
         return resp
-    token = getattr(settings, "LOG_INGEST_TOKEN", "") or ""
+    token = _ingest_token()
     if not token:
         return _api_error("Log ingest is disabled: set LINKEDEYE_LOG_INGEST_TOKEN on the server.", 503)
     auth = request.headers.get("Authorization", "")
     scheme, _, given = auth.partition(" ")
+    ip = _ip(request) or "unknown"
     if scheme.lower() != "bearer" or not hmac.compare_digest(given.strip().encode(), token.encode()):
+        # failed attempts are counted per source address; a valid token is never refused because of them
+        fails = _counter(f"observe:ingest:authfail:{ip}")
+        limit = getattr(settings, "LOG_INGEST_AUTH_FAIL_LIMIT", AUTH_FAIL_LIMIT)
+        if fails == 1 or fails == limit + 1:
+            log.warning("log ingest: rejected bearer token from %s (%s failed attempt(s) this minute)", ip, fails)
+        if fails > limit:
+            return _too_many("Too many failed attempts")
         resp = _api_error("Invalid or missing bearer token", 401)
         resp["WWW-Authenticate"] = 'Bearer realm="linkedeye-logs"'
         return resp
+    if _counter(f"observe:ingest:rate:{ip}") > getattr(settings, "LOG_INGEST_RATE_PER_MINUTE", RATE_PER_MINUTE):
+        return _too_many("Too many requests: slow the shipper down or send larger batches")
     try:
         length = int(request.META.get("CONTENT_LENGTH") or 0)
     except ValueError:

@@ -38,7 +38,7 @@
         <td>{{ l.vendor|default:"–" }}</td>
         <td>{% if l.software %}<a href="{% url 'cmdb:software_detail' l.software_id %}">{{ l.software }}</a>{% else %}<span class="t-mute" title="Link a software title to count usage">not linked</span>{% endif %}</td>
         <td>{{ l.license_type|default:"–" }}</td>
-        <td class="cm-usage-col"><div class="cm-ubar{% if l.over_allocated %} over{% elif l.bar >= 90 %} high{% endif %}" title="{{ l.used }} of {{ l.seats }} seats used"><span class="cm-bar"><i style="width:{{ l.bar }}%"></i></span><span>{{ l.used }}/{{ l.seats }}</span></div></td>
+        <td class="cm-usage-col"><div class="cm-ubar{% if l.over_allocated %} over{% elif l.bar >= 90 %} high{% endif %}" title="{{ l.used }} installs of the software against {{ l.capacity }} seats across its current licences"><span class="cm-bar"><i style="width:{{ l.bar }}%"></i></span><span>{{ l.used }}/{{ l.capacity }}</span></div></td>
         <td>{% if l.expiry %}{{ l.expiry|date:"d M Y" }} <small class="{{ l.d_cls }}">{% include "cmdb/_days.html" with d=l.days_left %}</small>{% else %}<span class="t-mute">No expiry</span>{% endif %}</td>
         <td>{% if l.state == "expired" %}<span class="badge crit">{% ficon "x-circle" 13 %}Expired</span>{% elif l.state == "over" %}<span class="badge crit">{% ficon "alert" 13 %}Over-allocated</span>{% elif l.state == "expiring" %}<span class="badge warn">{% ficon "clock" 13 %}Expiring</span>{% else %}<span class="badge ok">{% ficon "check-circle" 13 %}Compliant</span>{% endif %}</td>
         <td><div class="row-actions">
@@ -56,7 +56,7 @@
     </div>
     <div class="panel">
       <div class="panel-h"><h2>Over-allocated</h2></div>
-      {% if over %}<ul class="cm-list">{% for l in over %}<li><a href="{% if can_edit_global %}{% url 'cmdb:license_edit' l.pk %}{% else %}?q={{ l.product|urlencode }}{% endif %}">{{ l.product }}</a><small class="t-crit">{{ l.used }} installs for {{ l.seats }} seats</small></li>{% endfor %}</ul>
+      {% if over %}<ul class="cm-list">{% for l in over %}<li><a href="{% if can_edit_global %}{% url 'cmdb:license_edit' l.pk %}{% else %}?q={{ l.product|urlencode }}{% endif %}">{{ l.product }}</a><small class="t-crit">{{ l.used }} installs for {{ l.capacity }} seats</small></li>{% endfor %}</ul>
       {% else %}<p class="empty">No license has more installations than seats.</p>{% endif %}
     </div>
   </div>

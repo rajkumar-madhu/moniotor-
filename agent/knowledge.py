@@ -1,4 +1,6 @@
 """Lexical (and optional vector) retrieval over KnowledgeChunk rows."""
+import hashlib
+import logging
 import math
 import re
 
@@ -16,6 +18,8 @@ STOP = frozenset("the a an of to for and or in on at is are was be from with by 
 CHUNK_CAP = 800
 EVENT_CAP = 400
 BODY_CAP = 800
+
+log = logging.getLogger("linkedeye.agent")
 
 
 def tokenize(text):
@@ -60,9 +64,12 @@ def retrieve(user, site, query, limit=8):
     qs = scope_by_site(qs, user)
     if site:
         qs = qs.filter(Q(site=site) | Q(site="") | Q(site="All Sites"))
+    use_vectors = configured()
+    if not use_vectors:
+        qs = qs.defer("embedding")   # lexical scoring never reads the (large) vectors
     chunks = _safe(lambda: list(qs.order_by("-updated_at")[:CHUNK_CAP]), [])
     query_vec = []
-    if configured() and any(c.embedding for c in chunks):
+    if use_vectors and any(c.embedding for c in chunks):
         try:
             query_vec = (embed([q]) or [None])[0] or []
         except Exception:
@@ -96,15 +103,31 @@ def reindex(embed_vectors=True):
     need_embed = []
     for r in rows:
         key = (r["source"], r["source_id"])
+        if key in keep:   # two records produced the same key in one pass: the first one wins, never an IntegrityError
+            log.debug("knowledge index: duplicate key %s skipped", key)
+            continue
         keep.add(key)
-        chunk = existing.get(key) or Chunk(tenant_key=tenant, source=r["source"], source_id=r["source_id"])
         title, body, href, site = r["title"][:200], r["body"][:4000], r["href"][:400], r["site"]
-        changed = (not chunk.pk) or chunk.title != title or chunk.body != body or chunk.site != site
-        chunk.site, chunk.title, chunk.body, chunk.href, chunk.updated_at = site, title, body, href, now
-        chunk.save()
+        chunk = existing.get(key)
+        try:
+            if chunk is None:
+                chunk = Chunk.objects.create(tenant_key=tenant, source=r["source"], source_id=r["source_id"],
+                                             site=site, title=title, body=body, href=href, updated_at=now)
+                existing[key] = chunk
+                need_embed.append(chunk)
+            elif (chunk.title, chunk.body, chunk.site, chunk.href) != (title, body, site, href):
+                chunk.site, chunk.title, chunk.body, chunk.href, chunk.updated_at = site, title, body, href, now
+                chunk.save(update_fields=["site", "title", "body", "href", "updated_at"])
+                need_embed.append(chunk)
+            elif not chunk.embedding:
+                need_embed.append(chunk)
+            # unchanged: no write at all (updated_at keeps meaning "last changed", embeddings stay put)
+        except Exception:
+            log.exception("knowledge index: could not store %s", key)
+            if existing.get(key) is None:
+                keep.discard(key)
+            continue
         saved.append(chunk)
-        if changed or not chunk.embedding:
-            need_embed.append(chunk)
     stale = [c.pk for key, c in existing.items() if key not in keep]
     if stale:
         Chunk.objects.filter(pk__in=stale).delete()
@@ -124,6 +147,13 @@ def reindex(embed_vectors=True):
     return f"indexed {len(saved)} chunk(s), {embedded} with embeddings"
 
 
+def _problem_key(p):
+    """Stable, unique key of one problem: kind plus a digest of what identifies it (name, site and link), so two
+    alerts with the same alertname on different instances, or very long names, never share a key."""
+    ident = "|".join(str(p.get(k) or "") for k in ("kind", "name", "site", "href"))
+    return f"{p.get('kind')}:{hashlib.sha1(ident.encode()).hexdigest()[:24]}"[:80]
+
+
 def _collect(tenant):
     rows = []
     Event = overview_model("core", "Event")
@@ -137,7 +167,7 @@ def _collect(tenant):
             })
     for p in _safe(lambda: overview_problems(None, limit=80), []):
         rows.append({
-            "source": "problem", "source_id": f"{p.get('kind')}:{p.get('name')}:{p.get('site')}"[:80],
+            "source": "problem", "source_id": _problem_key(p),
             "site": p.get("site") or "", "title": f"{p.get('kind')} {p.get('name')}",
             "body": f"{p.get('status')} {p.get('detail') or ''}", "href": p.get("href") or "",
         })

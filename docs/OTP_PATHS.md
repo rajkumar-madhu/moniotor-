@@ -2,6 +2,26 @@
 
 LinkedEye uses **email OTP** (and optional **Google Authenticator / TOTP**) on the **legacy Flask/Django backend** under `backend/`. The **Django console** (`linkedeye/` at repo root) supports optional **e-mail OTP after password** when `LINKEDEYE_LOGIN_OTP` is enabled (default: on in production, off when `LINKEDEYE_DEBUG=true` unless `LINKEDEYE_LOGIN_OTP=true`).
 
+### Django console: how the code is kept and limited
+
+The pending code is a row in `core.LoginOtp` (keyed hash only, never the code), not a cache entry, so every worker and pod sees it. A code lives 5 minutes and is burnt after 5 wrong guesses (the user must request a new one); a new code is mailed at most once a minute and 6 times an hour per account, and 20 times an hour per client address (`core.LoginOtpCounter`). Wrong codes are also counted per client address with the same limit as the password step (`LINKEDEYE_LOGIN_MAX_FAILURES_PER_IP` / `LINKEDEYE_LOGIN_WINDOW_MINUTES`). Signing in again inside the one-minute cooldown reuses the code that was just mailed.
+
+### Django console: paths reachable without a session
+
+`core.middleware.PUBLIC_PREFIXES` is the list; every other URL redirects to the sign-in page (JSON `/api/` calls get 401). While a code is pending (`otp_pending_user_id` in the session) the same list stays reachable and every other path redirects to `/accounts/verify-otp/`.
+
+| Prefix | Purpose |
+|---|---|
+| `/welcome/` | public welcome page |
+| `/accounts/login/`, `/accounts/verify-otp/`, `/accounts/resend-otp/` | password step, code entry, code resend |
+| `/static/` | static files |
+| `/healthz` | liveness and readiness (checks the database) |
+| `/api/v1/alertmanager/`, `/api/v1/logs/` | machine endpoints with their own bearer token |
+| `/api/sd/` | Prometheus `http_sd` for onboarded targets (bearer token from the credential vault) |
+| `/api/apm/` | APM push and command API (per-source bearer token; a browser session never authenticates it) |
+
+Logout (`/accounts/logout/`) is also allowed while a code is pending.
+
 ## Legacy backend — OTP HTTP paths
 
 | Path | Name | Purpose |

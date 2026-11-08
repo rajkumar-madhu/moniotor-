@@ -25,7 +25,7 @@
       <span class="hm-live-err" id="hm-live-err" role="alert" hidden></span>
     </div>{% endif %}
     <a class="btn" href="{% url 'telemetry:host_detail' instance %}?range={{ range_key }}">{% icon "chevron-left" 17 %}Overview</a>
-    {% if prom_configured %}<a class="btn" href="?range={{ range_key }}&amp;refresh=1">{% icon "refresh" 17 %}Refresh</a>{% endif %}
+    {% if prom_configured and can_operate %}<a class="btn" href="?range={{ range_key }}&amp;refresh=1">{% icon "refresh" 17 %}Refresh</a>{% endif %}
   </div>
 </div>
 

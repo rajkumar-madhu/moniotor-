@@ -1,4 +1,4 @@
-LinkedEye — {{ severity_label }}: {{ title }}
+{% autoescape off %}LinkedEye — {{ severity_label }}: {{ title }}
 
 {% if message %}{{ message }}
 
@@ -9,4 +9,4 @@ When: {{ occurred_at }}{% endif %}{% if kind %}
 Kind: {{ kind }}{% endif %}{% if object_type %}
 Object: {{ object_type }}{% if object_id %}:{{ object_id }}{% endif %}{% endif %}
 
-Sent by LinkedEye monitoring and ITSM.
+Sent by LinkedEye monitoring and ITSM.{% endautoescape %}

@@ -8,6 +8,7 @@ from vault.models import VaultModel
 from django.template import loader
 from login.decorators import role_required
 from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_POST
 import logging
 
 logger = logging.getLogger(__name__)
@@ -129,14 +130,17 @@ def getfilenames(request):
 
 @login_required(login_url="/")
 @role_required(allowed_roles=["Admin"])
+@require_POST
 def changeStatus(request):
     """
     Change Vault seal status.
     HIGH FIX #15: Create Vault instance per request.
+    SECURITY: state-changing, so POST-only and covered by Django's CSRF middleware.
+    The page script must send the current status as a form field and the CSRF token.
     """
     try:
         response = {}
-        status = request.GET['status']
+        status = request.POST['status']
         # HIGH FIX #15: Create Vault instance per request
         temp_vault = Vault()
         

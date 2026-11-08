@@ -9,7 +9,9 @@ gunicorn>=22,<24
 whitenoise>=6.6,<7
 # Credential vault (onboarding): Fernet encryption at rest. Ships manylinux wheels, so no compiler
 # is needed. Without it LinkedEye refuses to store a secret (there is no plaintext fallback).
-cryptography>=42,<51
+# Floor 44.0.1: the 42.x and 43.x releases before it carry published advisories (parsing fixes and updated bundled OpenSSL
+# in 42.0.4, 43.0.1 and 44.0.1). Keep it current: CI runs pip-audit against this file and Dependabot proposes updates.
+cryptography>=44.0.1,<51
 # Reads the Kubernetes client inventory workbook (k8s module); imported lazily, so the rest of the
 # app works without it and a CSV import needs nothing extra.
 openpyxl>=3.1,<4

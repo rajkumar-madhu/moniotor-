@@ -1,6 +1,6 @@
 """Persisted client filter for multi-customer tenants (session + ?client=)."""
 from core.access import scope_by_site, visible_sites
-from core.client_sites import clients_for_user, sites_for_client
+from core.client_sites import client_visible, clients_for_user, sites_for_client
 
 SESSION_KEY = "le_client"
 
@@ -10,13 +10,19 @@ def sync_client_session(request):
     if not getattr(request, "user", None) or not request.user.is_authenticated:
         request.le_client = ""
         return ""
-    if "client" in request.GET:
+    asked = "client" in request.GET
+    if asked:
         val = request.GET.get("client", "").strip()
-        if val:
-            request.session[SESSION_KEY] = val
-        else:
+        if not val:
             request.session.pop(SESSION_KEY, None)
-    elif SESSION_KEY not in request.session:
+        elif client_visible(request.user, val):
+            request.session[SESSION_KEY] = val
+        # anything else (a stale bookmark, another user's id, a huge number) is ignored
+    stored = request.session.get(SESSION_KEY, "")
+    stale = bool(stored) and not client_visible(request.user, stored)
+    if stale:
+        request.session.pop(SESSION_KEY, None)
+    if not asked and (stale or SESSION_KEY not in request.session):
         ones = clients_for_user(request.user)
         if len(ones) == 1:
             request.session[SESSION_KEY] = str(ones[0].pk)

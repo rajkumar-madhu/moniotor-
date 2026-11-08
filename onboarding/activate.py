@@ -318,6 +318,7 @@ def link_exporter(target):
 def activate(target, request=None):
     """The ``steps.activate`` hook. See the module docstring. Returns the plain dict the wizard persists."""
     run = target.run
+    request = request or services.acting_request()      # the hook gets no request: audit the operator, not "system"
     created, linked, warnings = [], [], []
     if target.state in (TargetState.UNREACHABLE, TargetState.FAILED):
         warnings.append(f"{target.hostname} was {target.get_state_display().lower()} at the last check; it is "
@@ -325,31 +326,40 @@ def activate(target, request=None):
     elif target.state == TargetState.NEW:
         warnings.append(f"{target.hostname} has not been verified; it is registered on your say-so.")
 
+    records = []                                         # (object, created) for the audit trail
     with transaction.atomic():
         ci, ci_new = link_ci(target)
         (created if ci_new else linked).append("cmdb item")
+        records.append((ci, ci_new))
         device = member = None
         if target.target_type == TargetType.DEVICE or _is_compute(target):
             device, dev_new = link_device(target)
             (created if dev_new else linked).append("network device" if target.target_type == TargetType.DEVICE
                                                     else "compute server")
+            records.append((device, dev_new))
             member = link_cluster_member(target, device)
             if member is not None:
                 linked.append("cluster membership")
         exporter, exp_new = link_exporter(target)
         (created if exp_new else linked).append("exporter")
+        records.append((exporter, exp_new))
         if ci.prometheus_instance != metrics_instance(target) and metrics_instance(target):
             warnings.append(f"CMDB item “{ci.name}” already carries the instance “{ci.prometheus_instance}”; "
                             "it was kept, so telemetry pages find this host under that name.")
 
         target.ci, target.device, target.exporter = ci, device, exporter
-        target.enabled = True                # service-discovery membership
-        target.save(update_fields=["ci", "device", "exporter", "enabled", "updated_at"])
+        # service-discovery membership is the operator's Targets-step choice (target.enabled): a target held back
+        # there is wired into the CMDB, devices and exporters like any other but stays out of discovery
+        target.save(update_fields=["ci", "device", "exporter", "updated_at"])
 
+    for record, is_new in records:                       # every record onboarding creates or links is audited
+        audit(request, "create" if is_new else "update", record, source="onboarding", run=run.pk,
+              hostname=target.hostname, site=run.site, **({} if is_new else {"action_detail": "linked by onboarding"}))
     audit(request, "onboarding.activate.target", target, site=run.site, hostname=target.hostname,
           created=created, linked=linked, ci=ci.pk, device=getattr(device, "pk", None), exporter=exporter.pk)
     parts = [f"created {', '.join(created)}" if created else "", f"linked {', '.join(linked)}" if linked else "",
-             "joined service discovery"]
+             "joined service discovery" if target.enabled else "held back from service discovery (re-enable it on the "
+                                                               "Targets step to serve it)"]
     services.log_step(run, "confirm", "ok", f"{target.hostname}: " + "; ".join(p for p in parts if p),
                       target=target)
     for text in warnings:
@@ -358,7 +368,7 @@ def activate(target, request=None):
     return {"state": TargetState.LIVE if target.state == TargetState.LIVE else TargetState.SCRAPING,
             "ci": ci.pk, "device": getattr(device, "pk", None), "exporter": exporter.pk,
             "cluster_member": getattr(member, "pk", None), "created": created, "linked": linked,
-            "service_discovery": True, "instance": target.instance, "warnings": warnings,
+            "service_discovery": bool(target.enabled), "instance": target.instance, "warnings": warnings,
             "activated_at": timezone.now().isoformat(timespec="seconds")}
 
 

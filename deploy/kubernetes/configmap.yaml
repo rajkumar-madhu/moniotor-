@@ -66,3 +66,10 @@ data:
   # gunicorn: only the ingress controller can reach the web pods (networkpolicy.yaml), so its
   # X-Forwarded-Proto header is trusted from any peer address.
   GUNICORN_FORWARDED_ALLOW_IPS: "*"
+
+  # The same peers for X-Forwarded-For: without this every client has the ingress pod's address, the audit log records
+  # the ingress for everyone, and the per-address sign-in throttle is ONE counter for all users (20 wrong passwords from
+  # anywhere lock the sign-in page for everybody). Comma-separated IPs / CIDRs of the ingress controller's pods (kubectl -n
+  # <controller namespace> get pods -o wide). Keep it narrow: never a range that clients themselves can be in, never
+  # 0.0.0.0/0. The pods refuse to start (healthcheck.py preflight) until the placeholder is replaced.
+  LINKEDEYE_TRUSTED_PROXIES: "<REPLACE: ingress controller pod CIDR, e.g. 10.244.1.0/24>"

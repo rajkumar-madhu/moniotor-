@@ -69,6 +69,12 @@ def can_manage(user, perm, site):
     return any(m.site_id is None and RANK[m.role] >= PERMS[perm] for m in ms)
 
 
+def can_use_stackstorm(user):
+    """StackStorm webhooks run tenant-wide remediation under one API key, so creating, editing, test-running or
+    re-running anything that triggers it needs operate rights on every site (the same rule as the manual trigger)."""
+    return can_manage(user, "operate", "All Sites")
+
+
 def can_see_secrets(user, *sites):
     """Webhook URLs carry their secret in the path (Slack/Teams), so only operators of every given site see them in
     full. Answers are cached on the user object for the request (a page renders many rows)."""
@@ -212,14 +218,27 @@ def _start(kind, trigger, payload, triggered_by="", rule=None, event=None, site=
         return Execution(**fields)
 
 
+def _st2_url():
+    """Console override (Administration > Integrations) first, then settings.STACKSTORM_URL."""
+    from administration import integration_config as ic
+
+    return (ic.stackstorm_url() or "").strip()
+
+
+def _st2_api_key():
+    from administration import integration_config as ic
+
+    return ic.stackstorm_api_key()
+
+
 def stackstorm_configured():
-    return bool(getattr(settings, "STACKSTORM_URL", ""))
+    return bool(_st2_url())
 
 
 def stackstorm_endpoint(trigger=""):
     """settings.STACKSTORM_URL with `trigger` appended to its *path*; a query string (e.g. ``?st2-api-key=…``) and
     fragment are kept after it. Used for triggers and for the connection test alike."""
-    base = (getattr(settings, "STACKSTORM_URL", "") or "").strip()
+    base = _st2_url()
     if not base:
         return ""
     trigger = str(trigger or "").strip().lstrip("/")
@@ -346,8 +365,8 @@ def trigger_stackstorm(trigger, payload, triggered_by="", rule=None, event=None,
         url = stackstorm_endpoint(trigger)
         body = json.dumps(ex.payload, default=str).encode()
         headers = {"Content-Type": "application/json", "Accept": "application/json", "User-Agent": "LinkedEye-Automation/1.0"}
-        if getattr(settings, "STACKSTORM_API_KEY", ""):
-            headers["St2-Api-Key"] = settings.STACKSTORM_API_KEY
+        if _st2_api_key():
+            headers["St2-Api-Key"] = _st2_api_key()
         req = urllib.request.Request(url, data=body, headers=headers, method="POST")
         try:
             with _st2_deadline(ST2_TIMEOUT) as watchdog:
@@ -381,8 +400,8 @@ def test_stackstorm():
     if not stackstorm_configured():
         return False, "StackStorm is not configured (set LINKEDEYE_STACKSTORM_URL)."
     headers = {"Accept": "application/json", "User-Agent": "LinkedEye-Automation/1.0"}
-    if getattr(settings, "STACKSTORM_API_KEY", ""):
-        headers["St2-Api-Key"] = settings.STACKSTORM_API_KEY
+    if _st2_api_key():
+        headers["St2-Api-Key"] = _st2_api_key()
     req = urllib.request.Request(stackstorm_endpoint(), headers=headers, method="GET")
     try:
         # operator-configured URL; redirects are refused and the exchange is bounded as a whole
@@ -414,6 +433,8 @@ def check_webhook_url(url):
     Raises WebhookError with a user-safe message."""
     from probes import checks
     url = str(url or "").strip()
+    if any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in url):
+        raise WebhookError("Webhook URL must not contain spaces or control characters.")
     p = urlsplit(url)
     if p.scheme not in ("http", "https") or not p.hostname:
         raise WebhookError("Webhook URL must start with http:// or https:// and name a host.")
@@ -498,7 +519,10 @@ def post_webhook(url, payload, triggered_by="", rule=None, event=None, site=""):
         try:
             code, raw = _post_pinned(parts, port, ip, body, WEBHOOK_TIMEOUT)
         except (OSError, http.client.HTTPException, ssl.SSLError) as e:
-            return _finish(ex, "failed", error=f"Webhook unreachable: {e.__class__.__name__}: {e}"[:500])
+            # Slack/Teams URLs carry their secret in the path, and exceptions such as InvalidURL quote the request
+            # line: only socket-level errors (which name a host or errno, never the path) keep their text.
+            detail = f": {e}" if isinstance(e, OSError) and not isinstance(e, ssl.SSLError) else ""
+            return _finish(ex, "failed", error=f"Webhook unreachable: {e.__class__.__name__}{detail}"[:500])
         if 200 <= code < 300:
             return _finish(ex, "success", http_status=code, response=raw)
         return _finish(ex, "failed", http_status=code, response=raw, error=f"Webhook returned HTTP {code}")
@@ -540,7 +564,9 @@ def in_cooldown(rule, event, now=None):
     if not rule.cooldown_minutes or rule.pk is None:
         return False
     now = now or timezone.now()
-    return Execution.objects.filter(rule=rule, fingerprint=fingerprint_for(event),
+    # A failed attempt (StackStorm or the webhook was down) must not silence the next alert: only runs that did
+    # something, or are still running, count towards the window.
+    return Execution.objects.filter(rule=rule, fingerprint=fingerprint_for(event), status__in=("success", "pending"),
                                     started_at__gte=now - timedelta(minutes=rule.cooldown_minutes)).exists()
 
 

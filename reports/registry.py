@@ -388,6 +388,16 @@ def generate(report, ctx, limit=MAX_ROWS):
     return rows, ""
 
 
+def export_rows(report, ctx):
+    """Every row of a CSV export, or (rows, error). An export that would exceed MAX_ROWS is refused rather than
+    cut off, so a file that looks complete never is."""
+    rows, error = generate(report, ctx, limit=MAX_ROWS + 1)
+    if not error and len(rows) > MAX_ROWS:
+        return [], (f"The report has more than {MAX_ROWS:,} rows, which is more than one export can hold. "
+                    "Narrow the period or pick a site and try again.")
+    return rows, error
+
+
 def to_csv(report, rows):
     buf = io.StringIO()
     w = csv.writer(buf)

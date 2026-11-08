@@ -82,7 +82,7 @@ def _scan():
                  fingerprint=f"cmdb:lifecycle:{ci.pk}", ci=ci.name, previous=previous)
         emitted += 1
 
-    for lic in License.objects.filter(tenant_key=tenant).select_related("software"):
+    for lic in License.prime(License.objects.filter(tenant_key=tenant).select_related("software")):
         flag, days = license_flag(lic)
         if flag == lic.alert_flag:
             continue
@@ -99,7 +99,7 @@ def _scan():
         elif flag == "expiring":
             title = f"License {lic.product} expires on {lic.expiry.isoformat()} ({days} days)"
         elif flag == "over":
-            title = f"License {lic.product} over-allocated: {lic.used} installs for {lic.seats} seats"
+            title = f"License {lic.product} over-allocated: {lic.used} installs for {lic.capacity} seats"
         else:
             title = f"License {lic.product} back within terms"
         emit("cmdb", title, severity="warning" if flag else "ok", kind="license", obj=lic,

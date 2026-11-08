@@ -26,6 +26,16 @@ def finite(v):
     return isinstance(v, (int, float)) and not isinstance(v, bool) and not math.isnan(v) and not math.isinf(v)
 
 
+_OUTAGE_PREFIXES = ("Prometheus unreachable", "Prometheus returned HTTP 5", "Prometheus is not connected")
+
+
+def is_outage(error):
+    """True for a failure every other query will hit too (unreachable / timeout / 5xx / not an API answer), as
+    opposed to one bad query. Loops stop asking Prometheus after one."""
+    text = str(error)
+    return text.startswith(_OUTAGE_PREFIXES) or "not a valid API response" in text or text == BAD_RESPONSE
+
+
 def query(promql):
     """core.prometheus.query that turns malformed responses into PrometheusError (never a 500)."""
     try:

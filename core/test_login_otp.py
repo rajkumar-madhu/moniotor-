@@ -3,7 +3,9 @@ from django.core import mail
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
-from core.login_otp import cache_key, store_otp
+import re
+
+from core.login_otp import store_otp
 from core.models import Membership, Site
 
 
@@ -20,9 +22,7 @@ class LoginOTPFlowTests(TestCase):
         self.assertRedirects(r, reverse("verify_otp"))
         self.assertEqual(self.client.session.get("otp_pending_user_id"), self.user.pk)
         self.assertEqual(len(mail.outbox), 1)
-        from django.core.cache import cache
-
-        otp = cache.get(cache_key(self.user.pk))["otp"]
+        otp = re.search(r"\b(\d{6})\b", mail.outbox[0].body).group(1)
         r2 = self.client.post(reverse("verify_otp"), {"otp": otp})
         self.assertEqual(r2.status_code, 302)
         self.assertNotIn("otp_pending_user_id", self.client.session)
@@ -53,7 +53,13 @@ class LoginOTPFlowTests(TestCase):
     def test_resend_otp(self):
         self.client.post(reverse("login"), {"username": "otpuser", "password": "Good-Pass-Word-9!"})
         n = len(mail.outbox)
-        r = self.client.post(reverse("resend_otp"))
+        from datetime import timedelta
+        from unittest import mock
+
+        from django.utils import timezone
+
+        with mock.patch("django.utils.timezone.now", return_value=timezone.now() + timedelta(seconds=90)):
+            r = self.client.post(reverse("resend_otp"))
         self.assertRedirects(r, reverse("verify_otp"))
         self.assertEqual(len(mail.outbox), n + 1)
 

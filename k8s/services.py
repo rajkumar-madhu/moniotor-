@@ -12,9 +12,12 @@ Public helpers other modules (and the module's own later pages) may use:
     k8s.services.last_run(user)                    newest ImportRun, or None
     k8s.services.optional_counts(user)             KPI numbers for sheets whose pages are not built yet
 """
+from datetime import timedelta
+
 from django.apps import apps
 from django.conf import settings
 from django.db.models import Count, Q, Sum
+from django.utils import timezone
 
 from core.access import PERMS, RANK, _memberships, can, scope_by_site, visible_sites
 
@@ -81,8 +84,40 @@ def profiles_for(user):
 
 
 def runs_for(user):
-    """Import runs are tenant-wide (only a tenant-wide admin can create one), newest first."""
-    return ImportRun.objects.filter(tenant_key=tenant()).select_related("uploaded_by")
+    """Import runs the user may see, newest first.
+
+    Only a tenant-wide admin can create a run, but runs carry the site they were filed under (their file
+    name, uploader and per-sheet row counts describe that site's estate), so a site-limited user sees the runs
+    of their own sites and the "All Sites" ones, like every other k8s queryset. ``user=None`` is unscoped.
+    """
+    qs = ImportRun.objects.filter(tenant_key=tenant()).select_related("uploaded_by")
+    return qs if user is None else scope_by_site(qs, user)
+
+
+STALE_RUN_AFTER = timedelta(hours=1)
+
+
+def fail_stale_runs(now=None):
+    """Mark import runs still "running" long after they started as failed; returns how many.
+
+    A run is created before its sheets are read, so a web worker killed mid-import (gunicorn's timeout) or a
+    crashed CLI leaves it "running" for ever with nothing to tell the admin. The unfinished sheet was rolled
+    back with the process, so "failed" is accurate.
+    """
+    now = now or timezone.now()
+    stale = ImportRun.objects.filter(tenant_key=tenant(), status=ImportStatus.RUNNING,
+                                     started_at__lt=now - STALE_RUN_AFTER)
+    count = 0
+    for run in stale:
+        run.status = ImportStatus.FAILED
+        run.finished_at = now
+        run.errors = list(run.errors or []) + [
+            "The import did not finish: the process running it stopped before it could report (for example "
+            "the web worker hit its time limit on a very large workbook). Nothing from the unfinished sheet "
+            "was kept; import the file again, or use manage.py import_k8s_inventory for a large one."]
+        run.save(update_fields=["status", "finished_at", "errors", "updated_at"])
+        count += 1
+    return count
 
 
 def last_run(user=None):
@@ -146,13 +181,15 @@ EXTRA_METRICS = [
     ("ingresses", "06_Ingress_URLs", ("k8s", "Ingress")),
     ("volumes", "07_PV_PVC_Storage", ("k8s", "Volume")),
     ("certificates", "09_Certificate_Inventory", ("k8s", "Certificate")),
-    ("tools", "11_CICD_Platform_Tools", ("k8s", "PlatformTool")),
-    ("issues", "12_Issues_Risks", ("k8s", "Issue")),
+    ("tools", "11_CICD_Platform_Tools", ("k8s", "ToolInstance")),
+    ("issues", "12_Issues_Risks", ("k8s", "InventoryIssue")),
 ]
 
 
-def _model_count(app_label, model_name, user):
-    """Count a model that may not exist yet; None when it is absent, so the page can say so."""
+def _model_count(app_label, model_name, user, site=""):
+    """Count a model that may not exist yet; None when it is absent, so the page can say so.
+
+    Scoped to the user's sites and, when the page has a site filter, to that site."""
     try:
         model = apps.get_model(app_label, model_name)
     except LookupError:
@@ -163,29 +200,39 @@ def _model_count(app_label, model_name, user):
         qs = qs.filter(tenant_key=tenant())
     if "site" in field_names:
         qs = scope_by_site(qs, user)
+        site_field = "site"
     elif "cluster" in field_names:
         qs = scope_by_site(qs, user, field="cluster__site")
+        site_field = "cluster__site"
+    else:
+        site_field = None
+    if site and site_field:
+        qs = qs.filter(**{site_field: site})
     try:
         return qs.count()
     except Exception:  # pragma: no cover - a half-built model must never break the overview
         return None
 
 
-def optional_counts(user, run=None):
+def optional_counts(user, run=None, site=""):
     """{key: {"value": n|None, "source": "records"|"last import"|None, "sheet": name}}.
 
     A number is read from the module's own records when that page's model exists; otherwise it falls
     back to the row count the last import recorded for that sheet, labelled as such. When neither is
     available the value is None and the page shows a dash — it never invents a number.
+
+    The import's row counts describe the whole estate, so they are used only for a user who sees every site
+    and has no site filter on; anyone else gets a dash rather than a number that includes other sites.
     """
     run = run if run is not None else last_run(user)
+    estate_wide = not site and sees_all_sites(user)
     out = {}
     for key, sheet, (app_label, model_name) in EXTRA_METRICS:
-        value = _model_count(app_label, model_name, user)
+        value = _model_count(app_label, model_name, user, site)
         if value is not None:
             out[key] = {"value": value, "source": "records", "sheet": sheet}
             continue
-        rows = run.sheet_count(sheet) if run is not None else None
+        rows = run.sheet_count(sheet) if run is not None and estate_wide else None
         out[key] = {"value": rows, "source": "last import" if rows is not None else None, "sheet": sheet}
     return out
 

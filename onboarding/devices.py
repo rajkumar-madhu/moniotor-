@@ -139,6 +139,13 @@ class SnmpCredentialForm(forms.Form):
             self.fields[field].widget.attrs.pop("value", None)
             self.initial.pop(field, None)
 
+    def clean_name(self):
+        name = (self.cleaned_data.get("name") or "").strip()
+        if services.reserved_label(name):
+            raise forms.ValidationError("That label is reserved for the product's own tenant-wide credentials. "
+                                        "Choose another one.")
+        return name
+
     def clean_module(self):
         value = (self.cleaned_data.get("module") or "").strip()
         if not _NAME_RE.match(value):

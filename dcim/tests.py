@@ -1,5 +1,6 @@
 import csv
 import io
+from datetime import timedelta
 from unittest import mock
 
 from django.contrib.auth.models import User
@@ -8,6 +9,7 @@ from django.core.management import call_command
 from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from cmdb.models import ConfigurationItem
 from core import jobs, prometheus
@@ -106,7 +108,7 @@ class ModelTests(Fixture):
     def test_feed_load_prefers_live_value(self):
         f = PowerFeed(capacity_kw=4, measured_kw=1.0)
         self.assertEqual((f.load_kw, f.source), (1.0, "manual"))
-        f.prometheus_query, f.last_value = "x", 2.0
+        f.prometheus_query, f.last_value, f.last_read_at = "x", 2.0, timezone.now()
         self.assertEqual((f.load_kw, f.source), (2.0, "live"))
         self.assertEqual(f.headroom_kw, 2.0)
         self.assertEqual(f.load_pct, 50.0)
@@ -119,7 +121,7 @@ class ModelTests(Fixture):
     def test_cooling_delta_t(self):
         self.assertEqual(self.unit_m.delta_t, 12)
         self.assertIsNone(self.unit_l.delta_t)
-        u = CoolingUnit(supply_temp_c=18, return_temp_c=30, supply_query="q", last_supply_c=20)
+        u = CoolingUnit(supply_temp_c=18, return_temp_c=30, supply_query="q", last_supply_c=20, last_read_at=timezone.now())
         self.assertEqual(u.supply_c, 20)
         self.assertTrue(u.supply_live)
         self.assertEqual(u.delta_t, 10)
@@ -700,3 +702,126 @@ class SeedTests(TestCase):
         call_command("seed_dcim", "--remove", stdout=out)
         self.assertEqual(Room.objects.count(), 0)
         self.assertEqual(RackItem.objects.count(), 0)
+
+
+# ------------------------------------------------------------------ review fixes
+@PROM
+class ReviewFixTests(Fixture):
+    def setUp(self):
+        PowerFeed.objects.filter(pk=self.feed_m.pk).update(prometheus_query="scalar(sum(pdu_w))/1000")
+        self.good = PowerFeed.objects.create(rack=self.rack_m, name="PDU-B", capacity_kw=5.0, prometheus_query="sum(pdu_w)/1000")
+
+    @staticmethod
+    def fake_get(path, params=None):
+        q = params["query"]
+        if q.startswith("scalar("):
+            return {"resultType": "scalar", "result": [1700000000, "2.5"]}
+        if q == "broken":
+            return {"resultType": "vector", "result": [{"metric": {}, "value": []}]}
+        return {"resultType": "vector", "result": [{"metric": {}, "value": [1700000000, "1.25"]}]}
+
+    def test_scalar_and_malformed_results_fail_cleanly(self):
+        """ipam-dcim-compute-2: one bad feed no longer aborts the pass."""
+        PowerFeed.objects.filter(pk=self.feed_l.pk).update(prometheus_query="broken")
+        with mock.patch("core.prometheus._get", side_effect=self.fake_get):
+            self.assertEqual(services.read_all(), (1, 2))
+            self.assertEqual(services.run_readings(), "1 reading(s), 2 failed, 0 event(s)")
+        self.assertEqual(PowerFeed.objects.get(pk=self.good.pk).last_value, 1.25)
+        bad = PowerFeed.objects.get(pk=self.feed_m.pk)
+        self.assertIsNone(bad.last_value)
+        self.assertIn("vector(", bad.last_error)             # tells the operator how to write the query
+        self.assertTrue(PowerFeed.objects.get(pk=self.feed_l.pk).last_error)
+
+    def test_one_unexpected_exception_does_not_stall_the_pass(self):
+        real = services.read_feed
+
+        def flaky(feed, now=None):
+            if feed.pk == self.feed_m.pk:
+                raise RuntimeError("boom")
+            return real(feed, now)
+
+        with mock.patch("core.prometheus._get", side_effect=self.fake_get), mock.patch.object(services, "read_feed", flaky):
+            ok, failed = services.read_all()
+        self.assertEqual((ok, failed), (1, 1))
+        self.assertEqual(PowerFeed.objects.get(pk=self.good.pk).last_value, 1.25)
+        self.assertIn("boom", PowerFeed.objects.get(pk=self.feed_m.pk).last_error)
+
+    def test_feed_form_save_with_scalar_query_is_not_a_500(self):
+        self.login(self.admin)
+        with mock.patch("core.prometheus._get", side_effect=self.fake_get):
+            r = self.client.post(reverse("dcim:feed_edit", args=[self.feed_m.pk]), {
+                "rack": self.rack_m.pk, "name": "PDU-A", "kind": "pdu", "capacity_kw": "5", "measured_kw": "1.2",
+                "prometheus_query": "scalar(sum(pdu_w))/1000 + 0", "notes": ""}, follow=True)
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Live reading failed")
+
+    def test_outage_stops_after_the_first_failure(self):
+        """ipam-dcim-compute-3: no one slow timeout per feed and unit."""
+        PowerFeed.objects.filter(pk=self.feed_l.pk).update(prometheus_query="other")
+        with mock.patch("core.prometheus._get", side_effect=prometheus.PrometheusError("Prometheus unreachable: timed out")) as g:
+            ok, failed = services.read_all()
+        self.assertEqual(g.call_count, 1)
+        self.assertEqual(ok, 0)
+        self.assertEqual(failed, 3)                           # 3 feeds, the unit has no query yet
+        for f in PowerFeed.objects.exclude(prometheus_query=""):
+            self.assertIn("unreachable", f.last_error)
+            self.assertIsNone(f.last_value)
+            self.assertIsNotNone(f.last_read_at)
+
+    def test_outage_marks_units_too_and_query_errors_do_not_short_circuit(self):
+        CoolingUnit.objects.filter(pk=self.unit_m.pk).update(supply_query="sup", return_query="ret")
+        with mock.patch("core.prometheus._get", side_effect=prometheus.PrometheusError("Prometheus unreachable: timed out")) as g:
+            self.assertEqual(services.read_all(), (0, 3))
+        self.assertEqual(g.call_count, 1)
+        u = CoolingUnit.objects.get(pk=self.unit_m.pk)
+        self.assertIn("Supply: Prometheus unreachable", u.last_error)
+        self.assertIn("Return: Prometheus unreachable", u.last_error)
+        # a query error belongs to one feed: the others are still read
+        with mock.patch("core.prometheus._get", side_effect=prometheus.PrometheusError("parse error: bad expression")) as g:
+            self.assertEqual(services.read_all(), (0, 3))
+        self.assertEqual(g.call_count, 4)                     # 2 feeds + supply + return
+
+    def test_wall_clock_budget_bounds_a_pass(self):
+        with mock.patch("core.prometheus._get", side_effect=self.fake_get) as g, mock.patch.object(services, "MAX_SECONDS", -1):
+            ok, failed = services.read_all()
+        self.assertEqual(g.call_count, 1)                     # the first item is always read, then the budget is spent
+        self.assertEqual(ok + failed, 1)
+
+    def test_stale_value_is_not_live(self):
+        """ipam-dcim-compute-7."""
+        now = timezone.now()
+        f = PowerFeed(capacity_kw=4, measured_kw=1.0, prometheus_query="x", last_value=5.0, last_read_at=now)
+        self.assertEqual((f.load_kw, f.source), (5.0, "live"))
+        f.last_read_at = now - timedelta(hours=72)
+        self.assertEqual((f.load_kw, f.source), (1.0, "manual"))        # falls back to the manual value
+        f.last_read_at = None
+        self.assertEqual(f.source, "manual")
+        u = CoolingUnit(supply_temp_c=18, return_temp_c=30, supply_query="q", last_supply_c=20, return_query="r",
+                        last_return_c=40, last_read_at=now - timedelta(hours=72))
+        self.assertEqual((u.supply_c, u.return_c, u.supply_live, u.return_live), (18, 30, False, False))
+        u.last_read_at = now
+        self.assertEqual((u.supply_c, u.return_c, u.supply_live, u.return_live), (20, 40, True, True))
+
+    def test_changing_the_query_without_prometheus_drops_the_old_value(self):
+        PowerFeed.objects.filter(pk=self.good.pk).update(last_value=5.0, last_read_at=timezone.now())
+        self.login(self.admin)
+        with override_settings(PROMETHEUS_URL=""):
+            self.client.post(reverse("dcim:feed_edit", args=[self.good.pk]), {
+                "rack": self.rack_m.pk, "name": "PDU-B", "kind": "pdu", "capacity_kw": "5", "measured_kw": "",
+                "prometheus_query": "sum(other_w)/1000", "notes": ""})
+        f = PowerFeed.objects.get(pk=self.good.pk)
+        self.assertEqual(f.prometheus_query, "sum(other_w)/1000")
+        self.assertIsNone(f.last_value)
+        self.assertEqual(f.source, "")
+
+    def test_temperature_queries_average_series(self):
+        """ipam-dcim-compute-9: two sensors of 18 and 19 degrees are 18.5, not 37."""
+        CoolingUnit.objects.filter(pk=self.unit_m.pk).update(supply_query="sup", return_query="ret")
+        with mock.patch("core.prometheus.query", side_effect=lambda q: series(18.0, 19.0) if q == "sup" else series(30.0)):
+            services.read_unit(CoolingUnit.objects.get(pk=self.unit_m.pk))
+        u = CoolingUnit.objects.get(pk=self.unit_m.pk)
+        self.assertEqual((u.last_supply_c, u.last_return_c), (18.5, 30.0))
+        # kW queries are still summed
+        with mock.patch("core.prometheus.query", return_value=series(1.0, 2.0)):
+            services.read_feed(PowerFeed.objects.get(pk=self.good.pk))
+        self.assertEqual(PowerFeed.objects.get(pk=self.good.pk).last_value, 3.0)

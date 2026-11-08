@@ -12,12 +12,13 @@ moniotor-/
 ├── deploy/                     docker/ (WSGI entry, healthcheck), kubernetes/, prometheus/, alertmanager/,
 │                               compose.env.example, validate.py (checks the bundle and settings docs),
 │                               tests/ (bundle regression tests: python -m unittest discover -s deploy/tests)
-├── .env.example                every LINKEDEYE_* setting, documented
+├── .env.example                every LINKEDEYE_* setting (commented out where optional); deploy/validate.py enforces it
 ├── .github/workflows/ci.yml    check · makemigrations --check · test · deploy bundle checks
 ├── docs/
 │   ├── STRUCTURE.md            this file
 │   ├── MODULES.md              module contract: shared APIs, UI kit, data rules, cross-module interfaces
-│   ├── INTEGRATION.md          Prometheus, Alertmanager, log ingest, StackStorm, e-mail/webhook
+│   ├── INTEGRATION.md          guide for porting the apps into LinkedEyeWebProject
+│   │                           (Prometheus, Alertmanager and log ingest are configured in Administration › Integrations)
 │   └── DEPLOYMENT.md           Docker Compose, Kubernetes, settings reference, worker, backups
 │
 ├── linkedeye/                  project package
@@ -65,7 +66,14 @@ moniotor-/
 ├── administration/             Users & roles, sites, audit log, integrations, system health   /administration/…
 ├── reports/                    Report library (CSV, preview, scheduled e-mail), cross-module Analytics
 │                                                                 /reports/…  /analytics/
-└── agent/                      Ops Agent (threads, RAG, tools)   /agent/
+├── agent/                      Ops Agent (threads, RAG, tools)   /agent/
+├── ipam/                       IP address management (prefixes, addresses)
+├── dcim/                       Data centre inventory (racks, rooms, equipment)
+├── compute/                    Compute & virtualization (hosts, VMs, host metrics)
+├── onboarding/                 Onboarding wizard: sites, servers, devices, exporters, Prometheus discovery
+├── k8s/                        Kubernetes inventory imported from the client workbook (read-only)
+├── apm/                        APM: adapter matrix, process status, execution logs from the cron toolkit
+└── architecture/               Data Center Architecture: spine-leaf view drawn from devices, links and racks
 ```
 
 ## Inside a module app

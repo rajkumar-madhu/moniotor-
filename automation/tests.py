@@ -943,21 +943,26 @@ class QARegressionTests(ViewTestBase):
         Membership.objects.create(user=self.local_op, site=self.delhi, role="viewer")
 
     @ST2
+    @LOCAL
     def test_rerun_needs_operate_on_the_execution_site(self):
-        delhi = Execution.objects.create(kind="stackstorm", trigger="restart", site="Delhi", status="failed")
-        mumbai = Execution.objects.create(kind="stackstorm", trigger="restart", site="Mumbai", status="failed")
-        self.login(self.local_op)
-        r = self.c.get(reverse("automation:execution_detail", args=[delhi.pk]))
-        self.assertEqual(r.status_code, 200)
-        self.assertNotContains(r, "Re-run")
-        self.assertNotContains(r, "Edit &amp; trigger")
-        with mock.patch("automation.services._st2_open", side_effect=fake_urlopen()) as op:
+        # webhook re-runs follow the execution's site; StackStorm re-runs need the operator role on every site
+        # (see test_review_fixes.StackStormTenantWideTests)
+        with HookServer() as srv:
+            url = f"http://127.0.0.1:{srv.server_address[1]}/hook"
+            delhi = Execution.objects.create(kind="webhook", trigger=url, site="Delhi", status="failed")
+            mumbai = Execution.objects.create(kind="webhook", trigger=url, site="Mumbai", status="failed")
+            self.login(self.local_op)
+            r = self.c.get(reverse("automation:execution_detail", args=[delhi.pk]))
+            self.assertEqual(r.status_code, 200)
+            self.assertNotContains(r, "Re-run")
+            self.assertNotContains(r, "Edit &amp; trigger")
             r = self.c.post(reverse("automation:execution_rerun", args=[delhi.pk]))
             self.assertRedirects(r, delhi.get_absolute_url(), fetch_redirect_response=False)
             self.assertEqual(Execution.objects.count(), 2)
-            op.assert_not_called()
+            self.assertEqual(srv.received, [])
             self.assertContains(self.c.get(reverse("automation:execution_detail", args=[mumbai.pk])), "Re-run")
             self.c.post(reverse("automation:execution_rerun", args=[mumbai.pk]))
+            self.assertEqual(len(srv.received), 1)
         self.assertEqual(Execution.objects.count(), 3)
 
     def test_sample_event_prefill_is_site_scoped(self):

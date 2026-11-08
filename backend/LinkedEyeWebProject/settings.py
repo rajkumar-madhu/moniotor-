@@ -44,6 +44,17 @@ DASHBOARD_API_TOKEN = env('DASHBOARD_API_TOKEN', '').strip()
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = _truthy_env('DJANGO_DEBUG', 'false')
 
+# SECURITY: the placeholder below is published in this repository. Outside DEBUG a
+# missing (or placeholder) SECRET_KEY must stop the process instead of silently signing
+# sessions, CSRF tokens and password-reset links with a public value.
+_INSECURE_SECRET_KEYS = ('', 'dev-insecure-change-me', 'changeme', 'change-me')
+if not DEBUG and (SECRET_KEY or '').strip() in _INSECURE_SECRET_KEYS:
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured(
+        "SECRET_KEY is not set (or is the published placeholder). Provide it through the Vault "
+        "app-secrets bundle or the SECRET_KEY environment variable, or set DJANGO_DEBUG=true for local development."
+    )
+
 # No client hostnames in source. DEBUG allows localhost; production REQUIRES
 # LE_ALLOWED_HOSTS to be set per deployment. An unset value leaves the list empty
 # so Django rejects all hosts (fails loud) — a misconfigured deployment is obvious
@@ -459,7 +470,10 @@ MONITORING_AUTH_MODE = env(
     'bearer' if (KEYCLOAK_GRAFANA_CLIENT_SECRET or KEYCLOAK_PROMETHEUS_CLIENT_SECRET) else 'basic'
 )
 # TLS verification for outbound calls to Keycloak / oauth2-proxy / monitoring.
-MONITORING_VERIFY_SSL = _env_flag('MONITORING_VERIFY_SSL', 'false')
+# Verification is ON unless MONITORING_VERIFY_SSL=false is set explicitly. For private CAs
+# set MONITORING_CA_BUNDLE to a PEM bundle path instead of switching verification off.
+MONITORING_VERIFY_SSL = _env_flag('MONITORING_VERIFY_SSL', 'true')
+MONITORING_CA_BUNDLE = env('MONITORING_CA_BUNDLE', '').strip()
 TOTP_MASTER_KEY = get_app_secret('TOTP_MASTER_KEY', env_var='TOTP_MASTER_KEY', default='')
 ADMIN_DEFAULT_PASSWORD = get_app_secret('ADMIN_DEFAULT_PASSWORD', env_var='ADMIN_DEFAULT_PASSWORD', default='')
 

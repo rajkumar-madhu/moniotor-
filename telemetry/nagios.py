@@ -39,6 +39,16 @@ class NagiosError(Exception):
 
 
 def _setting(name, default=""):
+    """Effective value: the Administration > Integrations override first (administration.integration_config),
+    then the Django setting, then the LINKEDEYE_<NAME> environment variable."""
+    from administration import integration_config as ic
+
+    getter = {"NAGIOS_URL": ic.nagios_url, "NAGIOS_USER": ic.nagios_user, "NAGIOS_PASSWORD": ic.nagios_password,
+              "NAGIOS_TIMEOUT": ic.nagios_timeout}.get(name)
+    if getter is not None:
+        v = getter()
+        if v not in (None, ""):
+            return v
     v = getattr(settings, name, None)
     if v in (None, ""):
         v = os.environ.get(f"LINKEDEYE_{name}", default)
@@ -203,6 +213,50 @@ def fetch_status(use_cache=True):
     out = {"hosts": hosts, "services": services, "query_time": from_epoch(result.get("query_time"), ms=True),
            "program": str(result.get("program_version") or "")}
     cache.set(key, out, CACHE_SECONDS)
+    return out
+
+
+def host_sites(names):
+    """``{lower-cased Nagios host name: {sites}}`` for the names that match an inventory record.
+
+    Nagios objects carry no site of their own, so a host is mapped to the CMDB items and network devices whose
+    name, IP address or Prometheus instance (with or without the port) equals the Nagios host name. A name that
+    several records claim maps to all their sites; "" stands for a record on every site. Names no record claims are
+    absent. Raises on a database error – callers scoping data for a site-limited user must fail closed."""
+    from django.apps import apps
+
+    wanted = {str(n).strip().lower() for n in names if n}
+    out = {}
+
+    def add(key, site):
+        key = (key or "").strip().lower()
+        if key in wanted:
+            site = (site or "").strip()
+            out.setdefault(key, set()).add("" if site.lower() == "all sites" else site)
+
+    try:
+        CI = apps.get_model("cmdb", "ConfigurationItem")
+    except LookupError:
+        CI = None
+    try:
+        Device = apps.get_model("network", "Device")
+    except LookupError:
+        Device = None
+    tenant = settings.LINKEDEYE_TENANT
+    if CI is not None:
+        qs = CI.objects.all()
+        if hasattr(CI, "tenant_key"):
+            qs = qs.filter(tenant_key=tenant)
+        for name, ip, inst, site in qs.values_list("name", "ip_address", "prometheus_instance", "site"):
+            for key in (name, ip, inst, (inst or "").rsplit(":", 1)[0]):
+                add(key, site)
+    if Device is not None:
+        qs = Device.objects.all()
+        if hasattr(Device, "tenant_key"):
+            qs = qs.filter(tenant_key=tenant)
+        for name, ip, inst, site in qs.values_list("name", "mgmt_ip", "prometheus_instance", "site"):
+            for key in (name, ip, inst, (inst or "").rsplit(":", 1)[0]):
+                add(key, site)
     return out
 
 

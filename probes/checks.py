@@ -32,7 +32,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import quote, urljoin, urlsplit
 
 from django.conf import settings
 
@@ -87,6 +87,30 @@ def check_address(ip: str) -> None:
             raise ProbeBlocked(f"{ip} is a private address not in PROBE_ALLOWED_PRIVATE_CIDRS")
 
 
+def _bounded(fn, seconds, *args):
+    """Run fn(*args) in a helper thread and wait at most `seconds` for it (socket.timeout when it is still running).
+
+    getaddrinfo is blocking and has no deadline of its own, so a slow resolver would otherwise hold a probe worker
+    far beyond the probe timeout. The helper is a daemon thread: an abandoned lookup ends with the resolver's own
+    timeout and never blocks interpreter exit."""
+    box = {}
+
+    def run():
+        try:
+            box["value"] = fn(*args)
+        except BaseException as e:  # noqa: BLE001 - handed to the caller below
+            box["error"] = e
+
+    t = threading.Thread(target=run, daemon=True, name="probe-dns")
+    t.start()
+    t.join(max(seconds, 0))
+    if t.is_alive():
+        raise socket.timeout("DNS resolution timed out")
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
+
+
 def resolve(host: str, port: int = 443) -> list:
     """Return unique resolved IPs (IPv4 first). Raises socket.gaierror."""
     infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
@@ -97,9 +121,10 @@ def resolve(host: str, port: int = 443) -> list:
     return ips
 
 
-def resolve_allowed(host: str, port: int) -> str:
-    """Resolve and return the first address allowed by policy."""
-    ips = resolve(host, port)
+def resolve_allowed(host: str, port: int, timeout=None) -> str:
+    """Resolve and return the first address allowed by policy. With `timeout` (seconds) the lookup is abandoned
+    with socket.timeout when it takes longer, so DNS counts against a probe's overall deadline."""
+    ips = resolve(host, port) if timeout is None else _bounded(resolve, timeout, host, port)
     errors = []
     for ip in ips:
         try:
@@ -158,6 +183,28 @@ class _Deadline:
         self._timer.cancel()
 
 
+_PATH_SAFE = "/%:@!$&'()*+,;=~-._"
+_QUERY_SAFE = "/?%:@!$&'()*+,;=~-._[]"
+
+
+def _request_target(parts):
+    """The request-line target for a urlsplit result. http.client writes the request line as ASCII, so raw non-ASCII
+    characters (a unicode path the URL form accepts, or a UTF-8 redirect target) are percent-encoded as UTF-8;
+    escapes that are already there are kept as they are."""
+    path = quote(parts.path or "/", safe=_PATH_SAFE)
+    return path + ("?" + quote(parts.query, safe=_QUERY_SAFE) if parts.query else "")
+
+
+def _redirect_target(current, location):
+    """Absolute URL a Location header points to. http.client decodes header bytes as latin-1, so a raw UTF-8
+    Location arrives as mojibake: undo that first, then join with the current URL."""
+    try:
+        location = location.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        pass
+    return urljoin(current, location)
+
+
 def _cert_expiry(cert: dict):
     if not cert or "notAfter" not in cert:
         return None
@@ -189,7 +236,7 @@ def http_check(url, method="GET", timeout=None, follow_redirects=True, expected_
             if parts.scheme not in ("http", "https") or not parts.hostname:
                 raise ValueError(f"unsupported URL: {current}")
             port = parts.port or (443 if parts.scheme == "https" else 80)
-            ip = resolve_allowed(parts.hostname, port)
+            ip = resolve_allowed(parts.hostname, port, timeout=deadline - time.monotonic())
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise socket.timeout()
@@ -197,9 +244,7 @@ def http_check(url, method="GET", timeout=None, follow_redirects=True, expected_
                 conn = _PinnedHTTPSConnection(parts.hostname, ip, port, remaining, ssl.create_default_context())
             else:
                 conn = _PinnedHTTPConnection(parts.hostname, ip, port, remaining)
-            path = parts.path or "/"
-            if parts.query:
-                path += "?" + parts.query
+            path = _request_target(parts)
             watchdog = _Deadline(remaining, lambda c=conn: getattr(c, "_probe_sock", None))
             try:
                 conn.request(method, path, headers={"User-Agent": USER_AGENT, "Accept": "*/*", "Connection": "close"})
@@ -223,7 +268,7 @@ def http_check(url, method="GET", timeout=None, follow_redirects=True, expected_
             location = resp.getheader("Location")
             if follow_redirects and resp.status in (301, 302, 303, 307, 308) and location and hop < MAX_REDIRECTS:
                 res.redirects.append(current)
-                current = urljoin(current, location)
+                current = _redirect_target(current, location)
                 if resp.status == 303:
                     method = "GET"
                 continue
@@ -307,14 +352,12 @@ def fetch_bytes(url, max_bytes, timeout=None, accept="*/*", accepted_types=None,
             port = parts.port or (443 if parts.scheme == "https" else 80)
             if ports and port not in ports:
                 raise ValueError(f"only port {', '.join(str(p) for p in ports)} is accepted")
-            ip = resolve_allowed(parts.hostname, port)
+            ip = resolve_allowed(parts.hostname, port, timeout=deadline - time.monotonic())
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise socket.timeout()
             conn = _open_connection(parts.scheme, parts.hostname, ip, port, remaining)
-            path = parts.path or "/"
-            if parts.query:
-                path += "?" + parts.query
+            path = _request_target(parts)
             watchdog = _Deadline(remaining, lambda c=conn: getattr(c, "_probe_sock", None))
             redirect = None
             try:
@@ -328,7 +371,7 @@ def fetch_bytes(url, max_bytes, timeout=None, accept="*/*", accepted_types=None,
                 if resp.status in (301, 302, 303, 307, 308) and location:
                     if hop >= MAX_REDIRECTS:
                         raise ValueError("too many redirects")
-                    redirect = urljoin(current, location)
+                    redirect = _redirect_target(current, location)
                 else:
                     if resp.status != 200:
                         raise ValueError(f"the server answered HTTP {resp.status}")
@@ -398,11 +441,14 @@ class DnsResult:
     error: str = ""
 
 
-def dns_check(hostname):
+def dns_check(hostname, timeout=None):
+    timeout = timeout or settings.PROBE_TIMEOUT
     try:
-        return DnsResult(True, resolve(hostname))
+        return DnsResult(True, _bounded(resolve, timeout, hostname))
     except socket.gaierror as e:
         return DnsResult(False, [], f"DNS resolution failed: {e.strerror or e}")
+    except socket.timeout:
+        return DnsResult(False, [], f"DNS resolution timed out after {timeout:g}s")
 
 
 @dataclass
@@ -427,7 +473,9 @@ def tls_status(expires_at, now=None):
 def tls_check(hostname, port=443, timeout=None):
     timeout = timeout or settings.PROBE_TIMEOUT
     try:
-        ip = resolve_allowed(hostname, port)
+        started = time.monotonic()
+        ip = resolve_allowed(hostname, port, timeout=timeout)
+        timeout = max(timeout - (time.monotonic() - started), 0.1)   # DNS spent part of the budget
         ctx = ssl.create_default_context()
         # the handshake is bounded as a whole by the socket timeout (CPython applies it as a deadline)
         with socket.create_connection((ip, port), timeout) as raw:

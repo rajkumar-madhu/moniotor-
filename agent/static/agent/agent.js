@@ -100,6 +100,8 @@
   if (box) {
     box.addEventListener("input", fit);
     box.addEventListener("keydown", (e) => {
+      // Enter that confirms an IME composition (Chinese, Japanese, Korean...) must not send the half-typed message
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         form.requestSubmit();

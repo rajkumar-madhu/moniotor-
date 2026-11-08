@@ -5,9 +5,11 @@ $ErrorActionPreference = "Stop"
 $kcBase = if ($env:KEYCLOAK_SERVER_URL) { $env:KEYCLOAK_SERVER_URL.TrimEnd('/') } else { "http://127.0.0.1:8083" }
 $realm = if ($env:KEYCLOAK_REALM) { $env:KEYCLOAK_REALM } else { "linkedeye" }
 $clientId = if ($env:KEYCLOAK_CLIENT_ID) { $env:KEYCLOAK_CLIENT_ID } else { "linkedeye-web" }
-$clientSecret = if ($env:KEYCLOAK_CLIENT_SECRET) { $env:KEYCLOAK_CLIENT_SECRET } else { "linkedeye-kc-dev-secret-2026" }
+if (-not $env:KEYCLOAK_CLIENT_SECRET) { throw "Set KEYCLOAK_CLIENT_SECRET (the OIDC client secret to create) before running this script." }
+$clientSecret = $env:KEYCLOAK_CLIENT_SECRET
 $adminUser = if ($env:KEYCLOAK_ADMIN_USER) { $env:KEYCLOAK_ADMIN_USER } else { "admin" }
-$adminPass = if ($env:KEYCLOAK_ADMIN_PASSWORD) { $env:KEYCLOAK_ADMIN_PASSWORD } else { "admin123456" }
+if (-not $env:KEYCLOAK_ADMIN_PASSWORD) { throw "Set KEYCLOAK_ADMIN_PASSWORD (the Keycloak admin password) before running this script." }
+$adminPass = $env:KEYCLOAK_ADMIN_PASSWORD
 $portalUrl = if ($env:PORTAL_URL) { $env:PORTAL_URL.TrimEnd('/') } else { "http://127.0.0.1:8000" }
 
 Write-Host "Keycloak setup -> $kcBase realm=$realm"

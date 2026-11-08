@@ -25,12 +25,19 @@ def _unique(form, field, value):
     return value
 
 
+MAX_JSON_CHARS = 64 * 1024
+
+
 def _json_object(text, label="Value"):
     text = (text or "").strip()
     if not text:
         return {}
+    if len(text) > MAX_JSON_CHARS:
+        raise forms.ValidationError(f"{label} is too large (at most {MAX_JSON_CHARS // 1024} KB).")
     try:
         value = json.loads(text)
+    except RecursionError:  # absurdly deep nesting: the C decoder gives up with a RuntimeError, not a ValueError
+        raise forms.ValidationError(f"{label} is not valid JSON: nested too deeply.") from None
     except ValueError as e:
         raise forms.ValidationError(f"{label} is not valid JSON: {e}") from None
     if not isinstance(value, dict):

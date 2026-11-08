@@ -104,8 +104,8 @@ spec:
             runAsNonRoot: true
             capabilities:
               drop: ["ALL"]
-          # Healthy while the scheduler's heartbeat (written every 60 s by the administration.heartbeat job,
-          # tagged with this pod's hostname) is younger than HEALTHCHECK_MAX_HEARTBEAT_AGE seconds.
+          # Healthy while the scheduler's heartbeat (written every 30 s by the scheduler's heartbeat thread,
+          # LINKEDEYE_SCHEDULER_HEARTBEAT_SECONDS, tagged with this pod's hostname) is younger than HEALTHCHECK_MAX_HEARTBEAT_AGE seconds.
           startupProbe:
             exec:
               command: ["python", "/app/deploy/docker/healthcheck.py", "probes"]

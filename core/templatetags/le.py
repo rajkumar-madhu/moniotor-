@@ -206,3 +206,18 @@ def ago(value):
 @register.filter
 def tone(status):
     return TONES.get(str(status or "").lower(), ("mute", ""))[0]
+
+
+PAGER_SIZES = (10, 20, 50, 100)
+
+
+@register.filter
+def pager_sizes(per_page):
+    """[(rows per page, is the current one)] for the pager's selector. A page size outside the standard list (a
+    view default such as 25, or a typed ?per=) is added so the selector always shows the real one."""
+    try:
+        current = int(per_page)
+    except (TypeError, ValueError):
+        current = 0
+    sizes = sorted(set(PAGER_SIZES) | ({current} if current > 0 else set()))
+    return [(n, n == current) for n in sizes]

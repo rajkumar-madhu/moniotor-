@@ -375,9 +375,46 @@ class StackStormIntegrationForm(_SecretOptionalMixin, forms.Form):
 
 
 class WebhooksIntegrationForm(forms.Form):
+    MAX_URLS = 20
+    SEVERITIES = ("critical", "warning", "info", "ok")
+
     urls = forms.CharField(label="Webhook URLs (one per line)", required=False, widget=forms.Textarea(attrs={"rows": 3}))
     severities = forms.CharField(label="Severities (comma-separated)", required=False,
-                                 help_text="e.g. critical, warning")
+                                 help_text="Any of critical, warning, info, ok. e.g. critical, warning")
+
+    def clean_urls(self):
+        from urllib.parse import urlsplit
+
+        seen, out = set(), []
+        for line in (self.cleaned_data.get("urls") or "").splitlines():
+            line = line.strip()
+            if not line or line in seen:
+                continue
+            try:
+                parts = urlsplit(line)
+                host = parts.hostname
+                parts.port   # raises ValueError for a malformed port
+            except ValueError:
+                raise forms.ValidationError(f"Not a valid URL: {line[:80]}")
+            if parts.scheme not in ("http", "https") or not host:
+                raise forms.ValidationError(f"Use an http:// or https:// URL with a host name: {line[:80]}")
+            if parts.username or parts.password:
+                raise forms.ValidationError("Do not put credentials in the URL; use the token the receiver gives you in the path.")
+            seen.add(line)
+            out.append(line)
+        if len(out) > self.MAX_URLS:
+            raise forms.ValidationError(f"At most {self.MAX_URLS} webhook URLs.")
+        return "\n".join(out)
+
+    def clean_severities(self):
+        out = []
+        for part in (self.cleaned_data.get("severities") or "").replace(",", " ").split():
+            sev = part.strip().lower()
+            if sev not in self.SEVERITIES:
+                raise forms.ValidationError(f"Unknown severity “{part[:30]}”: use critical, warning, info or ok.")
+            if sev not in out:
+                out.append(sev)
+        return ", ".join(out)
 
 
 class EmailIntegrationForm(_SecretOptionalMixin, forms.Form):

@@ -104,7 +104,8 @@ def software(request):
         qs = qs.filter(licenses__isnull=True)
     # n_installs is what this user may see; all_installs is tenant-wide, because licence compliance is
     # (see software_detail, the licences page and License.over_allocated).
-    qs = qs.annotate(n_installs=_visible_install_count(request), all_installs=Count("installs", distinct=True),
+    qs = qs.annotate(n_installs=_visible_install_count(request),
+                     all_installs=Count("installs", filter=~Q(installs__status=CIStatus.RETIRED), distinct=True),
                      n_licenses=Count("licenses", distinct=True))
     page = paginate(request, qs.order_by("name", "version"))
     lic = {}
@@ -112,7 +113,7 @@ def software(request):
         lic.setdefault(l.software_id, []).append(l)
     for s in page:
         s.license_list = lic.get(s.pk, [])
-        s.seats = sum(x.seats for x in s.license_list)
+        s.seats = sum(x.seats for x in s.license_list if not x.expired)     # an expired licence no longer covers installs
         s.over = bool(s.license_list) and s.all_installs > s.seats
     installs_total = ConfigurationItem.software.through.objects.filter(
         software__in=base, configurationitem__in=services.ci_queryset(request.user)).count()
@@ -139,13 +140,14 @@ def software_detail(request, pk):
         c.health = health.get(c.pk, "unknown")
     mark_row_perms(request, installs)
     licenses = list(sw.licenses.all().order_by("product"))
-    seats = sum(l.seats for l in licenses)
+    seats = sum(l.seats for l in licenses if not l.expired)
+    used = sw.installs.exclude(status=CIStatus.RETIRED).count()
     may_edit = site_checker(request, "operate")
     candidates = [c for c in visible.exclude(pk__in=[c.pk for c in installs]).exclude(ci_type=CIType.BUSINESS_DOMAIN).order_by("name")
                   if may_edit(c.site)] if can(request.user, "operate") else []
     return render(request, "cmdb/software_detail.html", {
-        "sw": sw, "installs": installs, "licenses": licenses, "seats": seats, "used": sw.installs.count(),
-        "over": bool(licenses) and sw.installs.count() > seats, "candidates": candidates, **perms(request)})
+        "sw": sw, "installs": installs, "licenses": licenses, "seats": seats, "used": used,
+        "over": bool(licenses) and used > seats, "candidates": candidates, **perms(request)})
 
 
 @require("operate")
@@ -225,14 +227,11 @@ def software_export(request):
 
 # ----------------------------------------------------------------------------- licenses
 def _licenses(request):
-    return License.objects.filter(tenant_key=settings.LINKEDEYE_TENANT).select_related("software").annotate(
-        _used_count=Count("software__installs", distinct=True))
+    return License.objects.filter(tenant_key=settings.LINKEDEYE_TENANT).select_related("software")
 
 
 def _prime(lics):
-    for l in lics:
-        l._used = l._used_count if l.software_id else 0
-    return lics
+    return License.prime(lics)
 
 
 @require("view")
@@ -256,7 +255,7 @@ def licenses(request):
     expiring = sorted([l for l in all_lics if l.days_left is not None and l.days_left <= 90], key=lambda l: l.days_left)
     ctx = {
         "page": page, "query": query_without_page(request), "total": len(all_lics),
-        "seats": sum(l.seats for l in all_lics), "used": sum(l.used for l in all_lics if l.software_id),
+        "seats": sum(l.seats for l in all_lics), "used": sum({l.software_id: l.used for l in all_lics if l.software_id}.values()),   # one software, one count
         "over": [l for l in all_lics if l.over_allocated], "expiring": expiring[:10],
         "expiring_count": sum(1 for l in all_lics if l.expiring_within(60)),
         "expired_count": sum(1 for l in all_lics if l.expired),
@@ -279,7 +278,7 @@ def license_form(request, pk=None):
                   expiry=str(obj.expiry or ""), fields=sorted(form.changed_data))
             msg = f"Saved license “{obj.product}”."
             if obj.over_allocated:
-                messages.warning(request, f"{msg} It is over-allocated: {obj.used} installs for {obj.seats} seats.")
+                messages.warning(request, f"{msg} It is over-allocated: {obj.used} installs for {obj.capacity} seats.")
             else:
                 messages.success(request, msg)
             return redirect(safe_next(request, reverse("cmdb:licenses")))

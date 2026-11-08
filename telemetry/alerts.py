@@ -63,22 +63,29 @@ def event_severity(status, severity):
     return "info"
 
 
+def _clean(value):
+    """Text without NUL characters. PostgreSQL rejects NUL in text columns and jsonb, which would turn one odd label
+    value (a process name, a log line) into an HTTP 500 for the whole notification and a retry loop."""
+    return str(value if value is not None else "").replace("\x00", "")
+
+
 def _clip(value, n):
-    return str(value if value is not None else "")[:n]
+    return _clean(value)[:n]
 
 
 def _str_map(d):
     """Alertmanager sends string->string maps; coerce anything else defensively."""
     if not isinstance(d, dict):
         return {}
-    return {str(k)[:200]: _clip(v, 4000) for k, v in list(d.items())[:200]}
+    return {_clip(k, 200): _clip(v, 4000) for k, v in list(d.items())[:200]}
 
 
 def fingerprint_of(alert, labels):
     fp = alert.get("fingerprint")
-    if isinstance(fp, str) and fp.strip():
-        return fp.strip()[:64]
+    if isinstance(fp, str) and _clean(fp).strip():
+        return _clean(fp).strip()[:64]
     # Alertmanager < 0.19 did not send fingerprints: derive a stable one from the label set
+    labels = {_clean(k): _clean(v) for k, v in (labels or {}).items()}
     return hashlib.sha256(json.dumps(labels, sort_keys=True).encode()).hexdigest()[:16]
 
 
@@ -140,6 +147,14 @@ def _is_newer_firing(a, starts_at):
     return starts_at > reference
 
 
+def _silent_for_stale_window(a, received_at):
+    """Has alert `a` heard nothing for longer than the stale window? A resolved alert that was silent that long and
+    now gets a firing notification is firing again (or was resolved by expire_stale and never stopped firing), however
+    old the notification's startsAt is: a delayed duplicate of the original firing never arrives after days."""
+    hours = stale_hours()
+    return bool(hours) and a.last_received_at is not None and received_at - a.last_received_at > timedelta(hours=hours)
+
+
 def _is_stale_resolve(a, ends_at):
     """Is a resolved notification ending at `ends_at` about a previous instance of alert `a`: one that ended before
     the stored instance started (a delayed or retried resolve delivered after a newer firing)? Compared on endsAt,
@@ -176,7 +191,8 @@ def _upsert(fp, fields, site, instance, status, severity):
             if status == Alert.RESOLVED and _is_stale_resolve(a, fields["ends_at"]):
                 # the previous instance's resolve delivered out of order: it must not resolve the newer firing
                 return _count_only(a, fields)
-            if prev_status == Alert.RESOLVED and status == Alert.FIRING and not _is_newer_firing(a, fields["starts_at"]):
+            if (prev_status == Alert.RESOLVED and status == Alert.FIRING and not _is_newer_firing(a, fields["starts_at"])
+                    and not _silent_for_stale_window(a, fields["last_received_at"])):
                 # a late duplicate of the firing we already resolved: count it, change nothing else
                 return _count_only(a, fields)
             if fields["starts_at"] is not None and a.starts_at is not None and fields["starts_at"] < a.starts_at:
@@ -298,6 +314,44 @@ def unacknowledge(alerts):
 
 def retention_days():
     return int(getattr(settings, "TELEMETRY_ALERT_RETENTION_DAYS", 90) or 90)
+
+
+def stale_hours():
+    """TELEMETRY_ALERT_STALE_HOURS (default 48; 0 turns the expiry off). It must stay well above Alertmanager's
+    repeat_interval (default 4h), which is how often a still-firing alert is notified again."""
+    try:
+        return max(0, int(getattr(settings, "TELEMETRY_ALERT_STALE_HOURS", 48)))
+    except (TypeError, ValueError):
+        return 48
+
+
+EXPIRE_BATCH = 1000
+
+
+def expire_stale(now=None):
+    """Resolve firing alerts that have not been notified again for stale_hours().
+
+    Alertmanager re-sends a firing alert every repeat_interval, so a firing row that has heard nothing for days lost
+    its "resolved" notification (webhook down while it resolved, delivery retries exhausted). Left alone it would stay
+    in the firing counters and keep its Service Desk incident open forever. Such a row is resolved at the time of its
+    last notification and its resolve event is emitted (reason "stale"), so the incident moves on. If the alert is
+    in fact still firing, its next notification re-opens it. Returns the number of alerts resolved."""
+    hours = stale_hours()
+    if not hours:
+        return 0
+    now = now or timezone.now()
+    cutoff = now - timedelta(hours=hours)
+    changes = []
+    for a in Alert.objects.for_tenant().firing().filter(last_received_at__lt=cutoff).order_by("last_received_at")[:EXPIRE_BATCH]:
+        a.status = Alert.RESOLVED
+        a.ends_at = a.last_received_at
+        a.save(update_fields=["status", "ends_at", "updated_at"])
+        changes.append((a, "ok", "stale"))
+    for a, sev, reason in changes[:MAX_EVENTS_PER_INGEST]:
+        emit_for(a, sev, reason)
+    if len(changes) > MAX_EVENTS_PER_INGEST:
+        emit_overflow(changes[MAX_EVENTS_PER_INGEST:])
+    return len(changes)
 
 
 def prune(now=None):

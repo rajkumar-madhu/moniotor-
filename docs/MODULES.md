@@ -17,7 +17,7 @@ Every LinkedEye module is a Django app that owns its directory. Shared code live
 
 | Need | Use |
 |---|---|
-| Permission check | `from core.access import can, require, visible_sites, scope_by_site, role_for`. Perms: `view`, `operate` (run, acknowledge, add/edit records), `configure` (same rank as operate), `admin` (delete, settings, users). Decorate views with `@require("operate")`; in templates use `{% if perms_operate %}` – the base context provides `le_can` (see below). |
+| Permission check | `from core.access import can, require, visible_sites, scope_by_site, role_for`. Perms: `view`, `operate` (run, acknowledge, add/edit records), `configure` (same rank as operate), `admin` (delete, settings, users). Decorate views with `@require("operate")`; templates get no permission variables from the base context: compute a boolean in the view with `can(request.user, "operate")` and pass it (e.g. `can_operate`, see below). |
 | Site scoping | Records store the site **name** in a `site` CharField (`"All Sites"` = global). Filter querysets with `scope_by_site(qs, request.user, field="site")`. Sites live in `core.models.Site` (name, code, region, timezone, criticality). |
 | Audit | `from core.audit import audit`; call `audit(request, "create"|"update"|"delete"|"run"|..., obj, **details)` after every mutation. |
 | Events | `from core.events import emit, event_emitted`; `emit(source="<app>", title=..., severity="critical"|"warning"|"info"|"ok", message=..., site=..., obj=..., fingerprint="<app>:<pk>", **data)` on every state change. Listen with `@receiver(event_emitted)` (args: `sender, event`). Never raise from a listener. |
@@ -30,8 +30,8 @@ Every LinkedEye module is a Django app that owns its directory. Shared code live
 | Tenant | `settings.LINKEDEYE_TENANT`; models carry `tenant_key` where data could belong to more than one customer. |
 | Ops Agent | `agent` at `/agent/`. Threads are per-user. Tools call `core.overview` and other apps lazily and are always `scope_by_site`. The model key is `LINKEDEYE_AGENT_API_KEY` (server-side only). |
 
-`base.html` context: `le_can` is not provided yet – use `core.access.can(request.user, "operate")` in the view
-and pass a boolean (e.g. `can_operate`) to the template.
+`base.html` context (`core.context_processors.shell`) carries navigation, the site and client selectors and the problem count, but no
+permission variables: use `core.access.can(request.user, "operate")` in the view and pass a boolean (e.g. `can_operate`) to the template.
 
 ## UI kit (core/static/linkedeye/app.css, core/templatetags/le.py, charts.js)
 
@@ -59,6 +59,20 @@ pinned open by the menu button (`.shell.rail-open`). Nav labels sit in `.lbl`, c
   "example") for demos. It must be idempotent and never run automatically.
 * Every list view: search/filter where useful, pagination (`?per=`), CSV export where useful.
 * Every mutation: POST + CSRF, permission check, `audit(...)`, success message, redirect.
+* **Integration settings** (Alertmanager and log-ingest tokens, StackStorm, Nagios, SMTP, webhooks, Prometheus) are saved in
+  Administration › Integrations and read **only** through `administration.integration_config` (`ic.alertmanager_webhook_token()`,
+  `ic.log_ingest_token()`, `ic.stackstorm_url()`/`stackstorm_api_key()`, `ic.nagios_*()`, `ic.email_*()`, `ic.default_from_email()`).
+  A console value wins; the `LINKEDEYE_*` environment / Django setting is the fallback. Never read those settings directly in a
+  consumer, or the card says "Source: Console" while the code ignores it. Scheduled report e-mail uses the same SMTP rule as
+  `core.notify` (`reports.scheduler`).
+* **Automation and StackStorm** (`automation`): StackStorm runs tenant-wide remediation under one API key, so creating, editing,
+  test-running (`Run the action for real`) or re-running anything that triggers it needs `operate` on **every site**, the same as the
+  manual trigger page. Site operators keep the other rule actions for their site. A rule's cooldown counts only executions that
+  succeeded or are still pending: a failed attempt (StackStorm or the webhook was down) never silences the next matching event.
+  Webhook URLs may not contain whitespace or control characters, and webhook errors never quote the URL path (Slack/Teams secrets).
+* **Report exports** (`reports.registry.export_rows`) are complete or refused: a CSV download or scheduled e-mail with more than
+  `MAX_ROWS` (50,000) rows fails with a "narrow the period or site" message instead of being cut off. A schedule's `site` must be a
+  site its owner can operate (checked in `ScheduleForm` and again by the scheduler).
 
 ## Kubernetes inventory (`k8s`)
 
@@ -75,8 +89,8 @@ that already describe the same machine.
   sheets (`k8s:workloads`, `k8s:services`, `k8s:ingresses`, `k8s:volumes`, `k8s:certificates`, `k8s:tools`,
   `k8s:issues`) adds its path to `k8s/urls.py` and flips `"enabled": True` on its row; nothing else changes
   and the strip never links to a URL name that does not resolve.
-* **Import engine** `k8s/importer.py`. `register_sheet(name, order, fn)` maps one workbook sheet to one
-  importer callable, registered from its own module under `k8s/sheets/` (listed in `k8s/sheets/__init__.py`).
+* **Import engine** `k8s/importer.py`. `register_sheet(name, order, fn, namespaces=False)` maps one workbook sheet to one
+  importer callable (`namespaces=True` when it attaches rows to namespaces via `resolve_namespace()`), registered from its own module under `k8s/sheets/` (listed in `k8s/sheets/__init__.py`).
   `run_import()` calls them in order, each in its own transaction, and records per-sheet counts, warnings
   and errors on the `ImportRun`. Sheet importers use the shared `ImportContext`: `upsert()` (idempotent
   create-or-update plus the created/updated counts), `track()` (which rows the run owns, so ones it did not
@@ -86,7 +100,8 @@ that already describe the same machine.
   no longer contains gets `missing_since` (cleared if it comes back) — never deleted, never silently kept
   as current. `dry_run=True` reports the same numbers and writes nothing.
 * **Entry points** `manage.py import_k8s_inventory <path> [--dry-run] [--create-compute] [--site NAME]`,
-  and `/kubernetes/import/` for admins on every site (dry-run diff first, then a confirm button).
+  and `/kubernetes/import/` for admins on every site (dry-run diff first, then a confirm button). Import runs are
+  site-scoped for viewing: a site-limited user sees the runs filed under their sites and under All Sites.
 * **Data rules** the workbook describes a real customer estate, so **none of it belongs in this
   repository** — not a row, host name, address, client name, URL or Secret name. Tests use synthetic
   fixtures (`k8s/tests/fixtures.py`: "Acme"/"Globex", RFC 5737 addresses, example.com). The sheets carry
@@ -198,6 +213,23 @@ works if the other module is absent.
 | automation | `automation.services.trigger_stackstorm(trigger, payload) -> Execution`. |
 | urlchecker / domainmonitor | Existing models `UrlCheck`, `UrlResult`, `Domain`, `DomainCheck` (read-only for other modules). |
 | k8s | Models `KubeCluster`, `Node`, `Namespace`, `ClientProfile`, `ImportRun`. `k8s.services.clusters_for(user)` / `nodes_for(user)` / `namespaces_for(user)` / `profiles_for(user)` (site-scoped querysets), `k8s.services.can_import(user)`, `k8s.services.last_run()`. Import engine: `k8s.importer.run_import(source, user=None, dry_run=False, site="All Sites", create_compute=False)` and `k8s.importer.register_sheet(name, order, fn)`; cell parsing in `k8s.parsing`. |
+
+## IPAM, DCIM and Compute: behaviour notes
+
+* **IPAM site scoping inside a global container.** A subnet marked *All Sites* is visible to everyone, but its detail
+  page lists only the addresses, child subnets, counts and map cells of sites the viewer can see
+  (`services.addresses_in(subnet, user)`, `services.address_map(subnet, user=user)`); hidden ranges are drawn as
+  anonymous "in a child subnet you cannot see" cells. "Reserve next free" still avoids every recorded address.
+* **IPAM writes** (address, subnet, VLAN, zone, record, CSV import, reserve) turn a unique-constraint race into a form
+  error (reserve retries with the next free address) instead of an HTTP 500. Zone ids (`fe80::%eth0/64`) are
+  rejected; two blocks with the same prefix and range are duplicates. `manage.py seed_ipam --remove` deletes only the
+  rows `seed_ipam` writes (exact CIDR / address / VID plus the exact seed description).
+* **DCIM live readings** are read by `dcim.readings` every 300 s. A reading older than 15 minutes
+  (`dcim.models.LIVE_MAX_AGE`) is no longer "live": the manual value is used again. Temperature queries use the
+  mean of the matching series, power queries the sum; a scalar result must be wrapped in `vector(...)`.
+* **Prometheus outages** are paid for once: after the first "unreachable / timeout / 5xx" error, `dcim.services.read_all`,
+  `compute.jobs.collect_k8s` and the Kubernetes page stop asking (the page remembers the outage for 15 s), and both
+  jobs stop after a 240 s wall-clock budget. A failing single query does not short-circuit anything.
 
 ## Prometheus discovery
 
@@ -336,3 +368,31 @@ the rules live in Prometheus' own configuration.
 `administration.services.onboarding_checklist()` drives the panel at the top of Administration › Integrations:
 Prometheus connected → targets discovered (N) → hosts in the CMDB (N of M) → Alertmanager webhook configured →
 notification channel configured → first alert received. Each step links to the page that fixes it. Counts only.
+
+## Monitoring pages: site scoping, refresh, alert expiry
+
+* **Which site a host belongs to** (`telemetry.hosts.instance_sites`): the site of the CMDB item whose
+  `prometheus_instance` is the host's `instance`; else the site of its Prometheus discovery record
+  (`DiscoveredTarget.site`); else the site of the network device that names it. A host nothing knows, or one on
+  `All Sites`, is visible to everyone. Infrastructure, host detail / metrics / metrics.json, Prometheus targets and
+  Fleet (`scope_hosts`, `scope_targets`) all use this one rule. If the inventory cannot be read, a site-limited user
+  sees nothing (fail closed); users who see every site are not affected.
+* **Nagios** has no sites of its own: a host is shown to a site-limited user only when a CMDB item or device
+  with that name, IP address or Prometheus instance sits on one of the user's sites (or on `All Sites`). Hosts and
+  services no record claims are shown only to users who see every site.
+* **Acknowledging an alert** needs `operate` on the alert's site (`core.access.can_on`); an alert on `All Sites`
+  (or with no site) needs it tenant-wide.
+* **`?refresh=1`** (cache bypass) is honoured only for users with `operate`, and never skips the 300 s series-count
+  cache on Fleet; the Refresh buttons are shown to operators only.
+* **Fleet alert panels** count one occurrence per alert row notified in the selected window (`fire_count` is a
+  lifetime counter and is not used).
+* **Stale firing alerts**: the hourly `telemetry.prune_alerts` job first resolves firing alerts that have had no
+  repeat notification for `LINKEDEYE_TELEMETRY_ALERT_STALE_HOURS` (default 48, `0` = off; keep it well above
+  Alertmanager's `repeat_interval`), emitting the resolve event with reason `stale` so the Service Desk incident
+  moves on. A later firing notification re-opens the alert. Then resolved alerts older than the retention are
+  deleted.
+* **Discovery pass cost**: link lookups use one in-memory index per pass and known targets are written in one batched
+  UPDATE, so an unchanged pass costs a constant number of queries rather than several per target.
+* **Probes**: `checks.http_check` / `fetch_bytes` percent-encode non-ASCII path and query (and UTF-8 redirect
+  targets); `resolve_allowed(host, port, timeout=None)` and `dns_check(host, timeout=None)` bound DNS by the probe
+  deadline (a timeout abandons the lookup in a daemon thread).

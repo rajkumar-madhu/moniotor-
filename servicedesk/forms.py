@@ -52,18 +52,29 @@ def assignable_users(site=None, any_site=False):
     """Active users who may work tickets (operate) on the site, by display name. `site` is a ticket's site_scope:
     None (a global ticket) lists tenant-wide operators only; any_site=True lists everyone who operates somewhere.
 
-    Memberships are prefetched and handed to core.access's per-user cache, so checking 300 users costs two
-    queries instead of one per user."""
-    from django.db.models import Prefetch
+    The candidates are narrowed in the database to the users whose role could allow it (superusers, staff without
+    memberships, and operator or admin memberships on that site or tenant-wide) BEFORE the list is capped at 300, so an
+    operator is never cut off by the viewers that sort before them. core.access then makes the final decision per user.
+    Memberships are prefetched and handed to its per-user cache, so this costs two queries instead of one per user."""
+    from django.db.models import Prefetch, Q
 
     from core.models import Membership
-    qs = (get_user_model().objects.filter(is_active=True).order_by("first_name", "username")
-          .prefetch_related(Prefetch("le_memberships", queryset=Membership.objects.select_related("site")))[:300])
+    site = site or None
+    ops = Q(le_memberships__role__in=["operator", "admin"])
+    if not any_site:
+        ops &= Q(le_memberships__site__isnull=True) if site is None else (Q(le_memberships__site__isnull=True)
+                                                                          | Q(le_memberships__site__name=site))
+    # a user with no membership holds the default role everywhere: staff operate, everyone else only views
+    candidates = Q(is_superuser=True) | ops | Q(is_staff=True, le_memberships__isnull=True)
+    qs = (get_user_model().objects.filter(is_active=True).filter(candidates).distinct().order_by("first_name", "username")
+          .prefetch_related(Prefetch("le_memberships", queryset=Membership.objects.select_related("site"))))
     users = []
     for u in qs:
         u._le_memberships = list(u.le_memberships.all())
-        if (can(u, "operate") if any_site else can_on(u, "operate", site or None)):
+        if (can(u, "operate") if any_site else can_on(u, "operate", site)):
             users.append(u)
+            if len(users) >= 300:
+                break
     return users
 
 
@@ -81,6 +92,16 @@ MAX_SLA_MINUTES = 90 * 24 * 60
 
 def user_label(u):
     return u.get_full_name() or u.get_username()
+
+
+# A change window outside these years is a typo (browsers accept 0001 to 275760): converting such a value to UTC for the
+# database overflows datetime in time zones ahead of UTC, and rendering it in local time does in zones behind it.
+WINDOW_YEARS = (2000, 2100)
+
+
+def validate_window_year(value):
+    if value is not None and not WINDOW_YEARS[0] <= value.year <= WINDOW_YEARS[1]:
+        raise forms.ValidationError(f"Enter a date between the years {WINDOW_YEARS[0]} and {WINDOW_YEARS[1]}.", code="year_range")
 
 
 class UserChoiceField(BoundedModelChoiceField):
@@ -127,6 +148,7 @@ class TicketForm(forms.ModelForm):
         for name in ("planned_start", "planned_end"):
             if name in self.fields:
                 self.fields[name].input_formats = [DT_FORMAT, "%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S"]
+                self.fields[name].validators.append(validate_window_year)
         tenant = settings.LINKEDEYE_TENANT
         # the current assignee always stays a choice (even when inactive or no longer in the list), otherwise the
         # select renders with nothing selected and saving any other field would silently unassign the ticket

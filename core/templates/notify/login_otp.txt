@@ -1,7 +1,7 @@
-Hi {{ greeting_name }},
+{% autoescape off %}Hi {{ greeting_name }},
 
 Your one-time sign-in code for LinkedEye is: {{ otp }}
 
 This code is valid for {{ valid_minutes }} minutes. Do not share it with anyone.
 
-— LinkedEye
+— LinkedEye{% endautoescape %}

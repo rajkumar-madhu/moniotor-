@@ -27,13 +27,14 @@
       <dt>Limits</dt><dd>{{ max_entries }} entries and {{ max_kb }} KB per request</dd>
       <dt>Retention</dt><dd>{{ retention_days }} days (<code>LOG_RETENTION_DAYS</code>)</dd>
       <dt>Fields</dt><dd><code>source</code>, <code>level</code> (DEBUG, INFO, WARN, ERROR, CRITICAL) and <code>message</code> are required; <code>ts</code> (ISO 8601 or Unix time), <code>host</code>, <code>site</code> and <code>attributes</code> (object) are optional.</dd>
-      <dt>Events</dt><dd>ERROR and CRITICAL lines raise an event when the same source and message pattern has not been seen in the last 10 minutes.</dd>
+      <dt>Events</dt><dd>ERROR and CRITICAL lines raise an event when the same source and message pattern has not been seen in the last 10 minutes. At most 25 new events per source and 100 in total are raised per 10 minutes; further lines are still stored, and one warning event per source says that events were held back.</dd>
+      <dt>Rate limit</dt><dd>600 requests per minute per client address, and 30 rejected tokens per minute per address; beyond that the API answers <code>429</code> with <code>Retry-After</code>. Send larger batches rather than one line per request.</dd>
     </dl>
     <pre class="log">curl -X POST {{ ingest_url }} \
   -H "Authorization: Bearer $LINKEDEYE_LOG_INGEST_TOKEN" \
   -H "Content-Type: application/json" \
   -d '[{"source":"node-exporter-01","level":"WARN","message":"CPU usage 91%","host":"srv-app-01","site":"Mumbai DC"}]'</pre>
-    <p class="t-mute">Response: <code>{"accepted": 1, "rejected": 0, "errors": [], "events": 0, "events_suppressed": 0}</code>. 401 for a wrong token, 413 when a limit is exceeded, 503 when ingest is disabled.</p>
+    <p class="t-mute">Response: <code>{"accepted": 1, "rejected": 0, "errors": [], "events": 0, "events_suppressed": 0}</code>. 401 for a wrong token, 429 when throttled, 413 when a limit is exceeded, 503 when ingest is disabled.</p>
   </div>
 </section>
 <div class="panel"><div class="panel-h"><h2>Shipping logs</h2></div>

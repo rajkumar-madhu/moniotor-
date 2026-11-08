@@ -25,6 +25,7 @@ import logging
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
 from django.urls import reverse
 
 from core import secrets
@@ -44,11 +45,14 @@ REFRESH_INTERVAL = "60s"
 
 
 # ----------------------------------------------------------------------------- the token
-def token_row(tenant_key=None):
-    """The tenant's service-discovery credential, or None."""
-    return (Credential.objects
-            .filter(tenant_key=tenant_key or tenant(), kind=CredentialKind.BEARER, name=TOKEN_NAME)
-            .order_by("pk").first())
+def token_row(tenant_key=None, for_update=False):
+    """The tenant's service-discovery credential, or None. Only a tenant-wide row (site "") counts: a bearer
+    credential a site admin stored under the same label belongs to that site and can never be the token."""
+    qs = Credential.objects.filter(tenant_key=tenant_key or tenant(), kind=CredentialKind.BEARER, name=TOKEN_NAME,
+                                   site="")
+    if for_update:
+        qs = qs.select_for_update()
+    return qs.order_by("pk").first()
 
 
 def configured():
@@ -59,9 +63,10 @@ def issue_token(user, request=None):
     """Create or rotate the token. Returns (credential, plaintext) - the only time the plaintext
     exists; it is never read back afterwards."""
     plaintext = secrets.generate_token()
-    row = token_row()
-    row = secrets.store(CredentialKind.BEARER, "prometheus", plaintext, "", user, name=TOKEN_NAME,
-                        notes="Bearer token for GET /api/sd/targets.json", request=request, credential=row)
+    with transaction.atomic():                       # read and write the row under one lock
+        row = token_row(for_update=True)
+        row = secrets.store(CredentialKind.BEARER, "prometheus", plaintext, "", user, name=TOKEN_NAME,
+                            notes="Bearer token for GET /api/sd/targets.json", request=request, credential=row)
     audit(request, "onboarding.sd.token_rotate" if row.rotated_at else "onboarding.sd.token_issue", row)
     return row, plaintext
 
@@ -127,13 +132,15 @@ def snmp_entry(target, exporter):
     return {"targets": [f"{host}:{port}"], "labels": labels}
 
 
-def targets_payload(tenant_key=None):
-    """The http_sd document: one entry per enabled, scrape-ready target."""
+def targets_payload(tenant_key=None, limit=None):
+    """The http_sd document: one entry per enabled, scrape-ready target. `limit` builds only the first entries
+    (the preview on the service-discovery page)."""
     from . import devices
     from .models import TargetType
     exporter = devices.exporter_url()
     out = []
-    for target in enabled_sd_targets(tenant_key):
+    qs = enabled_sd_targets(tenant_key)
+    for target in (qs[:limit] if limit else qs):
         instance = target.instance
         if not instance:
             continue
@@ -142,7 +149,10 @@ def targets_payload(tenant_key=None):
             if entry is not None:
                 out.append(entry)
                 continue
-        out.append({"targets": [instance], "labels": labels_for(target)})
+        labels = labels_for(target)
+        if target.scheme == "https":                 # pasted as https://host:port: Prometheus must scrape it over TLS
+            labels["__scheme__"] = "https"
+        out.append({"targets": [instance], "labels": labels})
     return out
 
 

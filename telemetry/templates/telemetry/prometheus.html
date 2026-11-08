@@ -10,7 +10,7 @@
   <div class="actions">
     {% if prom_configured %}
     <a class="btn" href="?{{ query.urlencode }}{% if query.urlencode %}&amp;{% endif %}format=csv">{% icon "download" 17 %}Export</a>
-    <a class="btn" href="?{{ query.urlencode }}{% if query.urlencode %}&amp;{% endif %}refresh=1">{% icon "refresh" 17 %}Refresh</a>
+    {% if can_operate %}<a class="btn" href="?{{ query.urlencode }}{% if query.urlencode %}&amp;{% endif %}refresh=1">{% icon "refresh" 17 %}Refresh</a>{% endif %}
     <a class="btn" href="#rules">{% icon "bell" 17 %}Rules{% if rule_kpis.firing %} <span class="chip crit">{{ rule_kpis.firing }}</span>{% endif %}</a>
     <a class="btn" href="{% url 'telemetry:discovery' %}">{% icon "radar" 17 %}Discovery{% if discovered %} <span class="chip warn">{{ discovered }}</span>{% endif %}</a>
     {% endif %}

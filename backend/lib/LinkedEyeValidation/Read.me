@@ -6,9 +6,9 @@ result = snmp(version='v3',
               securitylevel="authPriv",
               username="testuser",
               authenticationmethod="MD5",
-              authenticationpassword="testauthpass",
+              authenticationpassword="<rotate-and-remove>",
               privacymethod="DES",
-              privacypassword="testprivpass",
+              privacypassword="<rotate-and-remove>",
               ip="172.16.0.141").check()
 print(result)
 
@@ -21,20 +21,20 @@ result = snmp(version='v3',
               securitylevel="authPriv",
               username="testuser",
               authenticationmethod="MD5",
-              authenticationpassword="testauthpass",
+              authenticationpassword="<rotate-and-remove>",
               privacymethod="DES",
-              privacypassword="testprivpass",
+              privacypassword="<rotate-and-remove>",
               ip="172.16.0.14").check()
 print(result)
 ==================================================================================
 SNMP - v2c - positive
 from LinkedEyeValidation import snmp
-result = snmp(version='v2c', community_string="Linkedeye#2", ip="172.16.0.2").check()
+result = snmp(version='v2c', community_string="<rotate-and-remove>", ip="172.16.0.2").check()
 print(result)
 ========================================================================================
 SNMP - v2c - Negative
 from LinkedEyeValidation import snmp
-result = snmp(version='v2c', community_string="Linkedeye#2", ip="172.16.0.10").check()
+result = snmp(version='v2c', community_string="<rotate-and-remove>", ip="172.16.0.10").check()
 print(result)
 
 =========================================================================================
@@ -52,18 +52,18 @@ print(result)
 ==================================================================================================
 ILO check -positive 
 from LinkedEyeValidation import  ilo
-result = ilo(ip="172.16.0.26", username="ILO25" , password="fin@1234" ).check()
+result = ilo(ip="172.16.0.26", username="<rotate-and-remove>" , password="<rotate-and-remove>" ).check()
 print(result)
 ==================================================================================================
 
 ILO check - Negative
 from LinkedEyeValidation import  ilo
-result = ilo(ip="172.16.0.26", username="ILON25" , password="fin@1234" ).check()
+result = ilo(ip="172.16.0.26", username="<rotate-and-remove>" , password="<rotate-and-remove>" ).check()
 print(result)
 ====================================================================================================
 ILO check - Positive 
 from LinkedEyeValidation import  ilo
-result = ilo(ip="172.16.0.26", username="ILON25" , password="fin@1234" ).check()
+result = ilo(ip="172.16.0.26", username="<rotate-and-remove>" , password="<rotate-and-remove>" ).check()
 print(result)
 
 SNMP - v3 -authNoPriv- - positive
@@ -73,7 +73,7 @@ result = snmp(version='v3',
               securitylevel="authNoPriv",
               username="testuser2",
               authenticationmethod="MD5",
-              authenticationpassword="testauthpass",
+              authenticationpassword="<rotate-and-remove>",
               ip="172.16.0.141").check()
 print(result)
 
@@ -87,7 +87,7 @@ result = snmp(version='v3',
               securitylevel="authNoPriv",
               username="testuser2",
               authenticationmethod="MD5",
-              authenticationpassword="testauthpass",
+              authenticationpassword="<rotate-and-remove>",
               ip="172.16.0.142").check()
 print(result)
 

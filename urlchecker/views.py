@@ -12,6 +12,7 @@ from django.views.decorators.http import require_POST
 
 from core import access
 from core.access import can, require, scope_by_site
+from core.audit import audit
 from domainmonitor.views import SafeCsvWriter
 from probes import runner
 
@@ -100,6 +101,10 @@ def index(request, pk=None):
             except IntegrityError:  # a concurrent save took the name after validation
                 form.add_error("name", "A URL check with this name already exists.")
             else:
+                if editing:
+                    audit(request, "update", obj, site=obj.site, changed=sorted(form.changed_data))
+                else:
+                    audit(request, "create", obj, site=obj.site, url_check_type=obj.check_type, enabled=obj.enabled)
                 runner.run_url_checks([obj])
                 messages.success(request, f"Saved “{obj.name}” and ran its first check.")
                 return redirect("urlchecker:index")
@@ -157,6 +162,8 @@ def run_now(request, pk=None):
         allowed = [c for c in ordered if can_on(request.user, "operate", c.site)]
         items, skipped = allowed[:RUN_ALL_LIMIT], len(allowed) - min(len(allowed), RUN_ALL_LIMIT)
     results = runner.run_url_checks(items)
+    audit(request, "run", items[0] if pk else None, object_type="urlchecker.urlcheck", site=items[0].site if pk else "all",
+          checked=len(items), **({} if pk else {"skipped": skipped}))
     if pk:
         summary, skipped = ", ".join(f"{c.name}: {s}" for c, s in zip(items, results)), 0
     else:
@@ -174,6 +181,7 @@ def delete(request, pk):
     if not can_change(request.user, "admin", obj.site):
         messages.error(request, f"You do not have admin rights on {obj.site}.")
         return redirect("urlchecker:index")
+    audit(request, "delete", obj, site=obj.site, url_check_type=obj.check_type)
     obj.delete()
     messages.success(request, f"Deleted “{obj.name}”.")
     return redirect("urlchecker:index")
