@@ -1,0 +1,150 @@
+{% extends "core/base.html" %}{% load le static network_tags %}
+{% block title %}{{ iface.name }} · {{ device.name }}{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'network/page.css' %}"><link rel="stylesheet" href="{% static 'network/port.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'network:all' %}">Network Devices</a>{% icon "chevron-right" 14 %}<a href="{{ device.type_list_url }}">{{ device.type_plural }}</a>{% icon "chevron-right" 14 %}<a href="{{ device.get_absolute_url }}">{{ device.name }}</a>{% icon "chevron-right" 14 %}<a href="{{ interfaces_url }}">Interfaces</a>{% icon "chevron-right" 14 %}<span>{{ iface.name }}</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-network pd-port">
+<header class="head pd-head">
+  <div class="pd-title">
+    <h1><span class="pd-name">{{ iface.name }}</span> <span class="nw-live-badge pd-badge">{% badge iface.oper_status|if_state iface.get_oper_status_display %}</span>
+      <span class="chip {% if iface.admin_status == 'up' %}ok{% else %}mute{% endif %}" title="Administrative status">Admin <span data-pd="state_admin" data-pd-tone="admin">{{ state.admin }}</span></span></h1>
+    <p class="pd-alias{% if not iface.alias %} t-mute{% endif %}">{{ iface.alias|default:"No description (ifAlias) set on the device" }}</p>
+    <p class="pd-meta"><span class="mi" title="Port speed">{% if iface.speed_mbps %}{{ iface.speed_mbps|speed }}{% else %}Speed not reported{% endif %}</span><span class="sep">|</span><wbr><span class="mi">{{ iface.if_type|default:"Type not reported" }}</span><span class="sep">|</span><wbr><span class="mi">Device <a href="{{ device.get_absolute_url }}">{{ device.name }}</a></span><span class="sep">|</span><wbr><span class="mi">Last change <span data-pd="state_last_change_short">{{ state.last_change_short }}</span></span><span class="sep">|</span><wbr><span class="mi">Port {{ pos }} of {{ total }}</span></p>
+  </div>
+  <div class="pd-actions">
+    <div class="pd-nav" role="group" aria-label="Browse ports of {{ device.name }}">
+      {% if prev_port %}<a class="btn icon" href="{% url 'network:interface' device.pk prev_port.if_index %}?range={{ range_key }}" rel="prev" aria-label="Previous port: {{ prev_port.name }}" title="Previous: {{ prev_port.name }}">{% icon "chevron-left" 16 %}</a>{% else %}<span class="btn icon" aria-disabled="true">{% icon "chevron-left" 16 %}</span>{% endif %}
+      <form class="pd-picker" method="get" action="{% url 'network:interface' device.pk iface.if_index %}">
+        <label class="pd-sr" for="pd-goto">Go to port</label>
+        <select id="pd-goto" name="goto">{% for p in ports %}<option value="{{ p.if_index }}"{% if p.pk == iface.pk %} selected{% endif %}>{{ p.name }}{% if p.alias %} · {{ p.alias|truncatechars:28 }}{% endif %}</option>{% endfor %}</select>
+        <input type="hidden" name="range" value="{{ range_key }}"><noscript><button class="btn sm" type="submit">Go</button></noscript>
+      </form>
+      {% if next_port %}<a class="btn icon" href="{% url 'network:interface' device.pk next_port.if_index %}?range={{ range_key }}" rel="next" aria-label="Next port: {{ next_port.name }}" title="Next: {{ next_port.name }}">{% icon "chevron-right" 16 %}</a>{% else %}<span class="btn icon" aria-disabled="true">{% icon "chevron-right" 16 %}</span>{% endif %}
+    </div>
+    <div class="pd-btns">
+      <a class="btn sm" href="{{ interfaces_url }}">{% icon "network" 15 %}All interfaces</a>
+      <a class="btn sm" href="{{ export_url }}" download>{% icon "download" 15 %}CSV ({{ range_key }})</a>
+      <button class="btn sm" type="button" id="pd-copy" data-label="Copy link">{% icon "link" 15 %}<span>Copy link</span></button>
+      {% if explorer_url %}<a class="btn sm ghost-primary" href="{{ explorer_url }}">{% icon "analytics" 15 %}Open in Metrics explorer</a>{% endif %}
+    </div>
+  </div>
+</header>
+
+{% for tone, text in banners %}<div class="nw-alert {{ tone }}" role="status">{% icon "info" 16 %}<span>{{ text }}</span></div>{% endfor %}
+<div class="nw-alert warn" id="pd-stale" role="status" hidden>{% icon "alert" 16 %}<span class="pd-stale-text"></span></div>
+
+<section class="pd-livebar" aria-label="Live updates">
+  <div class="nw-live pd-live" id="pd-live" data-url="{{ live_url }}" data-interval="{{ live_interval }}" data-stale="{{ state.stale|yesno:'1,0' }}" hidden>
+    <span class="nw-head-stat-val"><i class="nw-live-dot" aria-hidden="true"></i><span class="nw-live-text" role="status">Starting…</span>
+      <button type="button" class="btn sm nw-live-toggle" aria-pressed="false">Pause</button></span>
+  </div>
+  <span class="pd-updated t-mute small">Stored figures updated <span data-pd="state_updated">{{ state.updated }}</span></span>
+</section>
+
+<section class="pd-kpis" aria-label="Port summary">
+  {% for c in kpis %}<div class="pd-kpi pd-kpi-{{ c.key }}">
+    <div class="pd-kpi-l">{{ c.label }}</div>
+    {% if c.gauge %}<div class="chart pd-gauge" data-chart="gauge" data-src="pd-gauge"></div><div class="pd-sr" data-pd="kpi_{{ c.key }}">{{ c.value }}</div>
+    {% else %}<div class="pd-kpi-v t-{{ c.tone }}" data-pd="kpi_{{ c.key }}" data-pd-tone="kpi_{{ c.key }}">{{ c.value }}</div>{% endif %}
+    <div class="pd-kpi-s" data-pd="kpi_{{ c.key }}_sub">{{ c.sub }}</div>
+    {% if c.spark %}<div class="chart pd-spark" data-chart="spark" data-src="pd-spark-{{ c.key }}" aria-hidden="true"></div>{% endif %}
+  </div>{% endfor %}
+</section>
+
+<div class="nw-strip-bar pd-rangebar" id="pd-charts">
+  <span class="nw-strip-title">{% icon "activity" 15 %}Graphs · {{ range_label }}</span>
+  <nav class="seg right" aria-label="Chart time range">{% for r in range_links %}<a href="{{ r.url }}" title="{{ r.title }}" class="{% if r.on %}on{% endif %}"{% if r.on %} aria-current="true"{% endif %}>{{ r.label }}</a>{% endfor %}</nav>
+</div>
+
+<section class="pd-grid" aria-label="Port graphs">
+  {% for p in panels %}<div class="panel pd-panel pd-panel-{{ p.key }}" id="{{ p.id }}-panel">
+    <div class="panel-h nowrap"><h2>{{ p.title }}</h2><span class="right t-mute small">{{ p.hint }}</span></div>
+    {% if p.chart %}
+      <div class="chart pd-chart" data-chart="line" data-src="{{ p.id }}" data-sync="pd-port" data-kinds="{{ p.kinds }}"></div>
+      <div class="table-wrap dense pd-legend" data-chart-legend="{{ p.id }}"><table>
+        <thead><tr><th>Series</th><th class="num">Last</th><th class="num">Mean</th><th class="num">Min</th><th class="num">Max</th></tr></thead>
+        <tbody>{% for s in p.legend %}<tr data-series="{{ s.name }}"><td class="name"><i style="background:{{ s.color }}"></i>{{ s.name }}</td><td class="num" data-col="last">{{ s.last }}</td><td class="num" data-col="mean">{{ s.mean }}</td><td class="num" data-col="min">{{ s.min }}</td><td class="num" data-col="max">{{ s.max }}</td></tr>{% endfor %}</tbody>
+      </table></div>
+    {% else %}<div class="nw-empty sm">{% icon "activity" 24 %}<p>{{ p.why|default:"No data for this port." }}</p></div>{% endif %}
+  </div>{% endfor %}
+  <div class="panel pd-panel pd-panel-oper{% if oper_half %} half{% endif %}" id="pd-oper-panel">
+    <div class="panel-h nowrap"><h2>Operational state</h2><span class="right t-mute small" id="pd-oper-summary">{% if oper %}{{ oper.summary }}{% else %}ifOperStatus{% endif %}</span></div>
+    {% if oper %}
+      <div class="pd-timeline" id="pd-timeline" role="img" aria-label="Operational state, {{ range_label|lower }}: {{ oper.summary }}">{% for s in oper.segments %}<span class="pd-seg {{ s.cls }}" style="flex-grow:{{ s.seconds }}" title="{{ s.label }}"></span>{% endfor %}</div>
+      <div class="pd-tl-axis"><span id="pd-tl-start">{{ oper.start_label }}</span><span id="pd-tl-end">{{ oper.end_label }}</span></div>
+      <div class="legend nw-legend pd-tl-legend"><span><i class="pd-sw up"></i>Up</span><span><i class="pd-sw down"></i>Down</span><span><i class="pd-sw other"></i>Other (testing, dormant, unknown)</span><span><i class="pd-sw nodata"></i>No data</span></div>
+    {% else %}<div class="nw-empty sm">{% icon "heartbeat" 24 %}<p>{{ oper_why|default:"No ifOperStatus samples for this port." }}</p></div>{% endif %}
+  </div>
+</section>
+
+<section class="pd-cards" aria-label="Port details">
+  <div class="panel pd-card pd-info">
+    <div class="panel-h"><h2>Interface information</h2><span class="right t-mute small">from IF-MIB and friends</span></div>
+    <dl class="kv pd-kv">{% for r in info %}<dt>{{ r.k }}</dt><dd{% if r.mono %} class="mono"{% endif %}>{% if r.key %}<span data-pd="{{ r.key }}"{% if not r.v %} class="t-mute"{% endif %}>{{ r.v|default:"not reported" }}</span>{% elif r.v %}{{ r.v }}{% elif r.items %}{% for it in r.items %}<span class="chip mute mono">{{ it }}</span> {% endfor %}{% elif r.links %}<ul class="pd-list">{% for l in r.links %}<li>{% if l.href %}<a href="{{ l.href }}">{{ l.text }}</a>{% else %}{{ l.text }}{% endif %}</li>{% endfor %}</ul>{% else %}<span class="t-mute">not reported</span>{% endif %}</dd>{% endfor %}</dl>
+  </div>
+  <div class="pd-side">
+
+  <div class="panel pd-card pd-nbr">
+    <div class="panel-h"><h2>Neighbour</h2><span class="right t-mute small">LLDP / CDP and documented cabling</span></div>
+    {% for n in neighbours %}<div class="pd-nb">
+      <div class="pd-nb-h"><span class="chip">{{ n.proto }}</span> {% if n.device %}<a href="{{ n.device_url }}"><b>{{ n.device.name }}</b></a>{% else %}<b>{{ n.system|default:"System name not reported" }}</b>{% endif %}</div>
+      <dl class="kv pd-kv">
+        <dt>Remote system</dt><dd>{% if n.system %}{{ n.system }}{% else %}<span class="t-mute">not reported</span>{% endif %}</dd>
+        <dt>Remote port</dt><dd>{% if n.port %}{{ n.port }}{% else %}<span class="t-mute">not reported</span>{% endif %}{% if n.port_desc and n.port_desc != n.port %} <small class="t-mute">({{ n.port_desc }})</small>{% endif %}</dd>
+        <dt>Chassis ID</dt><dd class="mono">{% if n.chassis %}{{ n.chassis }}{% else %}<span class="t-mute">not reported</span>{% endif %}</dd>
+        <dt>Management IP</dt><dd class="mono">{% if n.ip %}{{ n.ip }}{% else %}<span class="t-mute">not reported</span>{% endif %}</dd>
+        {% if n.descr %}<dt>Description</dt><dd>{{ n.descr|truncatechars:160 }}</dd>{% endif %}
+        <dt>LinkedEye device</dt><dd>{% if n.device %}<a href="{{ n.device_url }}">{{ n.device.name }}</a>{% else %}<span class="t-mute">no matching device you can see</span>{% endif %}</dd>
+      </dl>
+    </div>{% endfor %}
+    {% for l in links %}<div class="pd-nb">
+      <div class="pd-nb-h"><span class="chip purple">Cable</span> {% if l.device %}<a href="{{ l.device_url }}"><b>{{ l.device.name }}</b></a>{% if l.port %} · {{ l.port }}{% endif %}{% else %}<b>A device outside your sites</b>{% endif %}
+        {% if l.edit_url %}<a class="right small" href="{{ l.edit_url }}">Edit link</a>{% endif %}</div>
+      <p class="t-mute small">{{ l.medium }}{% if l.kind %} · {{ l.kind }}{% endif %}{% if l.speed %} · {{ l.speed }}{% endif %} · {{ l.origin }}{% if not l.confirmed %} · not confirmed{% endif %}{% if l.note %} · {{ l.note }}{% endif %}</p>
+    </div>{% endfor %}
+    {% if not neighbours and not links %}<div class="nw-empty sm">{% icon "network" 24 %}<p>No LLDP or CDP neighbour is reported on this port. It needs the snmp_exporter <code>lldp</code> / <code>cdp</code> modules, and the exporter's <code>lldpRemLocalPortNum</code> must equal the ifIndex.</p></div>{% endif %}
+  </div>
+
+  <div class="panel pd-card pd-optics">
+    <div class="panel-h"><h2>Optics (DOM)</h2><span class="right t-mute small">transceiver sensors</span></div>
+    {% if sensors %}<div class="table-wrap dense"><table><thead><tr><th>Sensor</th><th class="num">Reading</th></tr></thead><tbody>
+      {% for s in sensors %}<tr><td>{{ s.label }}{% if s.thresholds %}<div class="small t-mute">Thresholds {{ s.thresholds|join:", " }}</div>{% endif %}</td><td class="num">{% if s.value is None %}<span class="t-mute">not reported</span>{% else %}{{ s.value }} {{ s.unit }}{% endif %}</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% else %}<div class="nw-empty sm">{% icon "zap" 24 %}<p>No transceiver sensors are reported for this port. Optics need the entity-sensor series (<code>entSensorValue</code> or <code>entPhySensorValue</code> with the <code>entPhysicalName</code> label starting with the port name).</p></div>{% endif %}
+  </div>
+
+  <div class="panel pd-card pd-poe">
+    <div class="panel-h"><h2>Power over Ethernet</h2><span class="right t-mute small">POWER-ETHERNET-MIB</span></div>
+    {% if poe %}<dl class="kv pd-kv">
+      <dt>Admin</dt><dd>{% if poe.admin %}{{ poe.admin|capfirst }}{% else %}<span class="t-mute">not reported</span>{% endif %}</dd>
+      <dt>Detection</dt><dd>{% if poe.detection %}{{ poe.detection|capfirst }}{% else %}<span class="t-mute">not reported</span>{% endif %}</dd>
+      <dt>Class</dt><dd>{% if poe.class %}{{ poe.class|capfirst }}{% else %}<span class="t-mute">not reported</span>{% endif %}</dd>
+      <dt>Power drawn</dt><dd>{% if poe.power_w is not None %}{{ poe.power_w }} W{% else %}<span class="t-mute">not reported</span>{% endif %}</dd>
+    </dl>
+    {% else %}<div class="nw-empty sm">{% icon "plug" 24 %}<p>No PoE data for this port. It needs <code>pethPsePortAdminEnable</code> / <code>pethPsePortDetectionStatus</code> series that carry an <code>ifIndex</code> label.</p></div>{% endif %}
+  </div>
+
+  <div class="panel pd-card pd-events">
+    <div class="panel-h"><h2>Recent events</h2><span class="right t-mute small">flaps (24 h): <b data-pd="kpi_flaps">{{ iface.flaps_24h|default_if_none:"–" }}</b></span></div>
+    {% if events %}<div class="table-wrap dense"><table><thead><tr><th>Time</th><th>Severity</th><th>Event</th></tr></thead><tbody>
+      {% for e in events %}<tr><td>{{ e.occurred_at|date:"Y-m-d H:i" }}</td><td>{% badge e.severity %}</td><td title="{{ e.message }}">{{ e.title }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% else %}<div class="nw-empty sm">{% icon "bell" 24 %}<p>No state changes recorded for this port. An event is raised when it goes down or comes back up while administratively up.</p></div>{% endif %}
+  </div>
+
+  <div class="panel pd-card pd-compare">
+    <div class="panel-h"><h2>Compare with other ports</h2><span class="right t-mute small">busiest on {{ device.name }}</span></div>
+    {% if compare %}<div class="table-wrap dense"><table><thead><tr><th>Port</th><th>Utilisation</th><th class="num">In</th><th class="num">Out</th></tr></thead><tbody>
+      {% for c in compare %}<tr><td><a href="{{ c.url }}?range={{ range_key }}" title="{{ c.alias }}">{{ c.name }}</a></td><td class="nw-util"><span class="util"><i class="fill-{{ c.tone }}" style="width:{{ c.width }}%"></i></span>{{ c.util }}</td><td class="num">{{ c.in }}</td><td class="num">{{ c.out }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% else %}<div class="nw-empty sm">{% icon "activity" 24 %}<p>No other port of this device has a utilisation figure yet.</p></div>{% endif %}
+  </div>
+  </div>
+</section>
+</div>
+{% for p in panels %}{% if p.chart %}{{ p.chart|json_script:p.id }}{% endif %}{% endfor %}
+{% for key, spark in sparks.items %}{% with sid="pd-spark-"|add:key %}{{ spark|json_script:sid }}{% endwith %}{% endfor %}
+{{ gauge|json_script:"pd-gauge" }}
+{% if oper %}{{ oper|json_script:"pd-oper" }}{% endif %}
+<script src="{% static 'network/port.js' %}" defer></script>
+{% endblock %}

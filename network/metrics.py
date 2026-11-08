@@ -12,9 +12,14 @@ temperature entPhySensorValue (celsius sensors), jnxOperatingTemp, ciscoEnvMonTe
 module has none of them simply has no figure: it is shown as "No data", never as 0.
 Interfaces are identified by the `ifIndex` label; `ifName` / `ifDescr` / `ifAlias`
 lookups give the names. Missing series are tolerated: whatever is present is stored.
+Per-port facts for the interface page (network/portmetrics.py reads the live extras): ifMtu, ifPhysAddress (a label),
+dot3StatsDuplexStatus (indexed by `dot3StatsIndex`, which equals ifIndex) and ifLastChange (TimeTicks, read against
+sysUpTime) are stored on the Interface row. A fact never creates an interface, and a device that does not report one
+keeps it empty ("not reported"), never a guess.
 """
 import logging
-from datetime import datetime, timezone as dt_tz
+import re
+from datetime import datetime, timedelta, timezone as dt_tz
 
 from django.utils import timezone
 
@@ -34,6 +39,7 @@ IF_TYPE_NAMES = {
 }
 CHUNK = 40           # instances per batched query
 MAX_INTERFACES = 1000
+MAX_IF_INDEX = 2_147_483_647   # the largest value of the positive-integer column on PostgreSQL
 # per-interface numbers that must never outlive the data they came from
 STALE_RATES = {"in_mbps": None, "out_mbps": None, "utilization": None,
                "errors_per_s": None, "discards_per_s": None, "flaps_24h": None}
@@ -92,6 +98,11 @@ def queries(selector):
         "discards": f'sum by (instance, ifIndex) (rate({{__name__=~"ifInDiscards|ifOutDiscards",{s}}}[5m]))',
         # max over the state-set series (one per state) so both exporter styles count each transition once
         "flaps": f"max by (instance, ifIndex) (changes(ifOperStatus{{{s}}}[24h]))",
+        # inventory facts of the per-port page: one batched query each for the whole chunk, never one per port
+        "mtu": f"ifMtu{{{s}}}",
+        "mac": f"ifPhysAddress{{{s}}}",
+        "duplex": f"dot3StatsDuplexStatus{{{s}}}",
+        "lastchange": f"ifLastChange{{{s}}}",
         "uptime": f"sysUpTime{{{s}}} / 100",
         **device_queries(s),
     }
@@ -131,6 +142,37 @@ def _if_type(metric, value):
     return IF_TYPES.get(int(value), f"type {int(value)}")
 
 
+PORT_FACT_KEYS = ("mtu", "mac", "duplex", "lastchange")
+
+
+def parse_mac(raw):
+    """aa:bb:cc:dd:ee:ff from the forms snmp_exporter prints (0xAABBCCDDEEFF, aa:bb:.., aa-bb-.., aabb.ccdd.eeff).
+    Anything that is not a non-zero 6-byte address is "" (not reported)."""
+    text = str(raw or "").strip()
+    if text[:2].lower() == "0x":
+        text = text[2:]
+    digits = re.sub(r"[:\-.\s]", "", text)
+    if len(digits) != 12 or not re.fullmatch(r"[0-9A-Fa-f]{12}", digits) or set(digits) == {"0"}:
+        return ""
+    return ":".join(digits[i:i + 2] for i in range(0, 12, 2)).lower()
+
+
+def parse_duplex(metric, value):
+    """"full" / "half" / "" from dot3StatsDuplexStatus (enum 2 half, 3 full; or a state set {..="fullDuplex"} 1)."""
+    if "dot3StatsDuplexStatus" in metric:
+        label = str(metric["dot3StatsDuplexStatus"]).lower()
+        if value != 1:
+            return ""
+        return "full" if "full" in label else "half" if "half" in label else ""
+    if value is None:
+        return ""
+    return {2: "half", 3: "full"}.get(int(value), "")
+
+
+def _mtu(value):
+    return int(value) if isinstance(value, (int, float)) and value == value and 1 <= value <= 1_000_000 else None
+
+
 def fetch(instances):
     """Query Prometheus for the given instance labels.
     Returns ({instance: {"interfaces": {ifIndex: {...}}, "uptime": seconds|None}}, [errors])."""
@@ -151,11 +193,12 @@ def fetch(instances):
             if key in ("uptime", "cpu", "memory", "temp"):
                 data[inst][key] = v
                 continue
-            idx = m.get("ifIndex", "")
-            if not str(idx).isdigit():
+            idx = m.get("ifIndex") or (m.get("dot3StatsIndex") if key == "duplex" else None) or ""
+            # ASCII digits that fit the integer column (a label is device-reported text; int() refuses 4300+ digits)
+            if not str(idx).isascii() or not str(idx).isdigit() or len(str(idx)) > 10 or int(idx) > MAX_IF_INDEX:
                 continue
             ifs = data[inst]["interfaces"]
-            if int(idx) not in ifs and len(ifs) >= MAX_INTERFACES:
+            if int(idx) not in ifs and (key in PORT_FACT_KEYS or len(ifs) >= MAX_INTERFACES):
                 continue
             row = ifs.setdefault(int(idx), {"name": "", "alias": ""})
             row["name"] = row["name"] or m.get("ifName") or m.get("ifDescr") or ""
@@ -167,6 +210,16 @@ def fetch(instances):
                     row[key] = st
             elif key == "type":
                 row["type"] = _if_type(m, v)
+            elif key == "mtu":
+                row["mtu"] = _mtu(v)
+            elif key == "mac":
+                row["mac"] = parse_mac(m.get("ifPhysAddress"))
+            elif key == "duplex":
+                duplex = parse_duplex(m, v)
+                if duplex or "duplex" not in row:
+                    row["duplex"] = duplex
+            elif key == "lastchange":
+                row["lastchange"] = v
             else:
                 row[key] = v
     return data, errors
@@ -200,6 +253,22 @@ def _kept_state(obj, field, query_failed):
     if query_failed and obj is not None:
         return getattr(obj, field) or "unknown"
     return "unknown"
+
+
+def _port_facts(row, obj, failed, uptime, now):
+    """mtu / mac / duplex / last_change_at for one interface row. A query that failed says nothing about the port, so
+    the stored value is kept; a series that is simply absent clears it ("not reported")."""
+    out = {}
+    for field, key, empty in (("mtu", "mtu", None), ("mac", "mac", ""), ("duplex", "duplex", "")):
+        out[field] = getattr(obj, field) if obj is not None and key in failed else row.get(key) or empty
+    if obj is not None and ("lastchange" in failed or "uptime" in failed):
+        out["last_change_at"] = obj.last_change_at
+    else:
+        ticks = row.get("lastchange")
+        age = None if ticks is None or ticks < 0 or uptime is None else uptime - ticks / 100.0
+        # an ifLastChange beyond sysUpTime (counter wrap, agent restart) says nothing: no value
+        out["last_change_at"] = None if age is None or age < -5 else now - timedelta(seconds=max(0.0, age))
+    return out
 
 
 def apply(device, result, errors, now=None):
@@ -241,6 +310,7 @@ def apply(device, result, errors, now=None):
             "speed_mbps": speed, "in_mbps": i_in, "out_mbps": i_out, "utilization": util,
             "errors_per_s": _rate(row.get("errors")), "discards_per_s": _rate(row.get("discards")),
             "flaps_24h": None if row.get("flaps") is None else max(0, int(row["flaps"])), "updated_at": now,
+            **_port_facts(row, obj, failed, uptime, now),
         }
         if obj is None:
             Interface.objects.create(device=device, if_index=idx, **fields)

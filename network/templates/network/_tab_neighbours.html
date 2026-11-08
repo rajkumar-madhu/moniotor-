@@ -1,4 +1,11 @@
 {% load le %}
 <section class="panel"><div class="panel-h"><div><h2>LLDP neighbours</h2><small>Link-layer neighbours reported by the device</small></div>{% if topology_url %}<a class="right btn sm ghost-primary" href="{{ topology_url }}">{% icon "share" 15 %}Open topology</a>{% endif %}</div>
-  <div class="nw-empty sm">{% icon "network" 24 %}<p>LLDP neighbour collection is not connected for this device yet. The local monitor currently stores reachability checks and IF-MIB interface metrics only.</p></div>
+  <div class="nw-empty sm">{% icon "network" 24 %}<p>LLDP neighbour collection is not connected for this device yet. The local monitor currently stores reachability checks and IF-MIB interface metrics only. Each port's page (<a href="?tab=interfaces">Interfaces</a>) reads the neighbour its LLDP / CDP series report live from Prometheus.</p></div>
 </section>
+{% if doc_links %}
+<section class="panel"><div class="panel-h"><div><h2>Documented links</h2><small>Cables recorded in Network architecture for this device</small></div></div>
+  <div class="table-wrap dense"><table><thead><tr><th>Local port</th><th>Far device</th><th>Far port</th><th>Medium</th><th>Kind</th><th>Speed</th></tr></thead><tbody>
+  {% for l in doc_links %}<tr><td>{% if l.port_url %}<a href="{{ l.port_url }}">{{ l.port }}</a>{% else %}{{ l.port|default:"–" }}{% endif %}</td><td>{% if l.device %}<a href="{{ l.device_url }}">{{ l.device.name }}</a>{% else %}<span class="t-mute">a device outside your sites</span>{% endif %}</td><td>{{ l.far_port|default:"–" }}</td><td>{{ l.medium }}{% if not l.confirmed %} <small class="t-mute">(not confirmed)</small>{% endif %}</td><td>{{ l.kind|default:"–" }}</td><td>{{ l.speed|default:"–" }}</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+{% endif %}

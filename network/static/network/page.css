@@ -1934,3 +1934,23 @@
   .pg-network .ph-table td { padding: 0; border: 0; text-align: left; background: transparent; }
   .pg-network .ph-table td.num::before { content: attr(data-label) ": "; color: var(--muted); }
 }
+
+/* front panel drawer: links to the per-port page and to the filtered charts */
+.pg-network .fp-d-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.pg-network .ifn-link {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.pg-network .ifn-link:hover,
+.pg-network .ifn-link:focus-visible {
+  color: var(--primary);
+  text-decoration: underline;
+}

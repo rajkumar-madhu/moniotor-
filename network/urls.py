@@ -1,6 +1,6 @@
 from django.urls import path, re_path
 
-from . import image_views, photo_views, views
+from . import image_views, photo_views, portviews, views
 
 app_name = "network"
 urlpatterns = [
@@ -25,6 +25,9 @@ urlpatterns = [
     path("network/devices/<int:pk>/live/", views.live, name="live"),
     path("network/devices/cards-live/", views.cards_live, name="cards_live"),
     path("network/devices/<int:pk>/interfaces.csv", views.interfaces_csv, name="interfaces_export"),
+    path("network/devices/<int:pk>/interfaces/<int:if_index>/", portviews.interface, name="interface"),
+    path("network/devices/<int:pk>/interfaces/<int:if_index>/live/", portviews.interface_live, name="interface_live"),
+    path("network/devices/<int:pk>/interfaces/<int:if_index>/export.csv", portviews.interface_csv, name="interface_export"),
     re_path(r"^network/images/(?P<sha>[0-9a-f]{64})\.(?P<ext>png|jpg|webp)$", image_views.image, name="image"),
     path("network/catalog/", image_views.catalog, name="catalog"),
     path("network/catalog/new/", image_views.catalog_edit, name="catalog_create"),
