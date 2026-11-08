@@ -19,8 +19,12 @@
   }
   function chip(tone, text) { return el('span', 'chip ' + (tone === 'mute' || !tone ? 'mute' : tone), text); }
   function csrf() {
-    var m = document.cookie.match(/csrftoken=([^;]+)/);
-    return (m && m[1]) || (document.querySelector('[name=csrfmiddlewaretoken]') || {}).value || '';
+    var meta = document.querySelector('meta[name="csrf-cookie-name"]');
+    var name = (meta && meta.content) || 'linkedeyecsrftoken';
+    var m = document.cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]*)'));
+    if (m) return decodeURIComponent(m[1]);
+    var input = document.querySelector('[name=csrfmiddlewaretoken]');
+    return (input && input.value) || '';
   }
   function num(v, unit) { return v === null || v === undefined ? null : (unit === '%' ? v + ' %' : v + (unit ? ' ' + unit : '')); }
   function notReported(td) { td.appendChild(el('span', 't-mute', 'not reported')); }

@@ -7,6 +7,7 @@ from datetime import timedelta
 from decimal import Decimal
 from unittest import mock
 
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.test import Client, TestCase, override_settings
@@ -327,7 +328,7 @@ class ViewTests(TestCase):
 
     def token(self, c, url=None):
         c.get(url or reverse("tcpcheck:index"))
-        return c.cookies["csrftoken"].value
+        return c.cookies[settings.CSRF_COOKIE_NAME].value
 
     def test_pages_render_for_viewer(self):
         c = self.client_for(self.viewer)
@@ -587,7 +588,7 @@ class RegressionTests(TestCase):
 
     def token(self, c):
         c.get(reverse("tcpcheck:index"))
-        return c.cookies["csrftoken"].value
+        return c.cookies[settings.CSRF_COOKIE_NAME].value
 
     def test_telnet_replies_are_sent_once(self):
         """Each option request is refused exactly once, even when the banner arrives in several packets."""

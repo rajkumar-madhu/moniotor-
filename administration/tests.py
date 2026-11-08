@@ -4,6 +4,7 @@ import urllib.error
 from datetime import timedelta
 from unittest import mock
 
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.test import Client, TestCase, override_settings
@@ -29,7 +30,7 @@ def client_for(user, csrf=False):
 def csrf_post(client, url, data=None):
     """POST with a valid CSRF token on an enforce_csrf_checks client."""
     client.get(reverse("administration:profile"))
-    token = client.cookies["csrftoken"].value
+    token = client.cookies[settings.CSRF_COOKIE_NAME].value
     data = dict(data or {})
     data["csrfmiddlewaretoken"] = token
     return client.post(url, data)
