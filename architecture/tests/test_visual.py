@@ -95,7 +95,7 @@ class VisualPageTests(Base):
         self.assertTrue(all("C" not in x for x in d))
 
     def test_unclassified_devices_go_to_a_slim_strip_not_a_band(self):
-        Device.objects.create(name="odd-appliance", device_type="load_balancer", site="Mumbai", mgmt_ip="192.0.2.99")
+        Device.objects.create(name="odd-appliance", device_type="load_balancer", site="Mumbai", mgmt_ip="192.0.2.252")
         # an unplaced device of a kind that classifies nowhere
         from architecture.models import Placement
         Placement.objects.create(device=Device.objects.get(name="odd-appliance"), tier="other")
@@ -114,7 +114,7 @@ class VisualPageTests(Base):
 
     def test_a_viewer_gets_no_placement_link_in_the_strip(self):
         from architecture.models import Placement
-        d = Device.objects.create(name="odd-appliance", device_type="load_balancer", site="Mumbai", mgmt_ip="192.0.2.99")
+        d = Device.objects.create(name="odd-appliance", device_type="load_balancer", site="Mumbai", mgmt_ip="192.0.2.252")
         Placement.objects.create(device=d, tier="other")
         self.assertNotIn("Set a placement</a>", self.page().content.decode())
         self.login(self.operator)
