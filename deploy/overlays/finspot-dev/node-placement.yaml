@@ -1,0 +1,33 @@
+# Run LinkedEye on fs-le-dev-finspot (172.16.0.56) so probes reach 172.16.0.0/16 lab targets.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: linkedeye-web
+  namespace: fs-linkedeye
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: fs-le-dev-finspot
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: linkedeye-probes
+  namespace: fs-linkedeye
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: fs-le-dev-finspot
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: linkedeye-migrate
+  namespace: fs-linkedeye
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: fs-le-dev-finspot

@@ -259,7 +259,7 @@ your own StatefulSet), and the image pushed to a registry the cluster can pull f
 | `networkpolicy.yaml` | Default-deny ingress; ingress controller (and optional in-cluster Alertmanager) → web:8000; web / probes / migrate → database:5432. |
 | `kustomization.yaml` | Ties it together; sets the image. |
 | `optional/backup-cronjob.yaml` | Not applied by default: nightly `pg_dump` CronJob + PVC (see [Backups](#backups)). |
-| `overlays/finspot-dev/` | Kustomize overlay for FinSpot dev (`fs-le-dx.finspot.in`, probe CIDRs). See [FINSPOT_DEV_K8S.md](FINSPOT_DEV_K8S.md). |
+| `deploy/overlays/finspot-dev/` | Kustomize overlay for FinSpot dev (`fs-le-dev.finspot.in`, node `fs-le-dev-finspot`). See [FINSPOT_DEV_K8S.md](FINSPOT_DEV_K8S.md). |
 
 ### First installation
 

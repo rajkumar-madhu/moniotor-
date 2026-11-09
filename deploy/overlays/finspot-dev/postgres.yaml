@@ -1,0 +1,88 @@
+# In-namespace Postgres for FinSpot dev (same node as the app). Password from linkedeye-secrets.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: fs-linkedeye
+  labels:
+    app.kubernetes.io/name: linkedeye-postgres
+    app.kubernetes.io/part-of: linkedeye
+spec:
+  selector:
+    app.kubernetes.io/name: linkedeye-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: linkedeye-postgres
+  namespace: fs-linkedeye
+  labels:
+    app.kubernetes.io/name: linkedeye-postgres
+    app.kubernetes.io/part-of: linkedeye
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: linkedeye-postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: linkedeye-postgres
+        app.kubernetes.io/part-of: linkedeye
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: fs-le-dev-finspot
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 999
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: linkedeye
+            - name: POSTGRES_USER
+              value: linkedeye
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: linkedeye-secrets
+                  key: LINKEDEYE_DB_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: pgdata
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 10Gi

@@ -1,0 +1,14 @@
+# FinSpot Dev (Lesites slug fs-le-dev-finspot) — portal host per administration/finspot_naming.py.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: linkedeye-config
+  namespace: fs-linkedeye
+data:
+  LINKEDEYE_ALLOWED_HOSTS: "fs-le-dev.finspot.in,linkedeye-web,linkedeye-web.fs-linkedeye.svc,linkedeye-web.fs-linkedeye.svc.cluster.local"
+  LINKEDEYE_CSRF_TRUSTED_ORIGINS: "https://fs-le-dev.finspot.in"
+  LINKEDEYE_PROMETHEUS_URL: "https://fs-le-dev1-prometheus.finspot.in"
+  # ingress-nginx controller pods (ingress-nginx namespace, fs-dev-cs-tool1 pod CIDR).
+  LINKEDEYE_TRUSTED_PROXIES: "192.168.4.0/24"
+  # NSE/BSE lab + FinSpot dev API network (SSRF allowlist for probes).
+  LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS: "10.10.0.0/16,10.20.0.0/16,172.16.0.0/16"

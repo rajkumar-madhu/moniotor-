@@ -1,0 +1,45 @@
+# Portal host per administration/finspot_naming.py (slug fs-le-dev-finspot -> fs-le-dev.finspot.in).
+# Copy finspot-wildcard-tls from another namespace before apply (see docs/FINSPOT_DEV_K8S.md).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: linkedeye
+  namespace: fs-linkedeye
+spec:
+  tls:
+    - hosts:
+        - fs-le-dev.finspot.in
+      secretName: finspot-wildcard-tls
+  rules:
+    - host: fs-le-dev.finspot.in
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: linkedeye-web
+                port:
+                  name: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: linkedeye-datasheet-upload
+  namespace: fs-linkedeye
+spec:
+  tls:
+    - hosts:
+        - fs-le-dev.finspot.in
+      secretName: finspot-wildcard-tls
+  rules:
+    - host: fs-le-dev.finspot.in
+      http:
+        paths:
+          - path: /network/photos/find/
+            pathType: Exact
+            backend:
+              service:
+                name: linkedeye-web
+                port:
+                  name: http

@@ -1,0 +1,8 @@
+# Single replica on the dev worker; scale up after adding nodes or removing nodeSelector.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: linkedeye-web
+  namespace: fs-linkedeye
+spec:
+  replicas: 1

@@ -1,0 +1,26 @@
+# FinSpot dev cluster overlay (kubectl context from fs-dev-cp-ps bastion).
+# Schedules web, probes, migrate, and Postgres on worker fs-le-dev-finspot (172.16.0.56).
+# Does not include secrets or kube credentials — see docs/FINSPOT_DEV_K8S.md.
+#
+#   kubectl apply -k deploy/overlays/finspot-dev
+#
+# Still required before apply: linkedeye-secrets, container image push to Harbor, TLS secret
+# finspot-wildcard-tls in fs-linkedeye.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../kubernetes
+  - postgres.yaml
+
+patches:
+  - path: configmap-patch.yaml
+  - path: node-placement.yaml
+  - path: web-replicas.yaml
+  - path: ingress-patch.yaml
+  - path: serviceaccount-patch.yaml
+
+images:
+  - name: registry.example.com/linkedeye
+    newName: harbor.finspot.in/linkedeye/linkedeye
+    newTag: "9.0"
