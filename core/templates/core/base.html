@@ -15,6 +15,7 @@
   </script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-cookie-name" content="{{ csrf_cookie_name }}">
   <title>{% block title %}LinkedEye{% endblock %} · LinkedEye</title>
   <link rel="icon" href="{% static 'linkedeye/img/logo-favicon.png' %}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -40,12 +41,10 @@
         <details class="{% if item.open %}on{% endif %}">
           <summary>{% icon item.icon 20 %}<span class="lbl">{{ item.label }}</span>{% icon "chevron-right" 15 "chev" %}
           </summary>
-          <div class="sub">{% for c in item.children %}<a href="{{ c.href }}" class="{% if c.active %}on{% endif %}">{{
-              c.label }}</a>{% endfor %}</div>
+          <div class="sub">{% for c in item.children %}<a href="{{ c.href }}" class="{% if c.active %}on{% endif %}">{{ c.label }}</a>{% endfor %}</div>
         </details>
         {% else %}
-        <a href="{{ item.href }}" class="{% if item.active %}on{% endif %}">{% icon item.icon 20 %}<span class="lbl">{{
-            item.label }}</span>{% if item.chev %}{% icon "chevron-right" 15 "chev" %}{% endif %}</a>
+        <a href="{{ item.href }}" class="{% if item.active %}on{% endif %}">{% icon item.icon 20 %}<span class="lbl">{{ item.label }}</span>{% if item.chev %}{% icon "chevron-right" 15 "chev" %}{% endif %}</a>
         {% endif %}
         {% endfor %}
       </nav>
@@ -106,8 +105,7 @@
           title="{{ le_problem_count }} check(s) need attention" aria-label="Problems">
           {% icon "bell" 21 %}{% if le_problem_count %}<span class="count">{{ le_problem_count }}</span>{% endif %}
         </a>
-        <a class="icon-btn solid hide-sm" href="{% url 'coming_soon' 'help' %}" aria-label="Help">{% ficon "help" 24
-          %}</a>
+        <a class="icon-btn solid hide-sm" href="{% url 'coming_soon' 'help' %}" aria-label="Help">{% ficon "help" 24 %}</a>
         <a class="icon-btn hide-sm" href="{{ le_admin_url }}" aria-label="Administration">{% icon "settings" 22 %}</a>
       </header>
       <main class="page" id="main" tabindex="-1">

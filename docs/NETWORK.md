@@ -300,3 +300,72 @@ Where the numbers come from (`network.live.card_data`):
 A figure that is not collected, or whose stored value is older than 15 minutes, reads **No data** and has no line: never 0.
 A genuine 0 is shown as 0. Updates: the detail page reuses the existing live endpoint (`data-live="card_cpu"` ...);
 list pages poll `GET /network/devices/cards-live/?ids=...` (at most 60 ids, site-scoped) every 30 s while the tab is visible.
+
+## Per-port page (`/network/devices/<pk>/interfaces/<ifIndex>/`)
+
+Click a port name in any interface table (Interfaces tab, Overview, Traffic, a server's Hardware tab), the **Port details
+and graphs** button in the front-panel drawer, an interface event title on the Alerts tab, or a port in the Neighbours tab's
+documented links. The page shows, for one port: a header (name, alias, admin / oper chips, speed, type, last change, port
+x of N with previous / next links and a port picker), six KPI tiles with 24 h sparklines (in, out, utilisation gauge, errors/s,
+discards/s, flaps 24 h), interactive graphs (range 1h / 6h / 24h / 7d: traffic, utilisation, packets, errors and discards per
+direction, operational-state bands, optical power), an Interface information card, a Neighbour card, Optics (DOM), PoE, recent
+events for the port and the five busiest other ports. **Anything the device does not report reads "not reported" and every
+graph degrades to a "no data for this port" message; nothing is guessed or shown as 0.** Viewers can see all of it; it changes
+nothing. The device must be in your sites (and the selected client) or the page is a 404, as is an ifIndex the device does not
+have, and a virtual machine.
+
+Actions: CSV of the port's time series for the chosen range (`.../export.csv?range=24h`, formula-safe cells, always Mbps, at
+most 1000 rows, 12 exports per user per minute), Copy link, and **Open in Metrics explorer** (traffic query prefilled; shown only
+to users who may see every site, because the explorer is not site-scoped).
+
+**Live.** The page polls `.../live/?range=` every 30 s while the tab is visible (pause button, backoff, a banner when the
+stored figures are older than 5 minutes or polling keeps failing) and patches the KPIs, state, newest chart points and
+legend numbers with `textContent` only. The endpoint answers 429 with `Retry-After` beyond 30 requests per user per minute.
+
+### What is read, and which exporter module provides it
+
+| Part of the page | Series (snmp_exporter MIB / module) | Needs |
+|---|---|---|
+| In / out, utilisation, packets, errors, discards | `ifHCInOctets` / `ifInOctets`, `ifHCOutOctets` / `ifOutOctets`, `ifHC{In,Out}{Ucast,Multicast,Broadcast}Pkts` (32-bit `if*Pkts` as fallback), `ifInErrors`, `ifOutErrors`, `ifInDiscards`, `ifOutDiscards`, `ifOperStatus` (enum or state set) | `if_mib` |
+| Speed, type, state, flaps, MTU, MAC, duplex, last change | stored by the metrics job: `ifHighSpeed`, `ifType`, `ifAdminStatus`, `ifOperStatus`, `ifMtu`, `ifPhysAddress`, `dot3StatsDuplexStatus` (index `dot3StatsIndex` = ifIndex), `ifLastChange` against `sysUpTime` | `if_mib`, `EtherLike-MIB` (duplex) |
+| IP addresses | `ipAdEntIfIndex` (label `ipAdEntAddr`, value = ifIndex) | `ip_mib` |
+| LAG membership | `dot3adAggPortAttachedAggID` (label `dot3adAggPortIndex`, value = aggregate ifIndex) | `ieee8023_lag` |
+| Port role / VLAN, STP | `vmVlan` (access VLAN, label `ifIndex`), `vlanTrunkPortNativeVlan` (label `vlanTrunkPortIfIndex`), `dot1qPvid` and `dot1dStpPortState` reached through `dot1dBasePortIfIndex` (value = ifIndex, label `dot1dBasePort`) | Cisco VLAN MIBs, `bridge` / `q_bridge`. Trunk VLAN lists are bit strings and are not shown |
+| Neighbour | LLDP: `lldpRemSysName`, `lldpRemPortId`, `lldpRemPortDesc`, `lldpRemChassisId`, `lldpRemSysDesc`, `lldpRemManAddrIfSubtype` (label `lldpRemManAddr`), selected by `lldpRemLocalPortNum` = ifIndex; CDP: `cdpCacheDeviceId`, `cdpCacheDevicePort`, `cdpCachePlatform`, `cdpCacheAddress`, selected by `cdpCacheIfIndex`. Matched to a device you may see by system name or management IP | `lldp`, `cisco_cdp`. Devices whose `lldpRemLocalPortNum` is not the ifIndex show no neighbour |
+| Documented cable | `architecture.Link` rows whose port name equals the interface name (when the Architecture app is installed). A far end on a site you cannot see is shown as "a device outside your sites" | none |
+| Optics (DOM) | `entSensorValue` or `entPhySensorValue` whose `entPhysicalName` is the port name or starts with it plus a space; type from `entSensorType` / `entPhySensorType` (dBm, celsius, amperes, voltsDC); `entSensorScale` / `entSensorPrecision` labels are applied when present; thresholds from `entSensorThresholdValue` | `entity_sensor` (`ENTITY-SENSOR-MIB` or Cisco `CISCO-ENTITY-SENSOR-MIB`) with the `entPhysicalName` lookup. Readings outside the physical range for their kind are dropped |
+| PoE | `pethPsePortAdminEnable`, `pethPsePortDetectionStatus`, `pethPsePortPowerClassifications`, `cpeExtPsePortPwrConsumption` (mW), all selected by an `ifIndex` label | `poe` and an exporter lookup that puts `ifIndex` on the series (the PoE MIB's own index is a group/port pair; add other vendors' draw series to `portmetrics.POE_POWER_METRICS`) |
+
+### Prometheus load, caching and safety
+
+* Every query is built from the device's validated instance label and the integer ifIndex of a stored interface; the only
+  request values that reach PromQL are the range key (allow-list) and that integer. Port names used to find optics are
+  escaped as RE2 and PromQL strings, with control characters removed and an anchored `name( .*)?` match so `Gi1/0/1` never
+  matches `Gi1/0/10`. Everything read back is capped and control-stripped, then escaped by the templates / `textContent`.
+* **One cold page view makes at most 21 Prometheus calls** (`portmetrics.MAX_PROM_CALLS`): 13 instant (IP, LAG parent, LAG
+  members, bridge port, PVID, STP, Cisco access VLAN, Cisco native VLAN, LLDP, CDP, optics sensors, thresholds, PoE), 5 range
+  (traffic, packets, errors, oper state, optical power only when sensors were found) and 3 more at 24 h for the sparklines when
+  the selected range is not 24 h. Instant answers are cached 60 s (10 s when a query failed) and range answers 25 s per port,
+  so reloads, prev / next browsing and several viewers cost nothing extra. A live poll makes no instant call and at most 8 range calls (the 5 above; 4 when the page found no optical sensors) when the range is 1h, 6h or 7d, and 5 on 24 h, because the sparklines need the 24 h series too. The 25 s range cache expires before the next 30 s poll, so one open page asks again at every poll, while several viewers of the same port share the answers. When
+  Prometheus is unreachable the page stops after the first failed call; a disabled device, no `LINKEDEYE_PROMETHEUS_URL` or no
+  instance label makes none and shows the same banner as the device page.
+* The metrics job gained four batched queries per device chunk (`ifMtu`, `ifPhysAddress`, `dot3StatsDuplexStatus`,
+  `ifLastChange`), never one per port. A fact never creates an interface; a failed query keeps the stored value; a series that
+  is gone clears it. Migration `network.0007` only adds four nullable / blank columns and is reversible.
+* Database queries per page view do not depend on the number of ports (tested with 4 and 400 interfaces, with and without
+  documented links).
+* A disabled device's last rates are not shown (same rule as the device page), and no Prometheus call is made for it.
+
+### Demo data
+
+`manage.py seed_network` then `manage.py seed_ports` give the example switch `core-sw-01` 52 demonstration interfaces (values are
+demonstrations, not measurements; the next real collection replaces them; `seed_ports --remove` deletes them).
+
+### What was tested against what
+
+All automated tests mock Prometheus. The browser checks used a stub Prometheus that answers snmp_exporter-shaped series for the
+demo switch. **No card has been verified against a real device or a real snmp_exporter.** In particular the optics scaling
+(`entSensorScale` / `entSensorPrecision`, amperes shown as mA), the thresholds, the PoE series (needs an `ifIndex` label), the
+VLAN / STP / LAG / IP lookups, and the LLDP / CDP label conventions (`lldpRemLocalPortNum` equal to the ifIndex, hex-encoded
+chassis ids and management addresses) follow the MIB definitions and the snmp_exporter naming conventions but are unverified on
+hardware. The `ifMtu` / `ifPhysAddress` / `dot3StatsDuplexStatus` / `ifLastChange` collection is covered by unit tests only.

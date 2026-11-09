@@ -1,0 +1,76 @@
+{% load le static %}
+<div class="hv" id="hv-root" data-hv-kind="vm">
+{% include "hypervisor/_vm_banner.html" %}
+<section class="grid g-2 hv-top">
+  <div class="panel hv-info">
+    <div class="panel-h"><h2>VM information</h2><span class="right hv-src"><i class="hv-dot {{ hv.status.code }}" aria-hidden="true"></i>vCenter API · synced <span data-hv="synced_ago">{{ hv.status.synced_ago }}</span></span></div>
+    <div class="table-wrap dense"><table class="nw-kv"><tbody>
+      {% for label, value, kind in hv.rows %}
+      <tr><td>{{ label }}</td><td>{% if kind == "none" %}<span class="t-mute">Not reported</span>{% elif kind == "mono" %}<span class="mono">{{ value }}</span>{% elif kind|slice:":5" == "chip-" %}<span class="chip {{ kind|slice:'5:' }}"{% if label == "VM state" %} data-hv="power" data-hv-tone{% elif label == "Tools status" %} data-hv="tools" data-hv-tone{% endif %}>{{ value }}</span>{% else %}{{ value }}{% endif %}</td></tr>
+      {% endfor %}
+    </tbody></table></div>
+    {% if hv.snap_note and not hv.vm.created_on %}<p class="nw-note">Created on and Description: {{ hv.snap_note }}</p>{% endif %}
+  </div>
+
+  <div class="panel hv-actions">
+    <div class="panel-h"><h2>VM actions</h2>{% if hv.vcenter_url %}<a class="right view-all" href="{{ hv.vcenter_url }}" target="_blank" rel="noopener noreferrer">Open in vCenter {% icon "external" 14 %}</a>{% endif %}</div>
+    <div class="hv-act-grid" role="group" aria-label="VM actions: each one records a request">
+      {% for code, label, ic, tone in hv.actions %}
+      {% if code == "console" %}
+        {% if hv.vcenter_url %}<a class="hv-act" href="{{ hv.vcenter_url }}" target="_blank" rel="noopener noreferrer">{% icon ic 18 %}<span>{{ label }}</span></a>{% else %}<span class="hv-act off" aria-disabled="true">{% icon ic 18 %}<span>{{ label }}</span></span>{% endif %}
+      {% else %}
+        <button type="button" class="hv-act {{ tone }}" data-act="{{ code }}"{% if not hv.can_request %} disabled{% endif %}>{% icon ic 18 %}<span>{{ label }}</span></button>
+      {% endif %}
+      {% endfor %}
+    </div>
+    <p class="hv-lock">{% icon "lock" 16 %}<span>Hypervisor control is read-only in this release. An action opens a request that an authorized operator approves or rejects here; LinkedEye records it in the audit log and never sends anything to vCenter.</span></p>
+    {% if hv.can_request %}
+    <form method="post" action="{{ hv.request_url }}" class="hv-req" id="hv-req" hidden>{% csrf_token %}
+      <div class="hv-req-h"><b id="hv-req-title">Request an action</b><button type="button" class="btn sm" id="hv-req-cancel">Cancel</button></div>
+      <input type="hidden" name="action" id="hv-req-action" value="">
+      <label class="hv-field" id="hv-req-detail-wrap" hidden><span id="hv-req-detail-label">Details</span><input name="detail" id="hv-req-detail" maxlength="200" autocomplete="off"></label>
+      <label class="hv-field"><span>Reason</span><input name="reason" maxlength="300" autocomplete="off" placeholder="Why is this needed? (shown to the approver)"></label>
+      <button class="btn primary sm" type="submit">Record the request</button>
+    </form>
+    {{ hv.needs_detail|json_script:"hv-needs-detail" }}
+    {% elif not hv.example %}<p class="nw-note">You need the operator role on this VM's site to request an action.</p>{% endif %}
+    {% if hv.pending %}
+    <ul class="hv-pending" aria-label="Pending requests">{% for r in hv.pending %}<li>{% icon "clock" 14 %}<span><b>{{ r.action_label }}</b> requested by {{ r.requested_by_name|default:"someone" }} {{ r.requested_at|timesince }} ago{% if r.detail %} · {{ r.detail }}{% endif %}</span></li>{% endfor %}</ul>
+    {% if hv.can_decide %}<a class="hv-link" href="{{ hv.requests_url }}">Review pending requests {% icon "arrow-right" 14 %}</a>{% endif %}
+    {% endif %}
+    {% for r in hv.recent_requests %}<p class="hv-recent t-mute small">{{ r.action_label }}: <span class="chip {% if r.state == 'approved' %}ok{% elif r.state == 'rejected' %}crit{% else %}mute{% endif %}">{{ r.get_state_display }}</span>{% if r.decided_by_name %} by {{ r.decided_by_name }}{% endif %}</p>{% endfor %}
+  </div>
+</section>
+
+<section class="grid g-3 hv-bottom">
+  <div class="panel hv-ds">
+    <div class="panel-h"><h2>Datastore details</h2><span class="right hv-src"><i class="hv-dot {{ hv.status.code }}" aria-hidden="true"></i>vCenter API</span></div>
+    {% with ds=hv.datastore %}
+    {% if ds and ds.known %}
+    <div class="table-wrap dense"><table class="nw-kv"><tbody>
+      <tr><td>Datastore</td><td>{{ ds.name }}</td></tr>
+      <tr><td>Type</td><td>{% if ds.type %}{{ ds.type }}{% else %}<span class="t-mute">Not reported</span>{% endif %}</td></tr>
+      <tr><td>Total capacity</td><td>{{ ds.capacity|default:"–" }}</td></tr>
+      <tr><td>Used space</td><td>{% if ds.used_pct is not None %}<span data-hv="ds_used">{{ ds.used }} ({{ ds.used_pct }}%)</span><div class="hv-bar" aria-hidden="true"><i class="{{ ds.tone }}" data-hv-bar="ds_used_pct" style="width:{{ ds.used_pct }}%"></i></div>{% else %}<span class="t-mute">Not reported</span>{% endif %}</td></tr>
+      <tr><td>Free space</td><td>{% if ds.free_pct is not None %}<span data-hv="ds_free">{{ ds.free }} ({{ ds.free_pct }}%)</span><div class="hv-bar" aria-hidden="true"><i class="ok" data-hv-bar="ds_free_pct" style="width:{{ ds.free_pct }}%"></i></div>{% else %}<span class="t-mute">Not reported</span>{% endif %}</td></tr>
+      <tr><td>Provisioning</td><td>{{ ds.provisioning|default:"Not reported" }}</td></tr>
+      <tr><td>Datastore status</td><td><span class="chip {{ ds.tone }}" data-hv="ds_status" data-hv-tone>{{ ds.status }}</span></td></tr>
+    </tbody></table></div>
+    {% elif ds %}<div class="nw-empty sm">{% icon "hdd" 24 %}<p>The datastore “{{ ds.name }}” is not in the datastore list yet.</p></div>
+    {% else %}<div class="nw-empty sm">{% icon "hdd" 24 %}<p>vCenter has not reported a datastore for this VM yet.</p></div>{% endif %}
+    {% endwith %}
+  </div>
+
+  <div class="panel hv-snaps">
+    <div class="panel-h"><h2>Snapshots</h2><a class="right view-all" href="?tab=snapshots">View all {% icon "arrow-right" 14 %}</a></div>
+    {% include "hypervisor/_snap_table.html" with rows=hv.snapshots|slice:":3" compact=True %}
+    <p class="hv-foot">{% icon "info" 14 %}<span>Snapshot metadata comes from the hypervisor integration; snapshots older than {{ hv.review_days }} days are flagged for review.</span></p>
+  </div>
+
+  <div class="panel hv-ev">
+    <div class="panel-h"><h2>Recent events</h2><a class="right view-all" href="?tab=events">View all {% icon "arrow-right" 14 %}</a></div>
+    {% include "hypervisor/_event_table.html" with rows=hv.events %}
+  </div>
+</section>
+</div>
+<script src="{% static 'hypervisor/live.js' %}" defer></script>

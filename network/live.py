@@ -23,8 +23,10 @@ def panel_ports(interfaces):
 
 def port_data(ports):
     """What the port drawer shows, pre-formatted like the tables (device-reported names are rendered as text)."""
+    from django.urls import reverse
+
     from .templatetags.network_tags import speed
-    return [{"n": n, "ifIndex": p.if_index, "name": p.name, "alias": p.alias, "type": p.if_type or "–",
+    return [{"n": n, "ifIndex": p.if_index, "url": reverse("network:interface", args=[p.device_id, p.if_index]), "name": p.name, "alias": p.alias, "type": p.if_type or "–",
              "tone": p.port_tone, "toneLabel": p.port_tone_label,
              "admin": p.get_admin_status_display(), "oper": p.get_oper_status_display(), "speed": speed(p.speed_mbps),
              "in": mbps(p.in_mbps), "out": mbps(p.out_mbps),

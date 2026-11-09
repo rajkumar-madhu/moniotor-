@@ -5,8 +5,14 @@
   if (!root) return;
   const form = root.querySelector("[data-agent-form]");
   const stream = root.querySelector("[data-stream]");
-  const csrf = () => (document.cookie.match(/csrftoken=([^;]+)/) || [])[1]
-    || (document.querySelector("[name=csrfmiddlewaretoken]") || {}).value;
+  const csrf = () => {
+    const meta = document.querySelector('meta[name="csrf-cookie-name"]');
+    const name = (meta && meta.content) || "linkedeyecsrftoken";
+    const match = document.cookie.match(new RegExp("(?:^|;\\s*)" + name + "=([^;]*)"));
+    if (match) return decodeURIComponent(match[1]);
+    const input = document.querySelector("[name=csrfmiddlewaretoken]");
+    return (input && input.value) || "";
+  };
 
   function esc(s) {
     return String(s || "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));

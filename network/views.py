@@ -6,6 +6,7 @@ from collections import Counter
 from pathlib import Path
 from urllib.parse import urlencode
 
+from django.apps import apps
 from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
@@ -262,6 +263,8 @@ def device_list(request, device_type=None):
     export_q = _query(request)
     if device_type:
         export_q["type"] = device_type
+    site_filter = request.GET.get("site", "").strip()
+    fabric_q = urlencode({"site": site_filter}) if site_filter else ""
     ctx = {
         "page": page, "counts": counts, "pct": pct, "device_type": device_type, "title": title, "icon": icon, "intro": intro,
         "list_url": reverse(url_name), "vendors": vendors, "sites": sites, "statuses": DeviceStatus.choices,
@@ -280,6 +283,7 @@ def device_list(request, device_type=None):
         "view_mode": "cards" if request.GET.get("view") == "cards" else "table",
         "view_links": _view_links(request),
         "cards_url": reverse("network:cards_live"), "live_interval": LIVE_INTERVAL,
+        "fabric_url": reverse("network:fabric") + (f"?{fabric_q}" if fabric_q else ""),
         **_perms(request),
     }
     return render(request, "network/list.html", ctx)
@@ -423,6 +427,9 @@ def detail(request, pk):
         return early
     is_vm = device.device_type == DeviceType.VIRTUAL_MACHINE
     tabs = VM_TABS if is_vm else TABS
+    hardware_tab = device.device_type == DeviceType.PHYSICAL_SERVER and apps.is_installed("hardware")
+    if hardware_tab:   # BMC (iDRAC / iLO) data lives in the hardware app
+        tabs = [(k, "Hardware (iDRAC/iLO)" if k == "hardware" else v) for k, v in tabs]
     tab = request.GET.get("tab", "overview")
     if tab not in dict(tabs):
         tab = "overview"
@@ -486,7 +493,7 @@ def detail(request, pk):
         "fabric_url": reverse("network:fabric") + (f"?{urlencode({'site': device.site})}" if device.site else ""),
         "fabric_layer": fabric.fabric_layer(device),
         "fabric_layer_label": fabric.fabric_layer_label(fabric.fabric_layer(device)),
-        "card": None,
+        "card": None, "if_indexes": {i.if_index for i in interfaces},
         "vm_metrics": None, "vm_meta": {}, "vm_info_rows": [],
         "vm_actions": vm_metrics.VM_ACTIONS, "vm_power": "", "vm_stub": None,
     }
@@ -500,6 +507,13 @@ def detail(request, pk):
         perf_seconds = vm_metrics.PERF_RANGE_SECONDS[perf_range_key]
         vm_perf = vm_metrics.fetch_guest_performance(device, seconds=perf_seconds) if tab == "performance" else None
         meta, _extra = vm_metrics.parse_vm_meta(device)
+        hv = None
+        if apps.is_installed("hypervisor"):   # vCenter data (read-only) for this VM, when a source is linked to it
+            from hypervisor import vmview
+            hv = vmview.vm_context(request.user, device, tab)
+            if hv:
+                meta = vmview.vm_meta_overlay(meta, hv["vm"])
+        ctx["hv"] = hv
         if guest is not None:   # guest series are flowing: an SNMP note from the metrics job does not apply
             metrics_msg = ""
         elif prometheus.configured() and device.prometheus_instance:
@@ -519,6 +533,12 @@ def detail(request, pk):
             title, blurb = vm_metrics.STUB_COPY[tab]
             ctx["vm_stub"] = {"title": title, "blurb": blurb}
     ctx["card"] = card_data([device], guest={device.pk: guest} if guest else None)[device.pk]
+    if hardware_tab and tab == "hardware":
+        from hardware.tab import context as hardware_context
+        ctx.update(hardware_context(request, device))
+    if tab == "neighbours" and not is_vm:
+        from .portviews import device_links
+        ctx["doc_links"] = device_links(request, device, interfaces)
     if tab == "configuration":
         from core.models import AuditEvent
         ctx["audit_rows"] = AuditEvent.objects.filter(object_type="network.device", object_id=str(device.pk))[:25]

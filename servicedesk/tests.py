@@ -3,6 +3,7 @@ import io
 from datetime import timedelta
 from unittest import mock
 
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.test import Client, TestCase, override_settings
@@ -558,7 +559,7 @@ class MutationTests(Base):
         self.assertEqual(t.status, "new")
         # with the token it works
         c.get(t.get_absolute_url())
-        token = c.cookies["csrftoken"].value
+        token = c.cookies[settings.CSRF_COOKIE_NAME].value
         r = c.post(reverse("servicedesk:transition", args=[t.number]), {"to": "acknowledged", "csrfmiddlewaretoken": token})
         self.assertEqual(r.status_code, 302)
         t.refresh_from_db()

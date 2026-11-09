@@ -187,3 +187,19 @@ def to_json(value):
     """JSON text for a data-* attribute (the template engine escapes it for the attribute context)."""
     import json
     return json.dumps(value, separators=(",", ":"))
+
+
+_PORT_FINGERPRINT = re.compile(r"network:([0-9]{1,10}):if([0-9]{1,10})")
+
+
+@register.simple_tag(takes_context=True)
+def event_port_url(context, event):
+    """The per-port page an interface event belongs to (its fingerprint is network:<device pk>:if<ifIndex>), or "" for
+    any other event or a port the device no longer has."""
+    m = _PORT_FINGERPRINT.fullmatch(getattr(event, "fingerprint", "") or "")
+    device = context.get("device")
+    if (not m or device is None or context.get("is_vm") or int(m.group(1)) != device.pk
+            or int(m.group(2)) not in (context.get("if_indexes") or ())):
+        return ""
+    from django.urls import reverse
+    return reverse("network:interface", args=[device.pk, int(m.group(2))])

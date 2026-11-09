@@ -59,11 +59,23 @@ def portal_base(site_slug: str) -> str:
     return host.removesuffix(f".{DOMAIN}") if host else ""
 
 
+FINSPOT_TOOL_HOST_OVERRIDES: dict[tuple[str, str], str] = {
+    # Dev stack uses fs-le-dev1-prometheus, not prometheus-fs-le-dev.
+    ("fs-le-dev-finspot", "prometheus"): f"fs-le-dev1-prometheus.{DOMAIN}",
+}
+
+
 def tool_host(site_slug: str, service: str) -> str:
     """Per-tool ingress prefix pattern: grafana-fs-le-dr.finspot.in from fs-dr-le."""
-    base = portal_base(site_slug)
+    slug = (site_slug or "").strip().lower()
     svc = (service or "").strip().lower().replace("_", "-")
-    if not base or not svc:
+    if not slug or not svc:
+        return ""
+    key = (slug, svc)
+    if key in FINSPOT_TOOL_HOST_OVERRIDES:
+        return FINSPOT_TOOL_HOST_OVERRIDES[key]
+    base = portal_base(slug)
+    if not base:
         return ""
     return f"{svc}-{base}.{DOMAIN}"
 
@@ -88,6 +100,72 @@ def default_site_slug_from_workbook_stem(stem: str) -> str:
     """Normalize workbook stem (e.g. fs-dr-le, fs_dr_le Restore) to legacy sitename."""
     s = (stem or "").strip().lower().replace("_", "-")
     s = re.sub(r"(?i)[-\s]*restore[-\s]*devices(?:\s+\d+)?$", "", s).strip("- ")
+    # Lesites dev portal slug; workbooks are often named fs-le-dev without -finspot.
+    if s in ("fs-le-dev", "fs-le-dev-finspot"):
+        return "fs-le-dev-finspot"
+    # fs-le-* portal slugs (fs-le-isv, fs-le-dev-finspot) must not become fs-le-*-le.
+    if _FS_LE_REST.match(s):
+        return s
     if not s.endswith("-le"):
         s = f"{s}-le" if s else ""
     return s
+
+
+# Canonical console site names and legacy inventory labels (pre–Site row).
+FINSPOT_SITE_LABELS: dict[str, str] = {
+    "fs-dx-le": "FinSpot DX DR",
+    "fs-dr-le": "FinSpot DR",
+    "fs-le-dev-finspot": "FinSpot Dev",
+}
+LEGACY_DEVICE_SITE_FOR_SLUG: dict[str, str] = {
+    "fs-dx-le": "FinSpot DX",
+    "fs-dr-le": "DR Site",
+    "fs-le-dev-finspot": "FinSpot Dev",
+}
+
+
+def site_display_name(site_slug: str) -> str:
+    """Human site name for ``core.Site.name`` from a Lesites slug (e.g. fs-dx-le)."""
+    slug = (site_slug or "").strip().lower()
+    if slug in FINSPOT_SITE_LABELS:
+        return FINSPOT_SITE_LABELS[slug]
+    m = _FS_ENV_LE.match(slug)
+    if m:
+        return f"FinSpot {m.group('env').upper()}"
+    return slug.replace("-", " ").title() if slug else ""
+
+
+def lesites_environment_for_slug(site_slug: str) -> str:
+    """Lesites profile environment token from slug (DR, DX, PROD, …)."""
+    slug = (site_slug or "").strip().lower()
+    if slug in ("fs-le-dev-finspot",):
+        return "DEV"
+    m = _FS_ENV_LE.match(slug)
+    if not m:
+        return "PROD"
+    env = m.group("env").upper()
+    # DX DR stacks use the DX token in Lesites; DR uses DR.
+    return env if env in ("PROD", "DR", "DEV", "UAT", "ISV", "DX") else "PROD"
+
+
+def device_environment_for_slug(site_slug: str) -> str:
+    """``network.Device.environment`` key from a Lesites slug."""
+    slug = (site_slug or "").strip().lower()
+    if slug in ("fs-le-dev-finspot",):
+        return "dev"
+    m = _FS_ENV_LE.match(slug)
+    if not m:
+        return "prod"
+    env = m.group("env")
+    if env in ("dr", "uat", "dev"):
+        return env
+    if env == "dx":
+        return "dr"
+    return "prod"
+
+
+def infer_slug_from_workbook_path(path: str) -> str:
+    """Legacy sitename slug from an .xlsx path (filename stem)."""
+    from pathlib import Path
+
+    return default_site_slug_from_workbook_stem(Path(path).stem)

@@ -5,6 +5,9 @@ __pycache__/
 db.sqlite3
 .env
 staticfiles/
+# Local kubeconfig copies (never commit cluster credentials)
+**/kubeconfig.local.yaml
+**/*-kubeconfig.local.yaml
 # Local onboarding exports (often contain credentials)
 /*.xlsx
 /LinkedEye_Client_Wise_Tracker*.csv

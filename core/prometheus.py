@@ -19,6 +19,9 @@ class PrometheusError(Exception):
     pass
 
 
+USER_AGENT = "LinkedEye-Prometheus/1.0"
+
+
 def configured():
     from administration import integration_config as ic
 
@@ -73,7 +76,7 @@ def _get(path, params=None):
     url = ic.prometheus_url().rstrip("/") + path
     if params:
         url += "?" + urllib.parse.urlencode(params, doseq=True)
-    request = urllib.request.Request(url)
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
     header = _auth_header()
     if header:
         request.add_unredirected_header("Authorization", header)

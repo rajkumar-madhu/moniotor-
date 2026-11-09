@@ -1,0 +1,14 @@
+{% load le static %}
+<div class="hv" id="hv-root" data-hv-kind="vm">
+{% include "hypervisor/_vm_banner.html" %}
+<section class="panel">
+  <div class="panel-h"><h2>Virtual network adapters</h2><span class="right hv-src"><i class="hv-dot {{ hv.status.code }}" aria-hidden="true"></i>vCenter API · synced <span data-hv="synced_ago">{{ hv.status.synced_ago }}</span></span></div>
+  {% if hv.nics %}
+  <div class="table-wrap"><table class="hv-table wide"><thead><tr><th>Adapter</th><th>Type</th><th>MAC</th><th>State</th><th>Port group / network</th><th>IP addresses (VMware Tools)</th></tr></thead><tbody>
+    {% for n in hv.nics %}<tr><td>{{ n.label|default:n.id }}</td><td>{{ n.type|default:"–" }}</td><td class="mono">{{ n.mac|default:"–" }}</td><td>{% if n.state %}<span class="chip {% if n.state == 'CONNECTED' %}ok{% else %}mute{% endif %}">{{ n.state|lower|capfirst }}</span>{% else %}–{% endif %}</td><td>{{ n.network|default:"–" }}</td><td class="mono hv-wrap">{% if n.ips %}{{ n.ips|join:", " }}{% else %}<span class="t-mute">Not reported</span>{% endif %}</td></tr>{% endfor %}
+  </tbody></table></div>
+  {% else %}<div class="nw-empty sm">{% icon "network" 24 %}<p>{% if hv.detail_known %}vCenter reports no network adapters for this VM.{% else %}Adapter details are read on the next sync pass.{% endif %}</p></div>{% endif %}
+  {% if hv.guest_ips %}<p class="nw-note">Addresses the guest reports: <span class="mono">{{ hv.guest_ips|join:", " }}</span></p>{% endif %}
+</section>
+</div>
+<script src="{% static 'hypervisor/live.js' %}" defer></script>

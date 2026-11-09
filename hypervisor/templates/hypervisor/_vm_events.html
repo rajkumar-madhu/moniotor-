@@ -1,0 +1,9 @@
+{% load le static %}
+<div class="hv" id="hv-root" data-hv-kind="vm">
+{% include "hypervisor/_vm_banner.html" %}
+<section class="panel">
+  <div class="panel-h"><h2>Hypervisor events</h2><span class="right hv-src"><i class="hv-dot {{ hv.status.code }}" aria-hidden="true"></i>vCenter</span></div>
+  {% include "hypervisor/_event_table.html" with rows=hv.events %}
+</section>
+</div>
+<script src="{% static 'hypervisor/live.js' %}" defer></script>

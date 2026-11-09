@@ -1,0 +1,51 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}BMC endpoints{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'hardware/page.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<span>Server hardware</span>{% icon "chevron-right" 14 %}<span>BMC endpoints</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-hw">
+<div class="head">
+  <div class="glyph">{% icon "server" 30 %}</div>
+  <div><h1>BMC endpoints</h1><p>Dell iDRAC and HPE iLO controllers read over Redfish. Read-only: LinkedEye never changes anything on a BMC.</p></div>
+  <div class="actions"><a class="btn" href="{% url 'hardware:requests' %}">{% icon "clipboard" 16 %}Control requests</a>{% if can_admin %}<a class="btn primary" href="{% url 'hardware:endpoint_new' %}">{% icon "plus" 16 %}Add endpoint</a>{% endif %}</div>
+</div>
+<form method="get" class="hw-filter panel">
+  <label class="sr" for="hw-q">Search</label><input id="hw-q" type="search" name="q" value="{{ q }}" placeholder="Search server or BMC host" maxlength="80">
+  <label class="sr" for="hw-health">Health</label>
+  <select id="hw-health" name="health" data-autosubmit><option value="">Any health</option>
+    <option value="healthy"{% if health == "healthy" %} selected{% endif %}>Healthy</option><option value="warning"{% if health == "warning" %} selected{% endif %}>Warning</option>
+    <option value="critical"{% if health == "critical" %} selected{% endif %}>Critical</option><option value="unknown"{% if health == "unknown" %} selected{% endif %}>Unknown</option></select>
+  <button class="btn" type="submit">{% icon "search" 15 %}Search</button>
+</form>
+<section class="panel">
+  {% if rows %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Server</th><th>Site</th><th>BMC</th><th>Connection</th><th>Health</th><th>Last poll</th><th class="num">Every</th><th><span class="sr">Actions</span></th></tr></thead>
+    <tbody>{% for r in rows %}{% with e=r.ep %}
+      <tr class="{% if not e.enabled %}off{% endif %}">
+        <td><a href="{% url 'network:detail' e.device_id %}?tab=hardware">{{ e.device.name }}</a>{% if e.is_example %} <span class="chip warn">example</span>{% endif %}</td>
+        <td>{{ e.device.site|default:"All Sites" }}</td>
+        <td>{{ e.vendor_label }}<div class="t-mute small mono">{{ e.host }}</div></td>
+        <td><span class="chip {{ r.tone }}">{{ r.state }}</span>{% if e.verify_mode == "skip" or e.insecure_http %} <span class="chip warn" title="The certificate is not verified, or plain HTTP is used">unsafe</span>{% endif %}</td>
+        <td><span class="chip {{ r.health_tone }}">{{ e.get_health_display }}</span></td>
+        <td>{% if e.last_ok_at %}{{ e.last_ok_at|ago }}{% else %}never{% endif %}</td>
+        <td class="num">{{ e.poll_interval_s }} s</td>
+        <td><div class="row-actions">
+          <a class="btn icon" href="{% url 'network:detail' e.device_id %}?tab=hardware" title="Open the Hardware tab" aria-label="Open the Hardware tab of {{ e.device.name }}">{% icon "eye" 15 %}</a>
+          {% if r.can_manage %}<a class="btn icon" href="{% url 'hardware:endpoint_edit' e.pk %}" title="Edit" aria-label="Edit the endpoint of {{ e.device.name }}">{% icon "edit" 15 %}</a>
+          <form method="post" action="{% url 'hardware:endpoint_toggle' e.pk %}">{% csrf_token %}<button class="btn icon" type="submit" title="{% if e.enabled %}Stop polling{% else %}Start polling{% endif %}" aria-label="{% if e.enabled %}Stop polling{% else %}Start polling{% endif %} {{ e.device.name }}">{% if e.enabled %}{% icon "pause" 15 %}{% else %}{% icon "play" 15 %}{% endif %}</button></form>{% endif %}
+        </div></td>
+      </tr>{% endwith %}{% endfor %}</tbody>
+  </table></div>
+  {% include "core/_pager.html" %}
+  {% else %}
+  <div class="hw-empty">{% icon "server" 34 %}<h2>No BMC endpoints{% if q or health %} match{% endif %}</h2>
+    <p>Add the iDRAC or iLO of a physical server to see its sensors, power supplies, fans and event log on the server's Hardware tab. LinkedEye only reads.</p>
+    {% if can_admin %}<div class="actions"><a class="btn primary" href="{% url 'hardware:endpoint_new' %}">{% icon "plus" 16 %}Add endpoint</a></div>{% endif %}
+    <p class="t-mute small">Just exploring? An administrator can load a synthetic example with <code>python manage.py seed_hardware</code>.</p></div>
+  {% endif %}
+</section>
+{% if free_devices %}<section class="panel"><div class="panel-h"><h2>Physical servers without a BMC endpoint</h2></div>
+  <div class="hw-chips">{% for d in free_devices %}<a class="chip" href="{% url 'hardware:endpoint_new' %}?device={{ d.pk }}">{{ d.name }}</a>{% endfor %}</div></section>{% endif %}
+</div>
+{% endblock %}

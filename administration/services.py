@@ -930,6 +930,9 @@ SITE_NAME_FIELDS = [
     # APM: a Source holds the site name. Its adapter cells, runs, history, processes, logs and retry requests carry no site
     # of their own (they belong to one source and are scoped through source__site), so a rename follows by itself.
     ("apm", "Source", "site", "APM sources"),
+    # Hypervisor: a vCenter source holds the site name; its hosts, datastores, VM records, snapshots, events and control requests
+    # belong to one source and are scoped through source__site, so a rename follows by itself.
+    ("hypervisor", "VCenterSource", "site", "vCenter sources"),
 ]
 
 

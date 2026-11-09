@@ -61,7 +61,7 @@ docker push registry.example.com/linkedeye:9.0
 
 | Build argument | Default | Purpose |
 |---|---|---|
-| `DB_EXTRAS` | `postgres` | Space-separated list of `requirements-<name>.txt` extras: `postgres` (psycopg 3 binary, no system libraries), `mysql` (mysqlclient; compiled in the build stage, `libmariadb3` at runtime), `images` (optional Pillow, see below), `apm` (optional `redis` client so LinkedEye can read the APM toolkit's Redis keys, see below). |
+| `DB_EXTRAS` | `postgres` | Space-separated list of `requirements-<name>.txt` extras: `postgres` (psycopg 3 binary, no system libraries), `mysql` (mysqlclient; compiled in the build stage, `libmariadb3` at runtime), `images` (optional Pillow, see below), `apm` (optional `redis` client so LinkedEye can read the APM toolkit's Redis keys, see below), `vsphere` (optional `pyvmomi` for vCenter snapshots and events, see below). |
 | `PYTHON_VERSION` | `3.12` | Base image `python:<version>-slim`. |
 | `VERSION`, `REVISION` | `9.0`, empty | OCI labels (`org.opencontainers.image.version` / `.revision`). |
 
@@ -81,6 +81,14 @@ goes through the probe network policy, so a private or loopback address must be 
 its password is stored in the credential vault (`LINKEDEYE_CREDENTIAL_KEY`). The job that reads Redis, the stale-source check and
 the retention job run in `manage.py run_probes`. The APM push API (`/api/apm/`) is a machine endpoint authenticated by a per-source
 bearer token; put it behind the same TLS reverse proxy as the console. Details: [APM.md](APM.md).
+
+**Hypervisor: snapshots and events from vCenter (optional `pyvmomi` package).** The hypervisor module reads vCenter read-only over the
+stable vSphere REST API with the standard library only (VM information, hosts, datastores, disks, NICs, tools, guest data). vCenter's
+REST API has no snapshots, creation dates or event history; those need `pyvmomi`: `docker build --build-arg DB_EXTRAS="postgres vsphere" ...`
+or `pip install -r requirements.txt -r requirements-vsphere.txt`, then tick "Read snapshots and events with pyvmomi" on the source. It is
+imported lazily and never required. The vCenter address goes through the probe network policy: list a private range in
+`LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS`. The login is a read-only vCenter account kept in the credential vault
+(`LINKEDEYE_CREDENTIAL_KEY`). The sync and retention jobs run in `manage.py run_probes`. Details: [HYPERVISOR.md](HYPERVISOR.md).
 
 Behind a TLS-intercepting proxy give pip your CA bundle as a build secret (never baked into a layer):
 `docker build --secret id=pip_ca,src=/etc/ssl/certs/corp-bundle.pem ...`
@@ -251,6 +259,7 @@ your own StatefulSet), and the image pushed to a registry the cluster can pull f
 | `networkpolicy.yaml` | Default-deny ingress; ingress controller (and optional in-cluster Alertmanager) → web:8000; web / probes / migrate → database:5432. |
 | `kustomization.yaml` | Ties it together; sets the image. |
 | `optional/backup-cronjob.yaml` | Not applied by default: nightly `pg_dump` CronJob + PVC (see [Backups](#backups)). |
+| `overlays/finspot-dev/` | Kustomize overlay for FinSpot dev (`fs-le-dx.finspot.in`, probe CIDRs). See [FINSPOT_DEV_K8S.md](FINSPOT_DEV_K8S.md). |
 
 ### First installation
 
@@ -341,6 +350,8 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 | `LINKEDEYE_DEBUG` | `false` | | `true` only for local development (also makes cookies non-Secure and e-mail print to the console). Never in production. |
 | `LINKEDEYE_ALLOWED_HOSTS` | `localhost,127.0.0.1` with DEBUG, else empty (**required**) | | Comma-separated host names the console answers to. Include the public name and the names health checks / Alertmanager use (`web` in compose, `linkedeye-web…` in Kubernetes). A leading dot matches subdomains. |
 | `LINKEDEYE_CSRF_TRUSTED_ORIGINS` | empty | | Comma-separated origins with scheme, e.g. `https://linkedeye.example.com`. Required behind HTTPS. |
+| `LINKEDEYE_CSRF_COOKIE_NAME` | `linkedeyecsrftoken` | | CSRF cookie name. Defaults avoid clashing with another Django app on the same host (cookies are not port-scoped). |
+| `LINKEDEYE_SESSION_COOKIE_NAME` | `linkedeyesessionid` | | Session cookie name; same rationale as `LINKEDEYE_CSRF_COOKIE_NAME`. |
 | `LINKEDEYE_TRUSTED_PROXIES` | empty | | Comma-separated reverse-proxy IPs or CIDRs whose `X-Forwarded-For` is believed for audit-log source IPs (the right-most hop that is not a listed proxy is recorded). Empty: the direct peer address is recorded and `X-Forwarded-For` is ignored. It also decides what the sign-in throttle counts per address, so **set it behind any proxy or ingress**: empty, all clients share the proxy's address and 20 failed sign-ins from anyone lock everyone out. Set it together with `GUNICORN_FORWARDED_ALLOW_IPS`, to the same peers (e.g. the Docker bridge gateway, or the ingress controller's pod CIDR); never `0.0.0.0/0` or a range clients can be in. |
 | `LINKEDEYE_DB_ENGINE` | `django.db.backends.sqlite3` | | `django.db.backends.postgresql` (compose and Kubernetes default) or `django.db.backends.mysql`. |
 | `LINKEDEYE_DB_NAME` | `<project>/db.sqlite3` | | Database name (file path for SQLite; use `/app/data/…` in the container). |
@@ -404,6 +415,13 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 | `LINKEDEYE_AUTOMATION_RETENTION_DAYS` | `90` | | Days of automation / StackStorm execution history kept. |
 | `LINKEDEYE_APM_RETENTION_DAYS` | `30` | | Days of APM adapter runs and status-change history kept (also capped per source). |
 | `LINKEDEYE_APM_LOG_RETENTION_DAYS` | `7` | | Days of APM execution logs kept (also capped per source). |
+| `LINKEDEYE_HARDWARE_READING_RETENTION_DAYS` | `7` | | Days of BMC sensor readings kept (readings older than a day are thinned to one per 10 minutes). |
+| `LINKEDEYE_HARDWARE_EVENT_RETENTION_DAYS` | `90` | | Days of BMC (SEL / Lifecycle) events kept. |
+| `LINKEDEYE_HARDWARE_POLL_WORKERS` | `4` | | Maximum BMCs read in parallel by the `hardware.poll` job. |
+| `LINKEDEYE_HYPERVISOR_EVENT_RETENTION_DAYS` | `30` | | Days of vCenter VM events kept. |
+| `LINKEDEYE_HYPERVISOR_MISSING_DAYS` | `30` | | Days a VM, host or datastore that vCenter no longer lists is kept before removal. |
+| `LINKEDEYE_HYPERVISOR_REQUEST_TTL_DAYS` | `7` | | Days a VM control request may wait for a decision before it expires. |
+| `LINKEDEYE_HYPERVISOR_OVERWRITE_PLACEMENT` | `false` | | Let the vCenter sync overwrite compute VM placement values an operator typed by hand. |
 | `LINKEDEYE_AGENT_API_KEY` | empty (retrieval-only) | yes | Bearer token for the OpenAI-compatible chat API used by Ops Agent. Empty: the page still answers from live records via tools. Never sent to the browser. |
 | `LINKEDEYE_AGENT_BASE_URL` | `https://api.openai.com/v1` | | Chat Completions base URL. Resolved through the probe SSRF policy (private/metadata ranges refused unless listed in `LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS`). Redirects are not followed. |
 | `LINKEDEYE_AGENT_MODEL` | `gpt-4o-mini` | | Chat model id sent to the provider. |

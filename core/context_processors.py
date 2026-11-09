@@ -18,7 +18,7 @@ def _resolve(item, path):
 
 def shell(request):
     if not getattr(request, "user", None) or not request.user.is_authenticated:
-        return {"le_version": settings.LINKEDEYE_VERSION}
+        return {"le_version": settings.LINKEDEYE_VERSION, "csrf_cookie_name": settings.CSRF_COOKIE_NAME}
     nav = []
     for item in NAV:
         entry = _resolve(item, request.path)
@@ -50,7 +50,7 @@ def shell(request):
             if str(c.pk) == str(client):
                 le_client_name = c.name
                 break
-    return {"nav": nav, "le_version": settings.LINKEDEYE_VERSION,
+    return {"nav": nav, "le_version": settings.LINKEDEYE_VERSION, "csrf_cookie_name": settings.CSRF_COOKIE_NAME,
             "le_problem_count": overview.problem_count(request.user),
             "le_sites": sites,
             "le_site": request.GET.get("site", ""),

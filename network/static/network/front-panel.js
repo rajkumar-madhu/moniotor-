@@ -14,6 +14,7 @@
   const badge = drawer.querySelector('.fp-d-badge');
   const kv = drawer.querySelector('.fp-d-kv');
   const filter = drawer.querySelector('.fp-d-filter');
+  const detail = drawer.querySelector('.fp-d-detail');
   let current = -1;
 
   function show(i, focus) {
@@ -34,6 +35,7 @@
       kv.append(dt, dd);
     });
     filter.href = '?tab=overview&port=' + encodeURIComponent(p.ifIndex) + '#nw-charts';
+    if (detail) detail.href = p.url || '#';
     drawer.hidden = false;
     if (focus) name.focus();
   }

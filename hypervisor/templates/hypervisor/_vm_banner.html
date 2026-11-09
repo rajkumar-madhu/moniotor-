@@ -1,0 +1,5 @@
+{% load le %}
+<div class="hv-banner{% if hv.status.stale %} warn{% endif %}" id="hv-banner" role="status"{% if not hv.status.stale and not hv.example %} hidden{% endif %}>
+  {% icon "info" 16 %}<span id="hv-banner-text">{% if hv.example %}Example data created by <code>manage.py seed_hypervisor</code>. It is not read from a vCenter and never changes.{% elif hv.status.stale %}vCenter data is stale: {{ hv.status.label|lower }}{% if hv.status.error %} ({{ hv.status.error }}){% endif %}. Last good sync {{ hv.status.synced_ago }}.{% endif %}</span>
+</div>
+{{ hv.config|json_script:"hv-config" }}

@@ -1,0 +1,39 @@
+{% extends "core/base.html" %}{% load le static %}
+{% block title %}Datastores{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'hypervisor/page.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<a href="{% url 'hypervisor:datastores' %}">Hypervisor</a>{% icon "chevron-right" 14 %}<span>Datastores</span></nav>{% endblock %}
+{% block content %}
+<div class="pg-hypervisor" id="hv-root" data-hv-kind="datastores">
+<div class="head">
+  <div class="glyph">{% icon "hdd" 30 %}</div>
+  <div><h1>Datastores</h1><p>Capacity and free space as vCenter reports them · {{ rows|length }} datastore{{ rows|length|pluralize }}{% if crit %} · {{ crit }} critical{% endif %}{% if warn %} · {{ warn }} warning{{ warn|pluralize }}{% endif %}</p></div>
+  <div class="actions"><span class="hv-live" id="hv-live" hidden><i class="hv-dot connected" aria-hidden="true"></i><span id="hv-live-text">Live</span></span><a class="btn" href="{% url 'hypervisor:datastores_export' %}">{% icon "download" 17 %}CSV</a>{% if can_admin %}<a class="btn" href="{% url 'hypervisor:sources' %}">{% icon "cloud" 17 %}vCenter sources</a>{% endif %}</div>
+</div>
+<div class="hv-banner" id="hv-banner" role="status" hidden>{% icon "info" 16 %}<span id="hv-banner-text"></span></div>
+{% if example %}<p class="hv-callout">{% icon "info" 16 %}<span>Includes example data created by <code>manage.py seed_hypervisor</code>.</span></p>{% endif %}
+<section class="panel">
+  {% if rows %}
+  <div class="table-wrap"><table class="hv-table" id="hv-ds-table">
+    <thead><tr><th>Datastore</th><th>vCenter</th><th>Type</th><th class="num">Capacity</th><th>Used</th><th class="num">Free</th><th>Status</th></tr></thead>
+    <tbody>{% for r in rows %}
+      <tr data-hv-row="{{ r.pk }}"{% if r.missing %} class="off"{% endif %}><td><b>{{ r.name }}</b>{% if r.missing %} <span class="chip mute">no longer listed</span>{% endif %}</td><td>{{ r.source }}{% if r.example %} <span class="chip warn">example</span>{% endif %}</td><td>{{ r.type|default:"–" }}</td><td class="num">{{ r.capacity|default:"–" }}</td>
+        <td>{% if r.used_pct is not None %}<div class="hv-meter"><div class="hv-bar" aria-hidden="true"><i class="{{ r.tone }}" data-f="bar" style="width:{{ r.used_pct }}%"></i></div><span data-f="used">{{ r.used }} ({{ r.used_pct }}%)</span></div>{% else %}<span class="t-mute">Not reported</span>{% endif %}</td>
+        <td class="num" data-f="free">{{ r.free|default:"–" }}</td><td><span class="chip {{ r.tone }}" data-f="status" data-hv-tone>{{ r.status }}</span></td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<div class="hv-hero">{% icon "hdd" 34 %}<h2>No datastores yet</h2><p>{% if sources_n %}They appear after the first sync of a vCenter.{% else %}Add a vCenter source to read its datastores.{% endif %}</p>{% if can_admin %}<div class="actions"><a class="btn primary" href="{% url 'hypervisor:sources' %}">{% icon "cloud" 16 %}vCenter sources</a></div>{% endif %}</div>{% endif %}
+</section>
+{% if hosts %}
+<section class="panel">
+  <div class="panel-h"><h2>Hosts</h2><span class="right t-mute small">{{ hosts|length }} ESXi host{{ hosts|length|pluralize }}</span></div>
+  <div class="table-wrap"><table class="hv-table">
+    <thead><tr><th>Host</th><th>vCenter</th><th>Cluster</th><th>State</th><th class="num">VMs</th><th>Physical server</th></tr></thead>
+    <tbody>{% for h in hosts %}<tr{% if h.h.missing_since %} class="off"{% endif %}><td><b>{{ h.h.name }}</b></td><td>{{ h.h.source.name }}</td><td>{{ h.h.cluster_name|default:"–" }}</td>
+      <td><span class="chip {% if h.h.connection_state == 'CONNECTED' %}ok{% elif h.h.connection_state %}crit{% else %}mute{% endif %}">{{ h.h.connection_state|default:"–"|lower|capfirst }}</span></td><td class="num">{{ h.vms }}</td>
+      <td>{% if h.h.device %}<a href="{% url 'network:detail' h.h.device_id %}">{{ h.h.device.name }}</a>{% elif h.h.match_state == "ambiguous" %}<span class="chip warn" title="{{ h.h.match_reason }}">ambiguous</span>{% else %}<span class="t-mute" title="{{ h.h.match_reason }}">not matched</span>{% endif %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+{% endif %}
+</div>
+{{ live_cfg|json_script:"hv-config" }}
+<script src="{% static 'hypervisor/live.js' %}" defer></script>
+{% endblock %}

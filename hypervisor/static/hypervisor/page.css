@@ -1,0 +1,116 @@
+/* Hypervisor (vCenter): the VM tabs on a device page (.hv, inside .pg-network) and the hypervisor pages (.pg-hypervisor).
+   Tokens only (no colours of its own), so light, dark and print follow the theme. */
+
+.pg-hypervisor { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.pg-hypervisor .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.pg-hypervisor .small, .hv .small { font-size: 12.5px; }
+.pg-hypervisor code, .hv code { font: 12px var(--mono); background: var(--line-soft); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+.pg-hypervisor .num, .hv .num { white-space: nowrap; text-align: right; }
+.pg-hypervisor .mono, .hv .mono { font-family: var(--mono); font-size: 12.5px; }
+.pg-hypervisor .head .actions form { margin: 0; }
+.pg-hypervisor tr.off td { opacity: .62; }
+.pg-hypervisor .row-actions { display: flex; gap: 6px; align-items: center; }
+.pg-hypervisor .row-actions form { margin: 0; }
+
+/* ---- shared bits ---- */
+.hv-wrap { overflow-wrap: anywhere; word-break: break-word; }
+.hv-src { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; }
+.hv-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--stone); display: inline-block; flex: none; }
+.hv-dot.connected { background: var(--ok); }
+.hv-dot.stale, .hv-dot.waiting { background: var(--warn); }
+.hv-dot.error, .hv-dot.auth { background: var(--crit); }
+.hv-dot.example { background: var(--info); }
+.hv-banner { display: flex; align-items: flex-start; gap: 8px; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--info-line); background: var(--info-bg); color: var(--info-ink); font-size: 13px; overflow-wrap: anywhere; margin-bottom: 14px; }
+.hv-banner[hidden] { display: none; }
+.hv-banner.warn { background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn-ink); }
+.hv-banner .ic { flex: none; margin-top: 2px; }
+.hv-callout { display: flex; gap: 8px; align-items: flex-start; margin: 0; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink-2); font-size: 13px; overflow-wrap: anywhere; }
+.hv-callout.warn { background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn-ink); }
+.hv-callout .ic { flex: none; margin-top: 2px; }
+.hv-hero { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 40px 16px; color: var(--muted); }
+.hv-hero h2 { color: var(--ink); font-size: 18px; margin: 0; }
+.hv-hero p { margin: 0; max-width: 520px; }
+.hv-live { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.hv-live[hidden] { display: none; }
+
+.hv-bar { height: 7px; border-radius: 4px; background: var(--line-soft); margin-top: 6px; overflow: hidden; min-width: 80px; }
+.hv-bar i { display: block; height: 100%; border-radius: 4px; background: var(--info); }
+.hv-bar i.ok { background: var(--ok); }
+.hv-bar i.warn { background: var(--warn); }
+.hv-bar i.crit { background: var(--crit); }
+.hv-meter { display: flex; flex-direction: column; gap: 2px; min-width: 140px; }
+.hv-meter .hv-bar { margin-top: 0; }
+.hv-meter span { font-size: 12.5px; color: var(--ink-2); }
+
+.hv-table { width: 100%; }
+.hv-table th, .hv-table td { vertical-align: top; }
+.hv .table-wrap { overflow-x: auto; }
+.hv .hv-table td, .hv .hv-table th, .pg-hypervisor .hv-table td { overflow-wrap: break-word; white-space: normal; }
+.hv .hv-table.wide, .pg-hypervisor .hv-table.wide { min-width: 620px; }
+.hv .hv-table th.num, .hv .hv-table td.num { white-space: nowrap; }
+.hv .panel { margin-bottom: 14px; }
+.hv .grid { margin-bottom: 14px; }
+.hv-foot { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--panel-2); color: var(--muted); font-size: 12.5px; }
+.hv-foot .ic { flex: none; margin-top: 2px; }
+.hv-link { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; margin-top: 6px; }
+
+/* ---- VM actions ---- */
+.hv-act-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.hv-act { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); color: var(--ink); font: inherit; font-size: 13.5px; font-weight: 500; text-align: left; cursor: pointer; text-decoration: none; min-width: 0; }
+.hv-act:hover { text-decoration: none; border-color: var(--primary-line); }
+.hv-act .ic { flex: none; color: var(--muted); }
+.hv-act span { overflow-wrap: anywhere; }
+.hv-act.ok { background: var(--ok-bg); border-color: var(--ok-line); color: var(--ok-ink); }
+.hv-act.warn { background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn-ink); }
+.hv-act.crit { background: var(--crit-bg); border-color: var(--crit-line); color: var(--crit-ink); }
+.hv-act.ok .ic, .hv-act.warn .ic, .hv-act.crit .ic { color: inherit; }
+.hv-act[disabled], .hv-act.off { opacity: .55; cursor: not-allowed; }
+.hv-act:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.hv-lock { display: flex; gap: 8px; align-items: flex-start; margin: 12px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--panel-2); color: var(--muted); font-size: 12.5px; }
+.hv-lock .ic { flex: none; margin-top: 1px; }
+.hv-req { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); display: flex; flex-direction: column; gap: 10px; }
+.hv-req[hidden] { display: none; }
+.hv-req-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.hv-field { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.hv-field[hidden] { display: none; }
+.hv-field input { width: 100%; }
+.hv-pending { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
+.hv-pending li { display: flex; gap: 8px; align-items: flex-start; }
+.hv-pending .ic { flex: none; margin-top: 2px; color: var(--warn); }
+.hv-recent { margin: 8px 0 0; }
+
+/* ---- pages ---- */
+.pg-hypervisor .hv-filter { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.pg-hypervisor .panel-h .seg a small { color: var(--muted); margin-left: 4px; }
+.hv-decide { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.hv-decide form, .hv-decide .hv-inline { margin: 0; display: flex; gap: 6px; align-items: center; }
+.hv-decide input[name="note"] { min-width: 150px; max-width: 220px; }
+.hv-step summary { cursor: pointer; font-size: 12.5px; color: var(--primary); }
+.hv-step p { margin: 6px 0 0; font-size: 12.5px; overflow-wrap: anywhere; }
+.hv-fp { display: block; margin: 6px 0 10px; word-break: break-all; line-height: 1.5; }
+.hv-formgrid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 14px; align-items: start; }
+.hv-form { display: flex; flex-direction: column; gap: 12px; }
+.hv-h2 { font-size: 15px; font-weight: 700; margin: 4px 0 8px; }
+.hv-form-foot { display: flex; justify-content: flex-end; gap: 8px; }
+.hv-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.hv-side .panel p { margin: 0 0 10px; overflow-wrap: anywhere; }
+.hv-side form { margin: 0; }
+.hv-mini { display: flex; flex-direction: column; gap: 10px; }
+.hv-note { display: flex; gap: 8px; align-items: flex-start; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); font-size: 13px; }
+.hv-note.crit { background: var(--crit-bg); border-color: var(--crit-line); color: var(--crit-ink); }
+.hv-note.warn { background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn-ink); }
+.hv-note[hidden] { display: none; }
+.hv-danger { border-color: var(--crit-line); }
+.hv-btn-danger { color: var(--crit); border-color: var(--crit-line); }
+.pg-hypervisor input[type="text"], .pg-hypervisor input[type="search"], .pg-hypervisor input[type="number"], .pg-hypervisor input[type="password"], .pg-hypervisor select { max-width: 100%; }
+@media (max-width: 1080px) {
+  .hv-formgrid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 860px) {
+  .hv-act-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pg-hypervisor .table-wrap { overflow-x: auto; }
+  .hv-decide input[name="note"] { max-width: 100%; flex: 1 1 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .hv * { transition: none !important; } }
+.hv .hv-table .chip, .pg-hypervisor .hv-table .chip { white-space: nowrap; }
+.pg-hypervisor .table-wrap, .hv .table-wrap { position: relative; }

@@ -1,0 +1,31 @@
+{% load le static %}
+<div class="hv" id="hv-root" data-hv-kind="vm">
+{% include "hypervisor/_vm_banner.html" %}
+<section class="grid g-2">
+  <div class="panel">
+    <div class="panel-h"><h2>Guest operating system</h2><span class="right hv-src"><i class="hv-dot {{ hv.status.code }}" aria-hidden="true"></i>vCenter API</span></div>
+    <div class="table-wrap dense"><table class="nw-kv"><tbody>
+      <tr><td>Operating system</td><td>{% if hv.vm.guest_full_name %}{{ hv.vm.guest_full_name }}{% else %}<span class="t-mute">Not reported{% if not hv.vm.tools_run_state %} (needs VMware Tools running){% endif %}</span>{% endif %}</td></tr>
+      <tr><td>Family</td><td>{{ hv.vm.guest_family|default:"–" }}</td></tr>
+      <tr><td>Guest ID</td><td class="mono">{{ hv.vm.guest_id|default:"–" }}</td></tr>
+      <tr><td>Host name</td><td>{% if hv.vm.guest_hostname %}{{ hv.vm.guest_hostname }}{% else %}<span class="t-mute">Not reported</span>{% endif %}</td></tr>
+      <tr><td>IP addresses</td><td class="mono">{% if hv.guest_ips %}{{ hv.guest_ips|join:", " }}{% else %}<span class="t-mute">Not reported</span>{% endif %}</td></tr>
+      <tr><td>vCPU</td><td>{% if hv.vm.cpu_count %}{{ hv.vm.cpu_count }}{% if hv.vm.cores_per_socket %} ({{ hv.vm.cores_per_socket }} per socket){% endif %}{% else %}–{% endif %}</td></tr>
+      <tr><td>Memory</td><td>{% if hv.vm.memory_mib %}{{ hv.vm.memory_gb|floatformat:"-1" }} GB{% else %}–{% endif %}</td></tr>
+      <tr><td>HA protection</td><td>{{ hv.ha|default:"Not reported" }}</td></tr>
+    </tbody></table></div>
+  </div>
+  <div class="panel">
+    <div class="panel-h"><h2>VMware Tools</h2></div>
+    <div class="table-wrap dense"><table class="nw-kv"><tbody>
+      <tr><td>Status</td><td><span class="chip {{ hv.tools.1 }}" data-hv="tools" data-hv-tone>{{ hv.tools.0 }}</span></td></tr>
+      <tr><td>Version</td><td>{{ hv.vm.tools_version|default:"–" }}</td></tr>
+      <tr><td>Version status</td><td>{{ hv.vm.tools_version_status|default:"–" }}</td></tr>
+      <tr><td>VM power state</td><td><span class="chip {{ hv.power.1 }}" data-hv="power" data-hv-tone>{{ hv.power.0 }}</span></td></tr>
+      <tr><td>Last detail read</td><td>{{ hv.synced_note }}</td></tr>
+    </tbody></table></div>
+    <p class="nw-note">Guest data needs VMware Tools running inside the VM. Processes, services and logs of the guest come from Prometheus (node_exporter), not from vCenter.</p>
+  </div>
+</section>
+</div>
+<script src="{% static 'hypervisor/live.js' %}" defer></script>

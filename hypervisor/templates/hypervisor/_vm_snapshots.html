@@ -1,0 +1,11 @@
+{% load le static %}
+<div class="hv" id="hv-root" data-hv-kind="vm">
+{% include "hypervisor/_vm_banner.html" %}
+<section class="panel">
+  <div class="panel-h"><h2>Snapshots</h2><span class="right hv-src">{% if hv.snap_review %}<span class="chip warn">{{ hv.snap_review }} to review</span>{% endif %}<i class="hv-dot {{ hv.status.code }}" aria-hidden="true"></i>{% if hv.source.provider_ok_at %}pyvmomi{% else %}not reported{% endif %}</span></div>
+  {% include "hypervisor/_snap_table.html" with rows=hv.snapshots %}
+  <p class="hv-foot">{% icon "info" 14 %}<span>Snapshots older than {{ hv.review_days }} days are flagged for review: they slow the VM down and keep growing on the datastore. LinkedEye lists them but cannot create, revert or delete one; use “Take snapshot” on Overview to record a request.</span></p>
+  {% if hv.snap_note and not hv.snap_known %}<p class="nw-note">{{ hv.snap_note }}</p>{% endif %}
+</section>
+</div>
+<script src="{% static 'hypervisor/live.js' %}" defer></script>

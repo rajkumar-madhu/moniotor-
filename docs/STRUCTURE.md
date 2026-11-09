@@ -73,7 +73,9 @@ moniotor-/
 ├── onboarding/                 Onboarding wizard: sites, servers, devices, exporters, Prometheus discovery
 ├── k8s/                        Kubernetes inventory imported from the client workbook (read-only)
 ├── apm/                        APM: adapter matrix, process status, execution logs from the cron toolkit
-└── architecture/               Data Center Architecture: spine-leaf view drawn from devices, links and racks
+├── architecture/               Data Center Architecture: spine-leaf view drawn from devices, links and racks
+├── hardware/                   Server hardware over Redfish (Dell iDRAC, HPE iLO), read-only: Hardware tab, BMC endpoints, control requests
+└── hypervisor/                 vCenter (read-only): VM detail tabs, datastores, VM-to-device matching, control requests
 ```
 
 ## Inside a module app
