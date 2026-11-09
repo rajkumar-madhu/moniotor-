@@ -1,0 +1,15 @@
+# FinSpot dev cluster overlay (kubectl context from fs-dev-cp-ps bastion).
+# Does not include secrets or kube credentials — see docs/FINSPOT_DEV_K8S.md.
+#
+#   kubectl apply -k deploy/kubernetes/overlays/finspot-dev
+#
+# Still required before apply: linkedeye-secrets, image in kustomization, ingress host/TLS,
+# LINKEDEYE_TRUSTED_PROXIES, and DB host in the base configmap if not using the default placeholder.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../
+
+patches:
+  - path: configmap-patch.yaml

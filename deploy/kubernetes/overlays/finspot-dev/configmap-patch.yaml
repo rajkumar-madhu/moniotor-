@@ -1,0 +1,11 @@
+# FinSpot DX DR (Lesites slug fs-dx-le) — portal host per administration/finspot_naming.py.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: linkedeye-config
+  namespace: fs-linkedeye
+data:
+  LINKEDEYE_ALLOWED_HOSTS: "fs-le-dx.finspot.in,linkedeye-web,linkedeye-web.fs-linkedeye.svc,linkedeye-web.fs-linkedeye.svc.cluster.local"
+  LINKEDEYE_CSRF_TRUSTED_ORIGINS: "https://fs-le-dx.finspot.in"
+  # NSE/BSE lab + FinSpot dev API network (SSRF allowlist for probes).
+  LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS: "10.10.0.0/16,10.20.0.0/16,172.16.0.0/16"
