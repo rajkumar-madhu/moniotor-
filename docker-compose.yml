@@ -171,7 +171,7 @@ services:
     logging: *logging
 
   node-exporter:
-    image: prom/node-exporter:v1.8.2
+    image: prom/node-exporter:v1.12.1
     profiles: [observability]
     restart: unless-stopped
     command:
