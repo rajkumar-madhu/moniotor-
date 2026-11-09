@@ -243,7 +243,9 @@ class ComposeConfigTests(unittest.TestCase):
             env.update(extra_env or {})
             (live / ".env").write_text("".join(f"{k}={v}\n" for k, v in env.items()))
             return subprocess.run(["docker", "compose", "-f", str(live / "docker-compose.live.yml"), *args, "config"],
-                                  capture_output=True, text=True, timeout=60, env={**os.environ, "COMPOSE_PROFILES": ""})
+                                  capture_output=True, text=True, timeout=60,
+                                  # the shell's own LINKEDEYE_* values win over .env in compose: render from the file alone
+                                  env={**{k: v for k, v in os.environ.items() if not k.startswith("LINKEDEYE_")}, "COMPOSE_PROFILES": ""})
 
     def test_renders(self):
         proc = self.render()

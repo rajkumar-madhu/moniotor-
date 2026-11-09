@@ -172,7 +172,7 @@ jobs:
         run: docker compose -f deploy/live/docker-compose.live.yml --profile observability config --quiet
       - name: Logs
         if: failure()
-        run: docker compose -f deploy/live/docker-compose.live.yml logs --tail=200
+        run: docker compose -f deploy/live/docker-compose.live.yml logs --tail=200 || true
       - name: Clean up
         if: always()
         run: docker compose -f deploy/live/docker-compose.live.yml down -v || true

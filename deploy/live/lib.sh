@@ -4,6 +4,7 @@
 LIVE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="$LIVE_DIR/docker-compose.live.yml"
 ENV_FILE="$LIVE_DIR/.env"
+# shellcheck disable=SC2034  # read by bootstrap.sh, which sources this file
 ENV_EXAMPLE="$LIVE_DIR/.env.live.example"
 
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
