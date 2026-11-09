@@ -511,3 +511,12 @@ class HugeIdFilterTests(TestCase):
                     f"/dcim/items/export.csv?rack={big}", f"/service-desk/tickets/?client={big}"):
             with self.subTest(url=url):
                 self.assertEqual(self.client.get(url).status_code, 200)
+
+
+class TemplateTagTests(SimpleTestCase):
+    def test_base_template_has_no_multiline_tags(self):
+        """Django only parses {{ }} and {% %} on one line; a tag split over two lines renders as literal text."""
+        import re
+        text = (Path(__file__).resolve().parent / "templates" / "core" / "base.html").read_text()
+        broken = re.findall(r"\{\{[^}\n]*\n[^}]*\}\}|\{%[^%\n]*\n[^%]*%\}", text)
+        self.assertEqual(broken, [])

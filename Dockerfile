@@ -9,6 +9,7 @@
 #   docker build --build-arg DB_EXTRAS="postgres mysql" -t linkedeye:9.0 .
 #   docker build --build-arg DB_EXTRAS="" -t linkedeye:9.0 .          # SQLite only
 #   docker build --build-arg DB_EXTRAS="postgres apm" -t linkedeye:9.0 .   # + the optional redis client (APM reads Redis)
+#   docker build --build-arg DB_EXTRAS="postgres vsphere" -t linkedeye:9.0 .   # + the optional pyvmomi (vCenter snapshots and events)
 # Behind a TLS-intercepting proxy, hand pip your CA bundle without baking it into the image:
 #   docker build --secret id=pip_ca,src=/path/to/ca-bundle.pem -t linkedeye:9.0 .
 

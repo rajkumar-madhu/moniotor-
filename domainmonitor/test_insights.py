@@ -5,6 +5,7 @@ import json
 from datetime import timedelta
 from unittest import mock
 
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.test import Client, TestCase
@@ -220,7 +221,7 @@ class SecurityMutationTests(InsightBase):
         c.force_login(self.operator)
         self.assertEqual(c.post(reverse("domains:security_scan", args=[self.a.pk])).status_code, 403)
         page = c.get(reverse("domains:security"))
-        token = page.cookies["csrftoken"].value
+        token = page.cookies[settings.CSRF_COOKIE_NAME].value
         r = c.post(reverse("domains:security_scan", args=[self.a.pk]), {"csrfmiddlewaretoken": token})
         self.assertEqual(r.status_code, 302)
         scan.assert_called_once()

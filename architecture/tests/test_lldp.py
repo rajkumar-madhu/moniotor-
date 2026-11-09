@@ -35,14 +35,14 @@ class ParseTests(Base):
     def setUp(self):
         super().setUp()
         Device_ = type(self.spine)
-        Device_.objects.filter(pk=self.spine.pk).update(prometheus_instance="192.0.2.41", mgmt_ip="192.0.2.41")
+        Device_.objects.filter(pk=self.spine.pk).update(prometheus_instance="192.0.2.251", mgmt_ip="192.0.2.251")
         Device_.objects.filter(pk=self.leaf.pk).update(prometheus_instance="dc1-leaf-01.corp.example", mgmt_ip="192.0.2.51")
         self.devices = list(Device_.objects.all())
 
     def test_both_ends_report_the_same_cable_once(self):
-        data = series([("192.0.2.41", "1", "1", "DC1-LEAF-01.corp.example.com", "Eth1/49", "Ethernet1/49"),
+        data = series([("192.0.2.251", "1", "1", "DC1-LEAF-01.corp.example.com", "Eth1/49", "Ethernet1/49"),
                        ("dc1-leaf-01.corp.example", "49", "1", "dc1-spine-01", "Eth1/1", "")])
-        data["locdesc"].append(s(instance="192.0.2.41", lldpLocPortNum="1", lldpLocPortDesc="Ethernet1/1"))
+        data["locdesc"].append(s(instance="192.0.2.251", lldpLocPortNum="1", lldpLocPortDesc="Ethernet1/1"))
         res = lldp.parse(data, self.devices)
         self.assertEqual(len(res.suggestions), 1)
         sug = res.suggestions[0]
@@ -50,7 +50,7 @@ class ParseTests(Base):
         self.assertEqual(res.rows, 2)
 
     def test_unknown_remote_is_counted_not_listed(self):
-        res = lldp.parse(series([("192.0.2.41", "3", "1", "mystery-box", "x", "")]), self.devices)
+        res = lldp.parse(series([("192.0.2.251", "3", "1", "mystery-box", "x", "")]), self.devices)
         self.assertEqual((len(res.suggestions), res.unknown), (0, 1))
 
     def test_ambiguous_names_are_not_guessed(self):
@@ -58,21 +58,21 @@ class ParseTests(Base):
         from network.models import Device
         Device.objects.filter(name="dc1-leaf-01x").update(name="DC1-LEAF-01.alt", prometheus_instance="")
         # "dc1-leaf-01" is now also the short name of another device: two candidates -> unknown
-        res = lldp.parse(series([("192.0.2.41", "3", "1", "dc1-leaf-01", "x", "")]), list(Device.objects.all()))
+        res = lldp.parse(series([("192.0.2.251", "3", "1", "dc1-leaf-01", "x", "")]), list(Device.objects.all()))
         self.assertEqual(len(res.suggestions), 0)
 
     def test_self_and_known_links_are_skipped(self):
         known = {(min(self.spine.pk, self.leaf.pk), "eth1/1" if self.spine.pk < self.leaf.pk else "eth1/49", max(self.spine.pk, self.leaf.pk),
                   "eth1/49" if self.spine.pk < self.leaf.pk else "eth1/1")}
-        data = series([("192.0.2.41", "1", "1", "dc1-leaf-01", "Eth1/49", "Eth1/49"), ("192.0.2.41", "2", "1", "dc1-spine-01", "x", "")])
+        data = series([("192.0.2.251", "1", "1", "dc1-leaf-01", "Eth1/49", "Eth1/49"), ("192.0.2.251", "2", "1", "dc1-spine-01", "x", "")])
         res = lldp.parse(data, self.devices, known)
         self.assertEqual((len(res.suggestions), res.known), (0, 1))
         self.assertEqual(res.unknown, 1)       # the neighbour that is the device itself
 
     def test_hostile_strings(self):
         evil = "<script>alert(1)</script>\x00\x1b[31m" + "A" * 500
-        data = series([("192.0.2.41", "1", "1", "dc1-leaf-01", evil, evil)])
-        data["locdesc"].append(s(instance="192.0.2.41", lldpLocPortNum="1", lldpLocPortDesc=evil))
+        data = series([("192.0.2.251", "1", "1", "dc1-leaf-01", evil, evil)])
+        data["locdesc"].append(s(instance="192.0.2.251", lldpLocPortNum="1", lldpLocPortDesc=evil))
         res = lldp.parse(data, self.devices)
         sug = res.suggestions[0]
         for text in (sug.a_port, sug.b_port):
@@ -85,7 +85,7 @@ class ParseTests(Base):
         from network.models import Device
         rows = []
         for i in range(lldp.MAX_SUGGESTIONS + 20):
-            rows.append(("192.0.2.41", str(i + 1), "1", "dc1-leaf-01", f"p{i}", ""))
+            rows.append(("192.0.2.251", str(i + 1), "1", "dc1-leaf-01", f"p{i}", ""))
         res = lldp.parse(series(rows), self.devices)
         self.assertEqual(len(res.suggestions), lldp.MAX_SUGGESTIONS)
 
@@ -117,8 +117,8 @@ class SuggestViewTests(Base):
     def setUp(self):
         super().setUp()
         from network.models import Device
-        Device.objects.filter(pk=self.spine.pk).update(prometheus_instance="192.0.2.41")
-        self.rows = series([("192.0.2.41", "1", "1", "dc1-leaf-01", "Eth1/49", "Eth1/49")])
+        Device.objects.filter(pk=self.spine.pk).update(prometheus_instance="192.0.2.251")
+        self.rows = series([("192.0.2.251", "1", "1", "dc1-leaf-01", "Eth1/49", "Eth1/49")])
 
     def patched(self):
         def q(promql, *a, **k):

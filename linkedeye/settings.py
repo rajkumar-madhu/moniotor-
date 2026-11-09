@@ -59,6 +59,8 @@ INSTALLED_APPS = [
     "onboarding",
     "k8s",
     "apm",
+    "hardware",
+    "hypervisor",
     "architecture",
 ]
 
@@ -144,6 +146,11 @@ SESSION_COOKIE_AGE = int(env("SESSION_COOKIE_AGE", "28800"))
 SESSION_SAVE_EVERY_REQUEST = env("SESSION_SAVE_EVERY_REQUEST", "true").lower() in ("1", "true", "yes")
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
+# Cookies are scoped to the host, not the port. Another Django process on the same host
+# (for example 127.0.0.1:8000 beside this app on 127.0.0.1:8012) would overwrite the
+# default csrftoken, and the next POST fails with "CSRF token from POST incorrect."
+CSRF_COOKIE_NAME = env("CSRF_COOKIE_NAME", "linkedeyecsrftoken")
+SESSION_COOKIE_NAME = env("SESSION_COOKIE_NAME", "linkedeyesessionid")
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
 
@@ -251,3 +258,15 @@ AGENT_TURNS_PER_MINUTE = int(env("AGENT_TURNS_PER_MINUTE", "20"))   # questions 
 # job also caps the rows kept per source).
 APM_RETENTION_DAYS = int(env("APM_RETENTION_DAYS", "30"))
 APM_LOG_RETENTION_DAYS = int(env("APM_LOG_RETENTION_DAYS", "7"))
+# Server hardware (hardware app, Redfish iDRAC / iLO, read-only): days of sensor readings (older than a day are thinned to one
+# per 10 minutes) and of BMC log entries kept, and how many BMCs one poll pass reads at the same time.
+HARDWARE_READING_RETENTION_DAYS = int(env("HARDWARE_READING_RETENTION_DAYS", "7"))
+HARDWARE_EVENT_RETENTION_DAYS = int(env("HARDWARE_EVENT_RETENTION_DAYS", "90"))
+HARDWARE_POLL_WORKERS = int(env("HARDWARE_POLL_WORKERS", "4"))
+# Hypervisor (hypervisor app, vCenter, read-only): days of observed / provider VM events kept, days a VM, host or datastore that
+# vCenter no longer lists is kept before it is deleted, days a control request may wait for a decision, and whether the sync may
+# overwrite compute.VMPlacement values an operator typed by hand (default: it never does).
+HYPERVISOR_EVENT_RETENTION_DAYS = int(env("HYPERVISOR_EVENT_RETENTION_DAYS", "30"))
+HYPERVISOR_MISSING_DAYS = int(env("HYPERVISOR_MISSING_DAYS", "30"))
+HYPERVISOR_REQUEST_TTL_DAYS = int(env("HYPERVISOR_REQUEST_TTL_DAYS", "7"))
+HYPERVISOR_OVERWRITE_PLACEMENT = env("HYPERVISOR_OVERWRITE_PLACEMENT", "false").lower() in ("1", "true", "yes", "on")

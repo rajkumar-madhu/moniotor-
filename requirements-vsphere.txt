@@ -1,0 +1,8 @@
+# Optional extra: lets LinkedEye READ snapshots, creation dates and event history from vCenter (hypervisor.pyvmomi_provider).
+#   pip install -r requirements-vsphere.txt
+# vCenter's stable REST API has none of these, so everything else in the hypervisor module (VM information, hosts, datastores,
+# disks, NICs, guest data, tools status) works WITHOUT this package. It is imported lazily: without it the source form and the
+# VM tabs say what to install. Install it only when a source ticks "Read snapshots and events with pyvmomi". The Dockerfile
+# installs it when built with --build-arg DB_EXTRAS="postgres vsphere". Read-only: only property reads and EventManager.QueryEvents.
+-r requirements.txt
+pyvmomi>=8.0.1,<9

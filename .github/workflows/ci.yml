@@ -24,8 +24,8 @@ jobs:
     env:
       LINKEDEYE_DEBUG: "true"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -62,14 +62,15 @@ jobs:
       LINKEDEYE_DB_USER: linkedeye
       LINKEDEYE_DB_PASSWORD: ci-only-password
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
-      # + the optional Pillow extra so the print-colour conversion tests run here, and the optional redis client of the APM
-      # module (the Django 4.2 / 5.2 jobs above run without either: the code imports both lazily)
-      - run: pip install -r requirements.txt -r requirements-postgres.txt -r requirements-images.txt -r requirements-apm.txt
+      # + the optional Pillow extra so the print-colour conversion tests run here, the optional redis client of the APM
+      # module and the optional pyvmomi of the hypervisor module (the Django 4.2 / 5.2 jobs above run without them: the code
+      # imports all three lazily)
+      - run: pip install -r requirements.txt -r requirements-postgres.txt -r requirements-images.txt -r requirements-apm.txt -r requirements-vsphere.txt
       - name: Migrate (PostgreSQL)
         run: python manage.py migrate --noinput
       - name: Tests (PostgreSQL)
@@ -80,8 +81,8 @@ jobs:
     name: Dependency audit (pip-audit)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install pip-audit
@@ -92,8 +93,8 @@ jobs:
     name: Deployment manifests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install pyyaml -r requirements.txt
@@ -130,10 +131,10 @@ jobs:
           - name: postgres-mysql
             db_extras: "postgres mysql"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v3
       - name: Build (not pushed)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: false

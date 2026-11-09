@@ -41,6 +41,13 @@ NAV = [
         {"label": "Clusters", "url": "compute:clusters"},
         {"label": "Kubernetes", "url": "compute:kubernetes"},
     ]},
+    # vCenter, read-only: VM detail data, datastores, the unmatched-VM decisions and the control requests (records only)
+    {"label": "Hypervisor", "icon": "cloud", "children": [
+        {"label": "Datastores", "url": "hypervisor:datastores"},
+        {"label": "Unmatched VMs", "url": "hypervisor:unmatched"},
+        {"label": "VM Requests", "url": "hypervisor:requests"},
+        {"label": "vCenter Sources", "url": "hypervisor:sources"},
+    ]},
     # Kubernetes client inventory (the k8s module): the imported estate, not live cluster health.
     {"label": "Kubernetes", "icon": "hexagon", "children": [
         {"label": "Overview", "url": "k8s:overview"},
@@ -75,6 +82,11 @@ NAV = [
     {"label": "APM", "icon": "heartbeat", "children": [
         {"label": "Dashboard", "url": "apm:index"},
         {"label": "Sources", "url": "apm:sources"},
+    ]},
+    # Server hardware over Redfish (Dell iDRAC, HPE iLO), read-only: the per-server tab lives on the physical server's device page
+    {"label": "Server Hardware", "icon": "server", "children": [
+        {"label": "BMC Endpoints", "url": "hardware:endpoints"},
+        {"label": "Control Requests", "url": "hardware:requests"},
     ]},
     {"label": "Domains", "icon": "browser", "children": [
         {"label": "Overview", "url": "domains:overview"},

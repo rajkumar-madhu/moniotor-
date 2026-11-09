@@ -131,5 +131,7 @@ onboarding/      onboarding wizard: sites, servers, devices, exporters, Promethe
 k8s/             Kubernetes inventory imported from the client workbook
 apm/             APM: adapter matrix, process status, execution logs
 architecture/    data centre architecture view (spine-leaf)
+hardware/        Server hardware over Redfish (Dell iDRAC, HPE iLO, read-only): the Hardware tab of a physical server, BMC endpoints, control requests (records only)
+hypervisor/      vCenter (read-only): VM detail tabs, datastores, VM-to-device matching, control requests (records only)
 docs/            structure, module contract, integration, deployment
 ```

@@ -1,0 +1,118 @@
+{% load le static %}
+<link rel="stylesheet" href="{% static 'hardware/page.css' %}">
+<div class="pg-hw hw-tab" id="hw">
+{% if not hw.endpoint %}
+<section class="panel hw-empty">
+  {% icon "server" 34 %}
+  <h2>Hardware health is not connected</h2>
+  <p>Add the server's management controller (Dell iDRAC or HPE iLO) and LinkedEye reads its sensors, power supplies, fans and event log over the Redfish API. It is <b>read-only</b>: LinkedEye never changes anything on the BMC.</p>
+  <div class="actions">
+    {% if hw.can_admin %}<a class="btn primary" href="{{ hw.new_url }}">{% icon "plus" 16 %}Add BMC endpoint</a>
+    {% else %}<span class="t-mute">Ask an administrator of this site to add the BMC endpoint.</span>{% endif %}
+    <a class="btn" href="{{ hw.endpoints_url }}">{% icon "list" 16 %}All BMC endpoints</a>
+  </div>
+</section>
+{% else %}
+<div class="hw-bar">
+  <div class="hw-seg" role="group" aria-label="BMC vendor" id="hw-vendor">
+    <button type="button" data-vendor="dell">Dell iDRAC</button><button type="button" data-vendor="hpe">HPE iLO</button>
+  </div>
+  <span class="hw-bar-note t-mute small" id="hw-vendor-note"></span>
+  <div class="hw-bar-right">
+    <label class="sr" for="hw-range">Time range</label>
+    <select id="hw-range" class="hw-range">{% for key, label in hw.config.ranges %}<option value="{{ key }}"{% if key == hw.range %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    <button type="button" class="btn primary" id="hw-refresh">{% icon "refresh" 16 %}Refresh</button>
+  </div>
+</div>
+<div hidden id="hw-icons"><span data-icon="ok">{% ficon "check-circle" 20 %}</span><span data-icon="warn">{% ficon "alert" 20 %}</span><span data-icon="crit">{% ficon "x-circle" 20 %}</span><span data-icon="mute">{% ficon "help" 20 %}</span></div>
+<div class="hw-banner" id="hw-banner" role="status" hidden></div>
+
+<div class="hw-grid">
+  <section class="panel hw-card hw-overview" aria-labelledby="hw-ov-h">
+    <div class="panel-h"><h2 id="hw-ov-h">{% icon "server" 18 %}<span data-k="ov_title">BMC overview</span></h2><span class="right chip mute" data-k="state">…</span></div>
+    <div class="hw-ident"><span class="hw-logo" data-k="logo"></span><b data-k="bmc_name"></b></div>
+    <dl class="kv hw-kv" data-k="ov_rows"></dl>
+    <p class="hw-foot small t-mute"><i class="hw-dot" data-k="dot"></i><span data-k="foot">Redfish API, read-only account</span></p>
+  </section>
+
+  <section class="panel hw-card hw-health" aria-labelledby="hw-h-h">
+    <div class="panel-h"><h2 id="hw-h-h">{% icon "heartbeat" 18 %}System health</h2></div>
+    <div class="hw-rollup" data-k="rollup" data-tone="mute">
+      <span class="hw-rollup-ic" data-k="rollup_ic">{% ficon "help" 40 %}</span>
+      <div><b data-k="rollup_label">Unknown</b><span class="small" data-k="rollup_sub"></span></div>
+    </div>
+    <div class="hw-tiles" data-k="tiles"></div>
+  </section>
+
+  <section class="panel hw-card hw-actions" aria-labelledby="hw-a-h">
+    <div class="panel-h"><h2 id="hw-a-h">{% icon "zap" 18 %}Quick actions</h2></div>
+    <div class="hw-btns">
+      <a class="hw-btn primary" data-k="console" target="_blank" rel="noopener noreferrer" href="{{ hw.endpoint.base_url }}/">{% icon "external" 18 %}<span data-k="console_label">Open BMC console</span></a>
+      <a class="hw-btn" href="{% url 'hardware:inventory' hw.endpoint.device_id %}">{% icon "list" 18 %}<span>View hardware inventory</span></a>
+      <button type="button" class="hw-btn ok" data-req="power_on">{% icon "play" 18 %}<span>Power on</span></button>
+      <button type="button" class="hw-btn" data-req="update_firmware">{% icon "upload" 18 %}<span>Update firmware</span></button>
+      <button type="button" class="hw-btn warn" data-req="graceful_shutdown">{% icon "clock" 18 %}<span>Graceful shutdown</span></button>
+      {% if hw.can_admin %}<a class="hw-btn" href="{% url 'hardware:alerts' hw.endpoint.device_id %}">{% icon "bell" 18 %}<span>Configure alerts</span></a>
+      {% else %}<span class="hw-btn" aria-disabled="true" title="Needs the admin role on this site">{% icon "bell" 18 %}<span>Configure alerts</span></span>{% endif %}
+      <button type="button" class="hw-btn crit" data-req="force_off">{% icon "x-circle" 18 %}<span>Force power off</span></button>
+      <a class="hw-btn" href="{% url 'hardware:export' hw.endpoint.device_id %}">{% icon "download" 18 %}<span>Download reports</span></a>
+    </div>
+    <p class="hw-lock small t-mute">{% icon "lock" 16 %}<span>LinkedEye is <b>read-only</b> toward the BMC. Power and firmware buttons record a request in the audit log; an administrator approves it here and a person carries it out in the BMC. <a href="{% url 'hardware:requests' %}">Control requests</a><span data-k="pending"></span></span></p>
+    <div class="hw-reqs" data-k="requests"></div>
+  </section>
+
+  <section class="panel hw-card" aria-labelledby="hw-t-h">
+    <div class="panel-h"><h2 id="hw-t-h">{% icon "flame" 18 %}Temperature sensors</h2><span class="right small t-mute">Redfish Thermal</span></div>
+    <div class="table-wrap dense"><table><thead><tr><th>Sensor</th><th class="num">Current</th><th class="num">Warn at</th><th>Status</th></tr></thead><tbody data-k="temps"></tbody></table></div>
+  </section>
+  <section class="panel hw-card" aria-labelledby="hw-f-h">
+    <div class="panel-h"><h2 id="hw-f-h">{% icon "refresh" 18 %}Fan speed</h2><span class="right small t-mute">Redfish Thermal</span></div>
+    <div class="table-wrap dense"><table><thead><tr><th>Fan</th><th class="num">Current speed</th><th>Status</th></tr></thead><tbody data-k="fans"></tbody></table></div>
+  </section>
+  <section class="panel hw-card" aria-labelledby="hw-p-h">
+    <div class="panel-h"><h2 id="hw-p-h">{% icon "zap" 18 %}Power supply</h2><span class="right small t-mute">Redfish Power</span></div>
+    <div class="table-wrap dense"><table><thead><tr><th>PSU</th><th>Status</th><th class="num">Input</th><th class="num">Output</th><th>Load</th></tr></thead><tbody data-k="psus"></tbody></table></div>
+    <h3 class="hw-h3">{% icon "gauge" 16 %}Voltage sensors</h3>
+    <div class="table-wrap dense"><table><thead><tr><th>Sensor</th><th class="num">Current</th><th class="num">Range</th><th>Status</th></tr></thead><tbody data-k="volts"></tbody></table></div>
+  </section>
+
+  <section class="panel hw-card" aria-labelledby="hw-tt-h">
+    <div class="panel-h"><h2 id="hw-tt-h">{% icon "analytics" 18 %}Temperature trend</h2><span class="right small t-mute"><span data-k="range_label">Last 1 hour</span> · °C</span></div>
+    <div data-k="chart_temp"><div class="chart" data-chart="line" data-src="hw-chart-temp" data-sync="hw" data-kinds="line,area" style="height:200px" hidden></div></div>
+    <div class="hw-legend" data-chart-legend="hw-chart-temp" data-k="legend_temp"></div>
+    <p class="hw-nochart t-mute small" data-k="nochart_temp" hidden>No readings in this time range yet.</p>
+  </section>
+  <section class="panel hw-card" aria-labelledby="hw-ft-h">
+    <div class="panel-h"><h2 id="hw-ft-h">{% icon "analytics" 18 %}Fan speed trend</h2><span class="right small t-mute"><span data-k="range_label2">Last 1 hour</span> · <span data-k="fan_unit">RPM</span></span></div>
+    <div data-k="chart_fan"><div class="chart" data-chart="line" data-src="hw-chart-fan" data-sync="hw" data-kinds="line,area" style="height:200px" hidden></div></div>
+    <div class="hw-legend" data-chart-legend="hw-chart-fan" data-k="legend_fan"></div>
+    <p class="hw-nochart t-mute small" data-k="nochart_fan" hidden>No readings in this time range yet.</p>
+  </section>
+  <section class="panel hw-card" aria-labelledby="hw-e-h">
+    <div class="panel-h"><h2 id="hw-e-h">{% icon "bell" 18 %}Recent hardware events</h2><a class="right view-all" href="{% url 'hardware:events' hw.endpoint.device_id %}">View all {% icon "arrow-right" 14 %}</a></div>
+    <div class="table-wrap dense"><table><thead><tr><th>Time</th><th>Severity</th><th>Event</th></tr></thead><tbody data-k="events"></tbody></table></div>
+  </section>
+</div>
+
+<dialog class="hw-dialog" id="hw-dialog" aria-labelledby="hw-dialog-h">
+  <form method="post" action="{% url 'hardware:request_new' hw.endpoint.device_id %}">{% csrf_token %}
+    <h2 id="hw-dialog-h">Request</h2>
+    <input type="hidden" name="action" value="">
+    <p class="small" id="hw-dialog-steps"></p>
+    <p class="small t-mute">This only <b>records</b> the request (who, what, when, why). It is not sent to the BMC. An administrator approves or rejects it, and a person carries it out.</p>
+    {% if hw.can_operate %}
+    <div class="field"><label for="hw-reason">Reason <span class="req">*</span></label><input id="hw-reason" name="reason" maxlength="300" required autocomplete="off" placeholder="e.g. hung after firmware update, change CHG-1234"></div>
+    <div class="hw-dialog-foot"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit">Record request</button></div>
+    {% else %}
+    <p class="t-warn small">You need the operator role on this site to request this.</p>
+    <div class="hw-dialog-foot"><button type="button" class="btn" data-close>Close</button></div>
+    {% endif %}
+  </form>
+</dialog>
+{{ hw.data|json_script:"hw-data" }}
+{{ hw.config|json_script:"hw-config" }}
+{{ hw.data.charts.temp|json_script:"hw-chart-temp" }}
+{{ hw.data.charts.fan|json_script:"hw-chart-fan" }}
+<script src="{% static 'hardware/hardware.js' %}" defer></script>
+{% endif %}
+</div>

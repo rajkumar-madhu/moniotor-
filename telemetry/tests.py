@@ -9,6 +9,7 @@ from datetime import timedelta
 from unittest import mock
 
 from django.apps import apps
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.core.management import call_command
@@ -653,7 +654,7 @@ class MutationTests(TestCase):
         c = Client(enforce_csrf_checks=True)
         c.force_login(user)
         c.get(reverse("telemetry:alertmanager"))
-        return c, c.cookies["csrftoken"].value
+        return c, c.cookies[settings.CSRF_COOKIE_NAME].value
 
     def test_acknowledge_requires_csrf(self):
         c, _tok = self.csrf_client(self.operator)

@@ -44,6 +44,8 @@ urlpatterns = [
     path("", include("onboarding.urls")),
     path("", include("k8s.urls")),
     path("", include("apm.urls")),
+    path("", include("hardware.urls")),
+    path("", include("hypervisor.urls")),
     path("", include("architecture.urls")),
     path("soon/<slug:slug>/", core.coming_soon, name="coming_soon"),
     path("admin/", admin.site.urls),
