@@ -263,6 +263,7 @@ your own StatefulSet), and the image pushed to a registry the cluster can pull f
 | `kustomization.yaml` | Ties it together; sets the image. |
 | `optional/backup-cronjob.yaml` | Not applied by default: nightly `pg_dump` CronJob + PVC (see [Backups](#backups)). |
 | `overlays/finspot-dev/` | Kustomize overlay for FinSpot dev (`fs-le-dx.finspot.in`, probe CIDRs). See [FINSPOT_DEV_K8S.md](FINSPOT_DEV_K8S.md). |
+| `overlays/argus/` | Overlay for `https://argus.monitoring.wecrew.in` (ingress-nginx cluster): host names, `create-secrets.sh`, optional in-cluster PostgreSQL. See [ARGUS_K8S.md](ARGUS_K8S.md). |
 
 ### First installation
 
