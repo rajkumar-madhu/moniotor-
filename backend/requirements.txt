@@ -38,7 +38,7 @@ django-redis==7.0.0
 django-db-connection-pool==1.2.6
 prometheus-client==0.26.0
 python-json-logger==4.1.0
-pymongo==4.17.0
+pymongo==4.19.0
 urllib3==2.7.0
 mozilla-django-oidc==5.0.2
 whitenoise[brotli]==6.12.0
