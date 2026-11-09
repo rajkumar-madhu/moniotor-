@@ -3,7 +3,7 @@
 {% block page_css %}<link rel="stylesheet" href="{% static 'bodeod/page.css' %}">{% endblock %}
 {% block crumbs %}{% include "bodeod/_crumbs.html" with here="Key Validation" %}{% endblock %}
 {% block content %}
-<div class="pg-bodeod">
+<div class="pg-bodeod"{% if live_cfg %} data-bod-live{% endif %}>
 <div class="head">
   <div class="glyph">{% icon "key" 44 %}</div>
   <div><h1>Key Validation</h1><p>Current state of every checklist item, with operator sign-offs for manual checks</p></div>
@@ -13,8 +13,9 @@
   </div>
 </div>
 {% include "bodeod/_tabs.html" with tab="keys" %}
+{% include "bodeod/_live.html" %}
 
-<section class="kpis six" aria-label="Item states">
+<section class="kpis six" aria-label="Item states" data-live-kpis>
   <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "list" 22 %}</div><div class="kpi-body"><div class="label">Enabled Items</div><div class="value">{{ totals.total }}</div></div></div><div class="sub">{% if code %}{{ code }} checklist{% else %}All modes{% endif %}</div></div>
   <div class="kpi stacked"><div class="kpi-top"><div class="tile s-ok">{% icon "check" 24 %}</div><div class="kpi-body"><div class="label">OK</div><div class="value">{{ totals.done }}</div></div></div><div class="sub">Code 0 (incl. signed off)</div></div>
   <div class="kpi stacked"><div class="kpi-top"><div class="tile s-warn">{% icon "alert" 22 %}</div><div class="kpi-body"><div class="label">Warning</div><div class="value">{{ totals.warning }}</div></div></div><div class="sub">Code 1</div></div>
@@ -39,19 +40,23 @@
   <div class="panel-h"><span class="bod-code">{{ s.mode.code }}</span><h2>{{ s.mode.name }}</h2><small>{{ s.mode.window_label }}</small>
     <div class="right">
       {% if s.run %}<span class="t-mute">Latest run <a href="{{ s.run.get_absolute_url }}">#{{ s.run.pk }}</a> · {{ s.run.trading_date|date:"d M" }} {{ s.run.started_at|ist:"%H:%M" }}</span> {% run_badge s.run.status %}{% else %}<span class="t-mute">Not run yet</span>{% endif %}
+      {% include "bodeod/_live_mode.html" with mode=s.mode sum=s.live_sum run=s.run can=s.can_operate %}
       {% if s.can_operate and s.mode.enabled %}<form method="post" action="{% url 'bodeod:run' s.mode.pk %}" data-busy-form>{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}#mode-{{ s.mode.code }}"><button class="btn primary sm" type="submit" data-busy="Running…">{% icon "play" 14 %}Run now</button></form>{% endif %}
     </div></div>
   {% if s.run and not s.open_signoff and s.run.status != "running" %}<p class="bod-note">{% icon "info" 15 %}Sign-offs apply to today's run. {% if s.can_operate %}Start a new run to sign off manual items for {{ today|date:"d M Y" }}.{% endif %}</p>{% endif %}
   <div class="table-wrap dense"><table class="bod-keys">
     <thead><tr><th>#</th><th>Item</th><th>Current</th><th>Reference</th><th>Detail</th><th>Latest run</th><th>Sign-off</th></tr></thead>
     <tbody>{% for r in s.rows %}
-      <tr class="{% if not r.item.enabled %}is-off{% endif %}">
+      <tr class="{% if not r.item.enabled %}is-off{% endif %}"{% if r.state and r.item.enabled %} data-live-row="{{ r.key }}" data-live-status="{{ r.state }}"{% endif %}>
         <td>{{ forloop.counter }}</td>
         <td class="wrap"><b>{{ r.name }}</b>{% if r.critical %} <span class="chip crit" title="A critical result fails the run">critical</span>{% endif %}{% if not r.item.enabled %} <span class="chip mute">disabled</span>{% endif %}
           {% if r.item.instructions %}<div class="bod-instr" title="{{ r.item.instructions }}">{{ r.item.instructions|truncatechars:110 }}</div>{% endif %}</td>
-        <td>{% code r.current %}</td>
+        <td>{% if r.state and r.item.enabled %}{% live_pill r.status %}{% else %}{% code r.current %}{% endif %}</td>
         <td class="bod-ref"><small>{{ r.get_kind_display }}</small>{% if r.kind == "manual" %}<span class="t-mute">operator sign-off</span>{% elif r.link %}<a href="{{ r.link }}" title="{{ r.ref_name }}">{{ r.ref_name }}</a>{% else %}<span title="{{ r.ref_name }} – reference not found">{{ r.ref_name|default:"–" }}</span> <span class="chip warn">missing</span>{% endif %}</td>
-        <td class="wrap bod-detail">{% if r.kind == "manual" and r.result %}{{ r.result.detail }}{% else %}{{ r.detail }}{% endif %}</td>
+        <td class="wrap bod-detail">{% if r.kind == "manual" and r.result %}{{ r.result.detail }}{% elif r.state and r.item.enabled %}<span data-live="detail" title="{{ r.detail }}">{{ r.short }}</span>
+          <span class="bod-age" data-live="age"{% if r.age_s is not None %} data-age0="{{ r.age_s }}"{% endif %}>{% if r.age %}checked {{ r.age }} ago{% else %}not checked yet{% endif %}</span>
+          {% if s.can_operate and s.mode.enabled %}<button type="button" class="btn icon sm" data-recheck data-mode="{{ s.mode.pk }}" data-item="{{ r.key }}" title="Re-check {{ r.name }} now" aria-label="Re-check {{ r.name }} now">{% icon "refresh" 14 %}</button>{% endif %}
+          {% else %}{{ r.short }}{% endif %}</td>
         <td>{% if r.result %}<a href="{{ s.run.get_absolute_url }}" title="{{ r.result.detail }}">{% code r.result.status False %}</a>{% else %}<span class="t-mute">–</span>{% endif %}</td>
         <td class="wrap">{% if r.result.status == "signed_off" %}<span class="bod-signed">{% icon "check" 14 %}{{ r.result.signed_off_by_name }} · {{ r.result.signed_off_at|ist:"%d %b %H:%M" }}</span>{% if r.result.note %}<div class="bod-instr">“{{ r.result.note }}”</div>{% endif %}
           {% elif r.kind == "manual" and r.result.status == "pending" and s.open_signoff and s.can_operate %}

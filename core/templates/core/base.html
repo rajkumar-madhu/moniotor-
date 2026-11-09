@@ -110,6 +110,7 @@
       </header>
       <main class="page" id="main" tabindex="-1">
         {% block crumbs %}{% endblock %}
+        {% load le_examples %}{% example_banner %}
         {% if messages %}<ul class="messages">{% for m in messages %}<li class="{{ m.tags }}">{{ m }}</li>{% endfor %}
         </ul>{% endif %}
         {% block content %}{% endblock %}

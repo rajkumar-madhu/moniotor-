@@ -41,8 +41,7 @@
   {% else %}
   <div class="hw-empty">{% icon "server" 34 %}<h2>No BMC endpoints{% if q or health %} match{% endif %}</h2>
     <p>Add the iDRAC or iLO of a physical server to see its sensors, power supplies, fans and event log on the server's Hardware tab. LinkedEye only reads.</p>
-    {% if can_admin %}<div class="actions"><a class="btn primary" href="{% url 'hardware:endpoint_new' %}">{% icon "plus" 16 %}Add endpoint</a></div>{% endif %}
-    <p class="t-mute small">Just exploring? An administrator can load a synthetic example with <code>python manage.py seed_hardware</code>.</p></div>
+    {% if can_admin %}<div class="actions"><a class="btn primary" href="{% url 'hardware:endpoint_new' %}">{% icon "plus" 16 %}Add endpoint</a></div>{% endif %}</div>
   {% endif %}
 </section>
 {% if free_devices %}<section class="panel"><div class="panel-h"><h2>Physical servers without a BMC endpoint</h2></div>

@@ -410,7 +410,8 @@ class ViewTests(TestCase):
         Mode.objects.all().delete()
         r = client_for(self.admin).get(reverse("bodeod:status"))
         self.assertContains(r, "No BOD / EOD modes configured")
-        self.assertContains(r, "seed_bodeod")
+        self.assertContains(r, "checklist editor")
+        self.assertNotContains(r, "seed_bodeod")          # a live console never tells the visitor to load demo data
 
     def test_status_and_keys_show_codes(self):
         services.start_run(self.mode)

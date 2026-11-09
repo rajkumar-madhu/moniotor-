@@ -17,7 +17,6 @@
 <div class="panel">
   <div class="cm-empty">{% icon "cpu" 32 %}
     <p><b>No servers or VMs yet.</b> Compute reads physical servers and virtual machines from <a href="{% url 'network:physical_servers' %}">Network Devices</a> (types “Physical Server” and “Virtual Machine”) – nothing is duplicated here. Add devices there, then group hosts into clusters and record where each VM runs.</p>
-    <p class="small">For a demo, <code>python manage.py seed_compute</code> creates example servers, VMs, placements and clusters (tagged “example”).</p>
     {% if can_operate %}<div class="btns"><a class="btn primary sm" href="{% url 'network:create' %}?type=physical_server">{% icon "plus" 15 %}Add server</a><a class="btn sm" href="{% url 'compute:cluster_create' %}">{% icon "plus" 15 %}Add cluster</a></div>{% endif %}
   </div>
 </div>

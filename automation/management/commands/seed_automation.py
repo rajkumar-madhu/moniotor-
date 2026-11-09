@@ -94,9 +94,10 @@ class Command(BaseCommand):
     def handle(self, *args, remove=False, **opts):
         tenant = settings.LINKEDEYE_TENANT
         if remove:
-            n1, _ = Rule.objects.filter(tenant_key=tenant, name__in=[r["name"] for r in RULES]).delete()
-            n2, _ = Runbook.objects.filter(tenant_key=tenant, title__in=[r["title"] for r in RUNBOOKS]).delete()
-            n3, _ = Template.objects.filter(tenant_key=tenant, name__in=[t["name"] for t in TEMPLATES]).delete()
+            # only rows this command wrote (created_by): a runbook, rule or template an operator wrote under the same name stays
+            n1, _ = Rule.objects.filter(tenant_key=tenant, created_by="seed_automation", name__in=[r["name"] for r in RULES]).delete()
+            n2, _ = Runbook.objects.filter(tenant_key=tenant, created_by="seed_automation", title__in=[r["title"] for r in RUNBOOKS]).delete()
+            n3, _ = Template.objects.filter(tenant_key=tenant, created_by="seed_automation", name__in=[t["name"] for t in TEMPLATES]).delete()
             self.stdout.write(self.style.SUCCESS(f"Removed {n1} rule, {n2} runbook and {n3} template row(s)."))
             return
         made = {"runbooks": 0, "rules": 0, "templates": 0}

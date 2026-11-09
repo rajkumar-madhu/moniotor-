@@ -1,0 +1,16 @@
+{% load le %}{% if live_cfg %}{{ live_cfg|json_script:"bod-live-cfg" }}
+<div class="bod-live" data-live-bar>
+  <span class="bod-livepill" data-state="idle">{% icon "radar" 14 %}<span data-live-label>Live</span></span>
+  <span class="bod-live-age" data-live-updated>Updated just now</span>
+  <span class="bod-live-msg" data-live-msg></span>
+  <button type="button" class="btn sm" data-live-toggle aria-pressed="false" title="Stop or resume the automatic updates on this page">{% icon "pause" 14 %}<span>Pause</span></button>
+</div>
+<div class="bod-stale" data-live-stale role="status" hidden>{% icon "alert" 15 %}<span data-live-stale-text></span></div>
+<div class="bod-notice" data-live-notice role="status" hidden>{% icon "info" 15 %}<span data-live-notice-text></span> <a href="" data-live-reload>Reload the page</a></div>
+<div class="bod-sr" aria-live="polite" aria-atomic="true" data-live-announce></div>
+<noscript><p class="bod-note">{% icon "info" 15 %}Live updates need JavaScript. {% if live_reload_note %}This page reloads every minute. {% endif %}<a href="">Reload now</a> to see the latest state.</p></noscript>
+<section class="panel bod-changes" data-live-changes hidden aria-label="Changes since you opened this page">
+  <div class="panel-h"><h2>Changes since you opened this page</h2><div class="right"><button type="button" class="btn sm" data-live-clear>Clear</button></div></div>
+  <ol class="bod-changes-list" data-live-changes-list></ol>
+</section>
+{% endif %}

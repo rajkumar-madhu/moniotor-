@@ -1,0 +1,18 @@
+# LINKEDEYE_MODE=internal: an IP address or an internal name, HTTPS with a certificate from Caddy's own CA (browsers warn
+# until you trust the CA: docs/GO_LIVE.md, "VM without a domain"). No internet access needed.
+{
+	local_certs
+	servers {
+		timeouts {
+			# slow-loris: a client that dribbles request headers is cut off; idle keep-alive connections are recycled
+			read_header 30s
+			idle 2m
+		}
+	}
+}
+
+import linkedeye.snippet
+
+{$LINKEDEYE_DOMAIN} {
+	import linkedeye
+}

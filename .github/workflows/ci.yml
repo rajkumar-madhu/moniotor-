@@ -119,6 +119,64 @@ jobs:
             -v "$RUNNER_TEMP/am-token:/run/secrets/alertmanager_webhook_token:ro" --entrypoint amtool \
             prom/alertmanager:v0.28.0 check-config /etc/alertmanager/alertmanager.yml
 
+  live-stack:
+    # deploy/live end to end: bootstrap.sh builds the image and starts caddy + web + worker + PostgreSQL in plain-HTTP mode
+    # on a dummy domain, creates the administrator, runs go_live_check; then sign-in, backup, restore and update are exercised.
+    # (The Let's Encrypt path needs a public DNS name and cannot run in CI; docs/GO_LIVE.md says what is and is not tested.)
+    name: Live deployment pack (compose, plain HTTP)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      LINKEDEYE_ADMIN_PASSWORD: ci-only-Password-2026-xyz
+    steps:
+      - uses: actions/checkout@v7
+      - name: Scripts parse and pass shellcheck
+        run: |
+          for f in deploy/live/*.sh; do bash -n "$f"; done
+          shellcheck -x -S warning deploy/live/*.sh
+      - name: Dummy domain
+        run: echo "127.0.0.1 linkedeye.test" | sudo tee -a /etc/hosts
+      - name: bootstrap.sh (build, migrate, start, first administrator, go_live_check)
+        run: ./deploy/live/bootstrap.sh --domain linkedeye.test --mode http --admin-email ci@example.org --yes
+      - name: Same bootstrap again changes nothing (idempotent)
+        run: |
+          cp deploy/live/.env /tmp/env.before
+          ./deploy/live/bootstrap.sh --yes
+          diff /tmp/env.before deploy/live/.env
+      - name: Health endpoint, sign-in page, static files through the proxy
+        run: |
+          curl -fsS http://linkedeye.test/healthz | grep -q '"status": "ok"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://linkedeye.test/accounts/login/)" = 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://linkedeye.test/static/linkedeye/app.css)" = 200
+          ./deploy/live/healthcheck.sh
+      - name: Sign in as the administrator
+        run: |
+          jar="$(mktemp)"
+          curl -fsS -c "$jar" -o /tmp/login.html http://linkedeye.test/accounts/login/
+          token="$(grep -o 'name="csrfmiddlewaretoken" value="[^"]*"' /tmp/login.html | head -1 | sed 's/.*value="//;s/"$//')"
+          test -n "$token"
+          code="$(curl -s -b "$jar" -c "$jar" -o /dev/null -w '%{http_code}' -H 'Referer: http://linkedeye.test/accounts/login/' \
+            --data-urlencode "csrfmiddlewaretoken=$token" --data-urlencode username=admin \
+            --data-urlencode "password=$LINKEDEYE_ADMIN_PASSWORD" http://linkedeye.test/accounts/login/)"
+          test "$code" = 302
+          test "$(curl -s -b "$jar" -o /dev/null -w '%{http_code}' http://linkedeye.test/)" = 200
+      - name: go_live_check reports no FAIL
+        run: docker compose -f deploy/live/docker-compose.live.yml exec -T web python manage.py go_live_check --url http://localhost:8000
+      - name: Backup, then restore it
+        run: |
+          ./deploy/live/backup.sh
+          ./deploy/live/restore.sh "$(ls -1 deploy/live/backups/linkedeye-*.tar | sort | tail -1)" --yes
+      - name: update.sh (backup, migrate, restart)
+        run: ./deploy/live/update.sh --no-pull --no-build --yes
+      - name: Observability profile renders
+        run: docker compose -f deploy/live/docker-compose.live.yml --profile observability config --quiet
+      - name: Logs
+        if: failure()
+        run: docker compose -f deploy/live/docker-compose.live.yml logs --tail=200
+      - name: Clean up
+        if: always()
+        run: docker compose -f deploy/live/docker-compose.live.yml down -v || true
+
   docker:
     name: Docker image (${{ matrix.name }})
     runs-on: ubuntu-latest

@@ -18,7 +18,7 @@ from unittest import mock
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-BUNDLE = ["deploy", "docker-compose.yml", "Dockerfile", ".github", "docs/DEPLOYMENT.md", "linkedeye/settings.py",
+BUNDLE = ["deploy", "docker-compose.yml", "Dockerfile", ".github", "docs/DEPLOYMENT.md", "docs/GO_LIVE.md", "linkedeye/settings.py",
           "administration/services.py", "telemetry/nagios.py", ".env.example"]
 
 

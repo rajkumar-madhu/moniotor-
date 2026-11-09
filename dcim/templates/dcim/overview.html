@@ -20,7 +20,6 @@
   {% icon "server" 34 %}
   <h2>No rooms or racks{% if site %} at {{ site }}{% endif %} yet</h2>
   <p>Start by adding a room (a data hall, server room or cage), then its racks. Mount items in the rack elevation, record power feeds and cooling units, and this page fills in with real capacity figures.</p>
-  <p class="t-mute small">For a demo, an administrator can run <code>manage.py seed_dcim</code> to create example-tagged records.</p>
   {% if can_operate %}<div class="actions"><a class="btn primary" href="{% url 'dcim:room_create' %}">{% icon "plus" 16 %}Add room</a></div>{% endif %}
 </section>
 {% else %}

@@ -1,5 +1,6 @@
 import calendar
 import csv
+import re
 from collections import defaultdict
 from datetime import timedelta
 
@@ -17,7 +18,7 @@ from core.access import can, can_on, require, scope_by_site, visible_sites
 from core.audit import audit
 from core.models import Event
 
-from . import services
+from . import live, services
 from .forms import ChecklistItemForm, HolidayForm, HolidayUploadForm, ModeForm, SignOffForm
 from .models import ChecklistItem, Holiday, Mode, Run, RunItem
 from .services import IST, user_can
@@ -111,10 +112,16 @@ def _decorate(result):
 class Live:
     """A checklist item with its live (stored) status for templates."""
 
-    def __init__(self, item, status, detail, link=""):
+    def __init__(self, item, status, detail, link="", short=None, age_s=None):
         self.item, self.status, self.detail, self.link = item, status, detail, link
         self.code_num, self.tone, self.code_label = STATUS_META.get(status, STATUS_META["unknown"])
         self.name, self.kind, self.critical, self.ref_name = item.name, item.kind, item.critical, item.ref_name
+        # the live vocabulary (ok / warning / failed / unknown) and the short wording; None for manual items
+        self.state = live.STATE.get(status) if item.automated else None
+        self.short = detail if short is None else short
+        self.age_s = age_s
+        self.age = live.human_age(age_s)
+        self.key = f"i{item.pk}"
 
     def get_kind_display(self):
         return self.item.get_kind_display()
@@ -127,12 +134,28 @@ def _mode_resolver(mode, items):
 
 def _live_rows(items, resolver=None):
     resolver = resolver or services.Resolver(items)
+    now = timezone.now()
     out = []
     for it in items:
-        st, detail = services.live_status(it, resolver)
-        link = resolver.link(it.kind, it.ref_name) if it.automated and resolver.available(it.kind) else ""
-        out.append(Live(it, st, detail, link))
+        if it.automated:
+            st, long, short, _checked, age = live.evaluate(it.kind, it.ref_name, resolver, now)
+            link = resolver.link(it.kind, it.ref_name) if resolver.available(it.kind) else ""
+            out.append(Live(it, st, long, link, short=short, age_s=age))
+        else:
+            st, detail = services.live_status(it, resolver)
+            out.append(Live(it, st, detail))
     return out
+
+
+def _live_summary(rows):
+    """Overall live status and counts of the automated rows (Live objects) of one mode."""
+    return live.summary([{"status": r.state, "critical": r.critical} for r in rows if r.state])
+
+
+def _live_cfg(**scope):
+    """What bodeod.js needs to poll and re-check (json_script)."""
+    return {"url": reverse("bodeod:api_live"), "recheckUrl": reverse("bodeod:api_recheck"), "interval": live.INTERVAL,
+            "scope": {k: v for k, v in scope.items() if v}}
 
 
 def _run_counts(qs):
@@ -160,24 +183,27 @@ def status(request):
     modes = list(_modes(request))
     today = services.today_ist()
     banner = services.trading_banner()
-    cards, any_running, pending_total = [], False, 0
+    now = timezone.now()
+    cards, pending_total = [], 0
     latest_today = []
     for m in modes:
         run = services.latest_run(m)
         if run is not None:
             results = [_decorate(r) for r in run.results.all()]
-            live = False
+            is_live = False
+            live_sum = live.mode_payload(m, now=now)
         else:
             items = list(m.items.filter(enabled=True))
             results = _live_rows(items, _mode_resolver(m, items))
-            live = True
+            is_live = True
+            live_sum = _live_summary(results)
         c = services.counts(results)
         if run is not None and run.trading_date == today:
             latest_today.append(run)
             pending_total += c["pending"]
-        any_running = any_running or (run is not None and run.status == "running")
         cards.append({
-            "mode": m, "run": run, "results": results, "live": live, "counts": c,
+            "mode": m, "run": run, "results": results, "live": is_live, "counts": c, "live_sum": live_sum,
+            "rechecking": live.is_rechecking(m),
             "window": services.window_state(m, trading=banner["trading"]), "next": services.schedule_for(m),
             "can_run": user_can(request.user, "operate", m.site), "run_tone": RUN_TONE.get(run.status, "mute") if run else "mute",
             "run_today": run is not None and run.trading_date == today,
@@ -196,7 +222,7 @@ def status(request):
     }
     recent = _run_counts(_runs(request))[:8]
     ctx = {"cards": cards, "banner": banner, "kpi": kpi, "recent": recent, "today": today,
-           "refresh": 20 if any_running else 60, "run_tone": RUN_TONE, "phases": services.PHASES, **_perms(request)}
+           "live_cfg": _live_cfg(), "run_tone": RUN_TONE, "phases": services.PHASES, **_perms(request)}
     return render(request, "bodeod/status.html", ctx)
 
 
@@ -220,6 +246,88 @@ def api_status(request):
         out.append(entry)
     return JsonResponse({"date": banner["date"].isoformat(), "trading_day": banner["trading"], "reason": banner["reason"],
                          "phase": banner["phase"]["key"], "modes": out})
+
+
+def _json_error(text, status, **headers):
+    resp = JsonResponse({"error": text}, status=status)
+    resp["Cache-Control"] = "no-store"
+    for k, v in headers.items():
+        resp[k.replace("_", "-")] = v
+    return resp
+
+
+def _positive(value):
+    try:
+        n = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
+@require_GET
+def api_live(request):
+    """The live state of every automated item, read from the stored results of the referenced checks. It never runs a
+    probe: the page polls it. `?mode=BOD` narrows it to one mode, `?run=<id>` shows that run's own rows (each with the
+    status the run recorded) instead of the mode's current checklist."""
+    if live.limited(request.user, "live", live.LIVE_LIMIT, live.LIVE_WINDOW):
+        return _json_error("Too many requests: slow down.", 429, Retry_After="30")
+    modes = list(_modes(request))
+    run = None
+    if request.GET.get("run"):
+        pk = _positive(request.GET["run"])
+        run = _runs(request).filter(pk=pk).first() if pk else None
+        if run is None:
+            return _json_error("Run not found.", 404)
+        modes = [m for m in modes if m.pk == run.mode_id]
+    elif request.GET.get("mode"):
+        modes = [m for m in modes if m.code == request.GET["mode"]]
+        if not modes:
+            return _json_error("Mode not found.", 404)
+    now = timezone.now()
+    payload = [live.mode_payload(m, run=run, now=now) for m in modes]
+    resp = JsonResponse({
+        "generated_at": now.isoformat(), "interval": live.INTERVAL, "date": services.today_ist(now).isoformat(),
+        "scope": "run" if run is not None else "live", **live.summary([e for p in payload for e in p["items"]]), "modes": payload})
+    resp["Cache-Control"] = "no-store"
+    return resp
+
+
+@require_POST
+@require("operate")
+def api_recheck(request):
+    """Re-run the referenced checks of one mode (or of the named items) now, through probes.checks. Bounded: it answers
+    within a few seconds, "running" when the probes are still busy, and the page keeps polling `api_live`."""
+    if live.limited(request.user, "recheck", live.RECHECK_LIMIT, live.RECHECK_WINDOW):
+        return _json_error("Too many re-checks: wait a moment.", 429, Retry_After="30")
+    pk = _positive(request.POST.get("mode"))
+    mode = _modes(request).filter(pk=pk).first() if pk else None
+    if mode is None:
+        return _json_error("Mode not found.", 404)
+    if not user_can(request.user, "operate", mode.site):
+        return _json_error(f"You cannot re-check {mode.code} for {mode.site}.", 403)
+    if not mode.enabled:
+        return _json_error(f"{mode.code} is disabled.", 409)
+    run = None
+    if request.POST.get("run"):
+        rpk = _positive(request.POST["run"])
+        run = _runs(request).filter(pk=rpk, mode=mode).first() if rpk else None
+        if run is None:
+            return _json_error("Run not found.", 404)
+    keys = request.POST.getlist("item")
+    if len(keys) > 100 or any(not re.fullmatch(r"[ir][0-9]{1,12}", k) for k in keys):
+        return _json_error("Invalid item.", 400)
+    refs = live.pick_refs(mode, keys, run)
+    if keys and not refs:
+        return _json_error("Only the automated items of this mode can be re-checked.", 400)
+    state, info = live.recheck(mode, refs)
+    audit(request, "recheck", mode, mode=mode.code, state=state, ran=info["ran"], failed=info["failed"],
+          scope=("run " + str(run.pk) if run else "checklist"), items=[r.name for r in refs][:30], count=len(refs))
+    now = timezone.now()
+    resp = JsonResponse({"state": state, "ran": info["ran"], "failed": info["failed"], "generated_at": now.isoformat(),
+                         "mode": live.mode_payload(mode, run=run, now=now)},
+                        status=202 if state in ("running", "busy") else 200)
+    resp["Cache-Control"] = "no-store"
+    return resp
 
 
 # ------------------------------------------------------------------ mutations: runs
@@ -316,30 +424,30 @@ def keys(request):
             ql = q.lower()
             items = [i for i in items if ql in i.name.lower() or ql in i.ref_name.lower()]
         rows = []
-        for live in _live_rows(items, _mode_resolver(m, items)):
-            live.result = by_item.get(live.item.pk)
+        for row in _live_rows(items, _mode_resolver(m, items)):
+            row.result = by_item.get(row.item.pk)
             # the item's current state: its sign-off / result in today's run for manual items, else live
-            current = live.result.status if (live.item.kind == "manual" and live.result and run.trading_date == services.today_ist()) else live.status
-            live.current = current
-            live.current_meta = STATUS_META.get(current, STATUS_META["unknown"])
-            if not live.item.enabled:
-                live.current = "disabled"
-            if state and live.current != state:
+            current = row.result.status if (row.item.kind == "manual" and row.result and run.trading_date == services.today_ist()) else row.status
+            row.current = current
+            row.current_meta = STATUS_META.get(current, STATUS_META["unknown"])
+            if not row.item.enabled:
+                row.current = "disabled"
+            if state and row.current != state:
                 continue
-            rows.append(live)
-            if live.item.enabled:
+            rows.append(row)
+            if row.item.enabled:
                 totals["total"] += 1
                 totals[current] += 1
         open_signoff = run is not None and services.is_open_for_signoff(run)
         sections.append({"mode": m, "run": run, "rows": rows, "open_signoff": open_signoff,
-                         "can_operate": user_can(request.user, "operate", m.site),
+                         "can_operate": user_can(request.user, "operate", m.site), "live_sum": _live_summary(rows),
                          "run_tone": RUN_TONE.get(run.status, "mute") if run else "mute"})
     totals = {k: totals.get(k, 0) for k in ("total", "ok", "signed_off", "warning", "critical", "unknown", "pending")}
     totals["done"] = totals["ok"] + totals["signed_off"]
     ctx = {"modes": modes, "sections": sections, "code": code, "kinds": ChecklistItem.KINDS, "kind": kind, "q": q,
            "state": state, "totals": totals, "states": [("ok", "OK"), ("warning", "Warning"), ("critical", "Critical"),
                                                          ("unknown", "Unknown"), ("pending", "Pending"), ("signed_off", "Signed off")],
-           "today": services.today_ist(), "query": _query(request), **_perms(request)}
+           "today": services.today_ist(), "query": _query(request), "live_cfg": _live_cfg(mode=code), **_perms(request)}
     return render(request, "bodeod/keys.html", ctx)
 
 
@@ -426,9 +534,14 @@ def detail(request, pk):
     run = get_object_or_404(_runs(request), pk=pk)
     results = [_decorate(r) for r in run.results.select_related("item")]
     resolver = _mode_resolver(run.mode, results)
+    now = timezone.now()
+    is_open = services.is_open_for_signoff(run)
     for r in results:
         r.link = resolver.link(r.kind, r.ref_name) if r.automated and resolver.available(r.kind) else ""
         r.instructions = r.item.instructions if r.item_id else ""
+        # the live column only for the run that is still open (an old run keeps its recorded result and nothing else)
+        r.lv = live.entry(f"r{r.pk}", r.item_id, r.name, r.kind, r.ref_name, r.critical, resolver, now, recorded=r.status) \
+            if (is_open and r.automated) else None
     timeline = [{"at": run.started_at, "tone": "info", "icon": "play",
                  "text": f"Run started by {run.by_label}" + (" (checks re-run first)" if run.refreshed else "")}]
     for r in results:
@@ -450,11 +563,13 @@ def detail(request, pk):
         timeline.append({"at": run.finished_at, "tone": RUN_TONE.get(run.status, "mute"), "icon": "check-circle",
                          "text": f"Run finished: {run.get_status_display()}"})
     timeline.sort(key=lambda t: t["at"])
-    is_open = services.is_open_for_signoff(run)
+    has_live = any(r.lv for r in results)
+    live_sum = live.summary([r.lv for r in results if r.lv]) if has_live else None
     ctx = {"run": run, "results": results, "crumb": f"Run #{run.pk}", "counts": services.counts(results), "timeline": timeline,
            "run_tone": RUN_TONE.get(run.status, "mute"), "duration": _fmt_duration(run.duration_seconds),
            "is_open": is_open, "can_run": user_can(request.user, "operate", run.mode.site),
-           "trading": services.trading_day(run.trading_date), **_perms(request)}
+           "trading": services.trading_day(run.trading_date), "has_live": has_live, "live_sum": live_sum,
+           "live_cfg": _live_cfg(run=run.pk) if has_live else None, **_perms(request)}
     return render(request, "bodeod/detail.html", ctx)
 
 
@@ -475,8 +590,10 @@ def _checklist_sections(request, modes):
     out = []
     for m in modes:
         items = list(m.items.all())
-        out.append({"mode": m, "rows": _live_rows(items, _mode_resolver(m, items)),
-                    "can_edit": user_can(request.user, "admin", m.site)})
+        rows = _live_rows(items, _mode_resolver(m, items))
+        out.append({"mode": m, "rows": rows, "live_sum": _live_summary(rows),
+                    "can_edit": user_can(request.user, "admin", m.site),
+                    "can_operate": user_can(request.user, "operate", m.site)})
     return out
 
 
@@ -533,7 +650,7 @@ def checklist(request):
            "mode_edit": mode_edit, "can_add_mode": can_admin and len(existing) < len(Mode.CODES), "refs": _ref_suggestions(request.user),
            "can_edit_items": bool(admin_modes),
            "show_form": can_admin and (editing is not None or request.method == "POST" or request.GET.get("new")),
-           **_perms(request)}
+           "live_cfg": _live_cfg(), **_perms(request)}
     return render(request, "bodeod/checklist.html", ctx)
 
 

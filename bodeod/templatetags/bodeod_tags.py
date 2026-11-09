@@ -52,3 +52,10 @@ def run_badge(status):
 @register.filter
 def run_tone(status):
     return RUN_META.get(status or "", ("mute", ""))[0]
+
+
+@register.simple_tag
+def live_pill(status):
+    """A status pill bodeod.js patches in place (the same markup as `code`, plus the data hook)."""
+    num, tone, label = CODE_META.get("critical" if status == "failed" else status, CODE_META["unknown"])
+    return format_html('<span class="bc bc-{}" data-live="pill"><b>{}</b>{}</span>', tone, num, label)

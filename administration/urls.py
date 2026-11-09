@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import demo, views
 
 app_name = "administration"
 urlpatterns = [
@@ -34,4 +34,6 @@ urlpatterns = [
     path("administration/integrations/<slug:slug>/save/", views.integration_save, name="integration_save"),
     path("administration/integrations/<slug:key>/test/", views.integration_test, name="integration_test"),
     path("administration/health/", views.health, name="health"),
+    path("administration/demo-data/remove/", demo.demo_remove, name="demo_remove"),
+    path("administration/demo-data/dismiss/", demo.demo_dismiss, name="demo_dismiss"),
 ]

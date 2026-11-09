@@ -29,7 +29,14 @@ DOMAINS = [
 class Command(BaseCommand):
     help = "Create example URL checks and domains (marked 'example' so they are easy to find and delete)."
 
+    def add_arguments(self, parser):
+        parser.add_argument("--remove", action="store_true", help="Delete the example URL checks and domains instead.")
+
     def handle(self, *args, **opts):
+        if opts.get("remove"):
+            from core.examples import remove_core_examples
+            self.stdout.write(self.style.SUCCESS(f"Removed {remove_core_examples()} example URL check/domain row(s)."))
+            return
         t = settings.LINKEDEYE_TENANT
         n = 0
         for name, url, typ, site, tags in URLS:

@@ -231,3 +231,36 @@ td.adm-roles .chip { margin: 2px 4px 2px 0; }
 }
 
 .pg-admin form.inline { display: inline; margin: 0; }
+
+/* go-live readiness card (System health) */
+.adm-golive { margin-bottom: 14px; }
+.adm-golive .panel-h { flex-wrap: wrap; }
+.adm-golive-v { margin-left: auto; }
+.adm-gl-d { white-space: normal; min-width: 260px; }
+.adm-gl-fix { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; overflow-wrap: anywhere; }
+.adm-gl-note { margin: 10px 0 0; font-size: 12.5px; }
+.adm-golive td:first-child { white-space: nowrap; }
+@media (max-width: 720px) {
+  /* a phone cannot hold three columns: one block per check, label and result on the first line, detail below */
+  .adm-golive .table-wrap { overflow: visible; border: 0; }
+  .adm-golive table, .adm-golive tbody, .adm-golive tr, .adm-golive td { display: block; min-width: 0; }
+  .adm-golive table { width: 100%; }
+  .adm-golive thead { display: none; }
+  .adm-golive tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; padding: 10px 2px; border-bottom: 1px solid var(--line-soft); align-items: center; }
+  .adm-golive td { padding: 0; border: 0; background: transparent; }
+  .adm-golive td:first-child { white-space: normal; font-weight: 600; }
+  .adm-golive td:nth-child(2) { grid-column: 2; grid-row: 1; }
+  .adm-golive td.adm-gl-d { grid-column: 1 / -1; min-width: 0; overflow-wrap: anywhere; }
+}
+
+/* demo data card (System health) */
+.adm-demo { margin-bottom: 14px; }
+.adm-demo .panel-h { flex-wrap: wrap; }
+.adm-demo-form { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin: 12px 0 6px; }
+.adm-demo-confirm { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; }
+.adm-demo td:nth-child(2) { white-space: normal; min-width: 180px; }
+@media (max-width: 720px) {
+  .adm-demo th:nth-child(4), .adm-demo td:nth-child(4) { display: none; }
+  .adm-demo td, .adm-demo th { white-space: normal; }
+  .adm-demo td:nth-child(2) { min-width: 0; }
+}

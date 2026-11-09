@@ -21,7 +21,6 @@
   <div class="ip-empty">{% icon "layers" 32 %}
     <p><b>No subnets yet.</b> IPAM starts with subnets: add the networks you use (IPv4 or IPv6, optionally per VRF), then record addresses in them or
       sync them from your network devices' management addresses and discovery results.</p>
-    <p class="small">For a demo, <code>python manage.py seed_ipam</code> creates example VLANs, subnets, addresses and DNS zones (marked “example”).</p>
     {% if can_operate %}<div class="btns"><a class="btn primary sm" href="{% url 'ipam:subnet_create' %}">{% icon "plus" 15 %}Add subnet</a>
       <a class="btn sm" href="{% url 'ipam:vlan_create' %}">{% icon "plus" 15 %}Add VLAN</a>
       <a class="btn sm" href="{% url 'ipam:zone_create' %}">{% icon "plus" 15 %}Add DNS zone</a></div>{% endif %}

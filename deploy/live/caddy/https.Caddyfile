@@ -1,0 +1,18 @@
+# LINKEDEYE_MODE=https: a public DNS name. Caddy obtains and renews a Let's Encrypt certificate by itself and redirects
+# HTTP to HTTPS. Needs: DNS A/AAAA record -> this host, ports 80 and 443 reachable from the internet.
+{
+	email {$LINKEDEYE_ACME_EMAIL}
+	servers {
+		timeouts {
+			# slow-loris: a client that dribbles request headers is cut off; idle keep-alive connections are recycled
+			read_header 30s
+			idle 2m
+		}
+	}
+}
+
+import linkedeye.snippet
+
+{$LINKEDEYE_DOMAIN} {
+	import linkedeye
+}

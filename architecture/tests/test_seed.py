@@ -1,6 +1,7 @@
 from io import StringIO
 
 from django.core.management import call_command
+from django.test import override_settings
 from django.urls import reverse
 
 from architecture import example
@@ -84,6 +85,7 @@ class SeedTests(Base):
         with self.assertRaises(CommandError):
             self.run_cmd("--site", "Atlantis")
 
+    @override_settings(SHOW_SAMPLE_PAGES=True)
     def test_button_runs_the_same_code_and_is_permission_gated(self):
         self.login(self.viewer)
         self.client.post(reverse("architecture:example_load"))
@@ -95,7 +97,14 @@ class SeedTests(Base):
         self.assertTrue(AuditEvent.objects.filter(object_type="architecture.example").exists())
         self.assertEqual(Link.objects.count(), 51)
 
+    @override_settings(SHOW_SAMPLE_PAGES=True)
     def test_global_operator_loads_on_the_first_site(self):
         self.login(self.operator)
         self.client.post(reverse("architecture:example_load"))
         self.assertEqual(Device.objects.filter(tags__icontains="arch-example", site="London").count(), 33)   # first by name
+
+    def test_loader_is_switched_off_on_a_live_console(self):
+        self.login(self.operator)
+        r = self.client.post(reverse("architecture:example_load"))
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(Device.objects.filter(tags__icontains="arch-example").count(), 0)

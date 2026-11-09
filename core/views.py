@@ -1,6 +1,8 @@
+from functools import wraps
+
 from django.conf import settings
 from django.db.models import Q
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.shortcuts import render
 from django.utils.text import capfirst
 from django.views.decorators.http import require_GET
@@ -95,18 +97,33 @@ def search(request):
     return render(request, "core/search.html", {"q": q, "groups": groups, "total": sum(len(r) for _, r in groups)})
 
 
+def sample_page(view):
+    """The /legacy/ design mock-ups are filled with fabricated sample data: 404 unless LINKEDEYE_SHOW_SAMPLE_PAGES=true.
+    Read at request time so the setting (and override_settings in tests) takes effect without a restart of the URLconf."""
+    @wraps(view)
+    def wrapped(request, *args, **kwargs):
+        if not getattr(settings, "SHOW_SAMPLE_PAGES", False):
+            raise Http404("Sample pages are switched off (LINKEDEYE_SHOW_SAMPLE_PAGES).")
+        return view(request, *args, **kwargs)
+    return wrapped
+
+
+@sample_page
 def heatmap(request):
     return render(request, "core/heatmap.html", {"d": s_heatmap.heatmap(), "sample": True})
 
 
+@sample_page
 def exporters(request):
     return render(request, "core/exporters.html", {"d": s_exporters.exporters(request), "sample": True})
 
 
+@sample_page
 def incidents(request):
     return render(request, "core/incidents.html", {"d": s_incidents.incidents(), "sample": True})
 
 
+@sample_page
 def firewall(request):
     return render(request, "core/firewall.html", {"d": s_firewall.firewall(), "sample": True})
 
@@ -115,7 +132,7 @@ def coming_soon(request, slug):
     from django.utils.text import slugify
     label = next((c["label"] for item in NAV for c in [item, *item.get("children", [])] if slugify(c["label"]) == slug),
                  capfirst(slug.replace("-", " ")))
-    return render(request, "core/coming_soon.html", {"label": label})
+    return render(request, "core/coming_soon.html", {"label": label, "show_sample_pages": getattr(settings, "SHOW_SAMPLE_PAGES", False)})
 
 
 def healthz(request):

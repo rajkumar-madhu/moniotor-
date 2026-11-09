@@ -50,7 +50,7 @@
     </svg>
   </div>
   {% else %}
-  <div class="empty">{% if domain or root %}Nothing to draw for this filter.{% else %}No configuration items with relationships yet.{% if can_operate %} <a href="{% url 'cmdb:item_create' %}">Add items</a> and <a href="{% url 'cmdb:relationships' %}">relate them</a>, or run <code>manage.py seed_cmdb</code> for an example.{% endif %}{% endif %}</div>
+  <div class="empty">{% if domain or root %}Nothing to draw for this filter.{% else %}No configuration items with relationships yet.{% if can_operate %} <a href="{% url 'cmdb:item_create' %}">Add items</a> and <a href="{% url 'cmdb:relationships' %}">relate them</a>.{% endif %}{% endif %}</div>
   {% endif %}
 </div>
 </div>

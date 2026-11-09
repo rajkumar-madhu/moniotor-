@@ -1,0 +1,7 @@
+{% load le %}<span class="bod-modelive" data-live-mode="{{ mode.code }}" data-run-id="{{ run.pk|default:'' }}" data-run-status="{{ run.status }}">
+  <span class="bod-livelbl">Live checks</span>
+  <span class="bc bc-{{ sum.tone }}" data-live="mode-pill" title="Overall state of the automated items, from the latest stored results of the checks they reference"><b>{% if sum.status == "ok" %}0{% elif sum.status == "warning" %}1{% elif sum.status == "failed" %}2{% else %}3{% endif %}</b>{{ sum.label }}</span>
+  <span class="bod-livecount" data-live="mode-counts">{% if sum.counts.total %}{{ sum.counts.ok }} ok{% if sum.counts.warning %} · {{ sum.counts.warning }} warning{% endif %}{% if sum.counts.failed %} · {{ sum.counts.failed }} failed{% endif %}{% if sum.counts.unknown %} · {{ sum.counts.unknown }} unknown{% endif %}{% else %}no automated items{% endif %}</span>
+  <span class="bod-running" data-live="running"{% if not rechecking %} hidden{% endif %}>Re-check running…</span>
+  {% if can and mode.enabled and sum.counts.total %}<button type="button" class="btn sm" data-recheck data-mode="{{ mode.pk }}" data-scope="mode" title="Re-run every automated check of {{ mode.code }} now">{% icon "refresh" 14 %}<span>Re-check now</span></button>{% endif %}
+</span>

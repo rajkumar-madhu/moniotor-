@@ -1,9 +1,9 @@
 {% extends "core/base.html" %}{% load le bodeod_tags static %}
 {% block title %}BOD / EOD Status{% endblock %}
-{% block page_css %}<link rel="stylesheet" href="{% static 'bodeod/page.css' %}">{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'bodeod/page.css' %}"><noscript><meta http-equiv="refresh" content="60"></noscript>{% endblock %}
 {% block crumbs %}{% include "bodeod/_crumbs.html" with here="Status Dashboard" %}{% endblock %}
 {% block content %}
-<div class="pg-bodeod" data-bod-refresh="{{ refresh }}">
+<div class="pg-bodeod"{% if live_cfg %} data-bod-live{% endif %}>
 <div class="head">
   <div class="glyph">{% icon "calendar" 44 %}</div>
   <div><h1>BOD / EOD Status</h1><p>Beginning-of-day and end-of-day validation for Indian market hours (IST)</p></div>
@@ -15,6 +15,7 @@
 </div>
 {% include "bodeod/_tabs.html" with tab="status" %}
 {% include "bodeod/_banner.html" %}
+{% include "bodeod/_live.html" with live_reload_note=True %}
 
 <section class="kpis six" aria-label="Today">
   <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "layers" 22 %}</div><div class="kpi-body"><div class="label">Enabled Modes</div><div class="value">{{ kpi.modes }}<small class="t-mute">/ {{ kpi.modes_total }}</small></div></div></div><div class="sub">BOD · EOD · ADP</div></div>
@@ -44,15 +45,16 @@
         <dt>Auto-run</dt><dd>{% if c.mode.auto_run_time %}{{ c.mode.auto_run_time|time:"H:i" }} IST{% if c.next %} · next {{ c.next|ist:"%a %d %b" }}{% endif %}{% else %}<span class="t-mute">Manual only</span>{% endif %}</dd>
       </dl>
     </div>
-    <div class="bod-counts" aria-label="Item counts">
+    <div class="bod-counts" aria-label="Item counts"{% if c.live %} data-live-kpis{% endif %}>
       <span class="bc bc-ok"><b>{{ c.counts.done }}</b>OK</span><span class="bc bc-warn"><b>{{ c.counts.warning }}</b>WARN</span>
       <span class="bc bc-crit"><b>{{ c.counts.critical }}</b>CRIT</span><span class="bc bc-mute"><b>{{ c.counts.unknown }}</b>UNKNOWN</span>
       <span class="bc bc-info"><b>{{ c.counts.pending }}</b>PENDING</span>
     </div>
+    {% if c.live_sum.counts.total %}<div class="bod-cardlive">{% include "bodeod/_live_mode.html" with mode=c.mode sum=c.live_sum run=c.run can=c.can_run rechecking=c.rechecking %}</div>{% endif %}
     {% if c.results %}
     <div class="bod-grid-h">{% if c.live %}<span class="t-mute">No runs yet — live status of the referenced checks</span>{% else %}<span class="t-mute">Run #{{ c.run.pk }} · {{ c.run.trading_date|date:"d M Y" }}</span>{% endif %}<a href="{% url 'bodeod:keys' %}?mode={{ c.mode.code }}">Item details {% icon "chevron-right" 13 %}</a></div>
     <ul class="bod-grid" aria-label="{{ c.mode.code }} items">
-      {% for r in c.results %}<li class="cell bc-{{ r.tone }}" title="{{ r.name }} — {{ r.code_label }}: {{ r.detail }}"><b>{{ r.code_num }}</b><span>{{ r.name }}</span>{% if r.critical %}<i class="crit-dot" title="Critical item"></i>{% endif %}</li>{% endfor %}
+      {% for r in c.results %}<li class="cell bc-{{ r.tone }}"{% if c.live and r.state %} data-live-row="{{ r.key }}" data-live-status="{{ r.state }}"{% endif %} title="{{ r.name }} — {{ r.code_label }}: {{ r.detail }}"><b>{{ r.code_num }}</b><span>{{ r.name }}</span>{% if r.critical %}<i class="crit-dot" title="Critical item"></i>{% endif %}</li>{% endfor %}
     </ul>
     {% else %}
     <div class="bod-empty">{% icon "clipboard" 24 %}<p>No checklist items.{% if can_admin %} <a href="{% url 'bodeod:checklist' %}?mode={{ c.mode.code }}&amp;new=1#item-form">Add items</a>{% endif %}</p></div>
@@ -75,8 +77,7 @@
 <p class="bod-legend" aria-label="Status codes"><b>Status codes</b>{% code "ok" %}{% code "warning" %}{% code "critical" %}{% code "unknown" %}{% code "pending" %}<span class="t-mute"><i class="crit-dot"></i> critical item</span></p>
 {% else %}
 <section class="panel"><div class="bod-empty big">{% icon "calendar" 32 %}<p><b>No BOD / EOD modes configured.</b></p>
-  <p>{% if can_admin %}Add the BOD, EOD and ADP modes in the <a href="{% url 'bodeod:checklist' %}?mode_new=1#mode-form">checklist editor</a>.{% else %}Ask an administrator to configure the BOD, EOD and ADP modes.{% endif %}
-  For a demo, <code>manage.py seed_bodeod</code> creates clearly-marked example modes and checklists.</p></div></section>
+  <p>{% if can_admin %}Add the BOD, EOD and ADP modes in the <a href="{% url 'bodeod:checklist' %}?mode_new=1#mode-form">checklist editor</a>.{% else %}Ask an administrator to configure the BOD, EOD and ADP modes.{% endif %}</p></div></section>
 {% endif %}
 
 <section class="panel">

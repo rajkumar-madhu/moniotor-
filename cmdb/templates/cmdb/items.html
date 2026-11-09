@@ -62,7 +62,7 @@
         </div></td>
       </tr>
     {% empty %}
-      <tr><td colspan="11" class="empty">{% if filtered %}No configuration items match these filters.{% else %}No configuration items yet. {% if can_operate %}<a href="{% url 'cmdb:item_create' %}">Add one</a>, <a href="{% url 'cmdb:items_import' %}">import a CSV</a> or run <code>manage.py seed_cmdb</code> for examples.{% endif %}{% endif %}</td></tr>
+      <tr><td colspan="11" class="empty">{% if filtered %}No configuration items match these filters.{% else %}No configuration items yet. {% if can_operate %}<a href="{% url 'cmdb:item_create' %}">Add one</a> or <a href="{% url 'cmdb:items_import' %}">import a CSV</a>.{% endif %}{% endif %}</td></tr>
     {% endfor %}</tbody></table></div>
   {% include "core/_pager.html" with pager_noun="items" %}
 </div>

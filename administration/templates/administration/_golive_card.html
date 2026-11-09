@@ -1,0 +1,13 @@
+{% load le %}<section class="panel adm-golive" id="go-live" aria-labelledby="golive-h">
+  <div class="panel-h"><h2 id="golive-h">Go-live readiness</h2>
+    <small>{{ golive.counts.PASS }} pass · {{ golive.counts.WARN }} warn · {{ golive.counts.FAIL }} fail</small>
+    <span class="adm-golive-v">{% if golive.overall == 'PASS' %}{% badge "ok" "Ready" %}{% elif golive.overall == 'WARN' %}{% badge "warning" "Review warnings" %}{% else %}{% badge "critical" "Not ready" %}{% endif %}</span></div>
+  <div class="table-wrap dense"><table>
+    <thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead>
+    <tbody>{% for r in golive.results %}
+      <tr class="adm-gl-{{ r.status|lower }}"><td>{{ r.label }}</td>
+        <td>{% if r.status == 'PASS' %}{% badge "ok" "PASS" %}{% elif r.status == 'WARN' %}{% badge "warning" "WARN" %}{% else %}{% badge "critical" "FAIL" %}{% endif %}</td>
+        <td class="adm-gl-d">{{ r.detail }}{% if r.status != 'PASS' and r.fix %}<span class="adm-gl-fix">Fix: {{ r.fix }}</span>{% endif %}</td></tr>
+    {% endfor %}</tbody></table></div>
+  <p class="adm-gl-note t-mute">The same report is printed by <code>manage.py go_live_check</code> (add <code>--url https://your.host</code> to probe the running site). Runbook: <code>docs/GO_LIVE.md</code>.</p>
+</section>

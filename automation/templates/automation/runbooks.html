@@ -52,7 +52,7 @@
         </div></td>
       </tr>
     {% empty %}
-      <tr><td colspan="9" class="empty">{% if query.urlencode %}No runbooks match these filters.{% else %}No runbooks yet.{% if can_operate %} <a href="{% url 'automation:runbook_create' %}">Write the first one</a>, or load examples with <code>manage.py seed_automation</code>.{% endif %}{% endif %}</td></tr>
+      <tr><td colspan="9" class="empty">{% if query.urlencode %}No runbooks match these filters.{% else %}No runbooks yet.{% if can_operate %} <a href="{% url 'automation:runbook_create' %}">Write the first one</a>.{% endif %}{% endif %}</td></tr>
     {% endfor %}
     </tbody></table></div>
   {% include "core/_pager.html" with pager_noun="runbooks" %}

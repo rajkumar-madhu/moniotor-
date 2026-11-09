@@ -12,6 +12,7 @@ from datetime import date, time
 from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.db.models import Q
 
 from bodeod.models import ChecklistItem, Holiday, Mode
 
@@ -68,6 +69,15 @@ HOLIDAYS_2026 = [
 ]
 
 
+def example_items(tenant):
+    """The checklist items this command wrote: the seed's mode and name AND the "Example" instructions mark (an item an
+    operator wrote under the same name, or edited since, is not an example)."""
+    cond = Q()
+    for code, _order, name, *_rest in ITEMS:
+        cond |= Q(mode__code=code, name=name)
+    return ChecklistItem.objects.filter(cond, mode__tenant_key=tenant, instructions__startswith="Example")
+
+
 class Command(BaseCommand):
     help = "Create example BOD/EOD/ADP modes, checklists and 2026 NSE holidays (marked 'Example'; idempotent)."
 
@@ -80,7 +90,7 @@ class Command(BaseCommand):
         tenant = settings.LINKEDEYE_TENANT
         if remove:
             h, _ = Holiday.objects.filter(tenant_key=tenant, source="example").delete()
-            i, _ = ChecklistItem.objects.filter(mode__tenant_key=tenant, instructions__startswith="Example").delete()
+            i, _ = example_items(tenant).delete()
             self.stdout.write(self.style.SUCCESS(f"Removed {h} example holiday(s) and {i} example checklist item(s)."))
             return
         modes, n_modes, n_items, n_hol = {}, 0, 0, 0

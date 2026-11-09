@@ -1,0 +1,256 @@
+# LinkedEye, ready to run live on ONE Docker host: HTTPS reverse proxy + web + worker + PostgreSQL.
+#
+#   ./deploy/live/bootstrap.sh --domain linkedeye.example.com --email ops@example.com
+#
+# bootstrap.sh writes deploy/live/.env (secrets generated, mode 600), builds, migrates, starts the stack and runs
+# `manage.py go_live_check`. Everything it does is plain `docker compose -f deploy/live/docker-compose.live.yml ...`;
+# you can run those commands yourself. Full runbook: docs/GO_LIVE.md.
+#
+#   caddy   the only service that publishes ports (80, 443), and the only one on the "proxy" network: it can reach web and
+#           nothing else (not the database, not the worker). Automatic Let's Encrypt certificates for a public
+#           DNS name (LINKEDEYE_MODE=https), Caddy's own CA for an IP or an internal name (internal), or plain
+#           HTTP for localhost / a trusted network (http). Configuration: deploy/live/caddy/.
+#   web     gunicorn. Not published: reachable only through caddy (and Alertmanager, in the observability profile).
+#   worker  manage.py run_probes, the scheduler. EXACTLY ONE per database: never `--scale worker=2`.
+#   db      PostgreSQL 16. Not published. Volume pgdata.
+#   migrate one-shot, before web and worker start.
+#
+#   docker compose -f deploy/live/docker-compose.live.yml --profile observability up -d
+#                   adds Prometheus, Alertmanager and node-exporter (bootstrap.sh --observability does this and the wiring).
+
+name: linkedeye-live
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-app: &app
+  image: ${LINKEDEYE_IMAGE:-linkedeye:9.0}
+  build:
+    context: ../..
+    args:
+      DB_EXTRAS: ${LINKEDEYE_DB_EXTRAS:-postgres}
+  env_file: .env
+  environment: &app-env
+    # forced here so a stray value in .env can never start the live stack in development mode
+    LINKEDEYE_DEBUG: "false"
+    LINKEDEYE_SECRET_KEY: ${LINKEDEYE_SECRET_KEY:?set LINKEDEYE_SECRET_KEY in deploy/live/.env (bootstrap.sh generates it)}
+    LINKEDEYE_ALLOWED_HOSTS: ${LINKEDEYE_ALLOWED_HOSTS:?set LINKEDEYE_ALLOWED_HOSTS in deploy/live/.env (bootstrap.sh derives it from LINKEDEYE_DOMAIN)}
+    LINKEDEYE_CSRF_TRUSTED_ORIGINS: ${LINKEDEYE_CSRF_TRUSTED_ORIGINS:-}
+    LINKEDEYE_DB_ENGINE: django.db.backends.postgresql
+    LINKEDEYE_DB_HOST: db
+    LINKEDEYE_DB_PORT: "5432"
+    LINKEDEYE_DB_NAME: ${LINKEDEYE_DB_NAME:-linkedeye}
+    LINKEDEYE_DB_USER: ${LINKEDEYE_DB_USER:-linkedeye}
+    LINKEDEYE_DB_PASSWORD: ${LINKEDEYE_DB_PASSWORD:?set LINKEDEYE_DB_PASSWORD in deploy/live/.env (bootstrap.sh generates it)}
+  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+  # a runaway request or probe cannot take the host (and the database) down with it; raise them in .env for a bigger host
+  pids_limit: 512
+  mem_limit: ${LINKEDEYE_APP_MEMORY:-1g}
+  logging: *logging
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${LINKEDEYE_DB_NAME:-linkedeye}
+      POSTGRES_USER: ${LINKEDEYE_DB_USER:-linkedeye}
+      POSTGRES_PASSWORD: ${LINKEDEYE_DB_PASSWORD:?set LINKEDEYE_DB_PASSWORD in deploy/live/.env (bootstrap.sh generates it)}
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\" -h 127.0.0.1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    shm_size: 256m
+    stop_grace_period: 60s
+    logging: *logging
+
+  migrate:
+    <<: *app
+    command: ["python", "manage.py", "migrate", "--noinput"]
+    restart: "no"
+    healthcheck:
+      disable: true
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    <<: *app
+    command: ["gunicorn", "--config", "/app/gunicorn.conf.py"]
+    environment:
+      <<: *app-env
+      # web is not published: only caddy (and Alertmanager) can reach it, so trusting the proxy headers is safe. Both
+      # settings are a pair (HTTPS detection and the real client address); narrow them to caddy's address if you prefer.
+      GUNICORN_FORWARDED_ALLOW_IPS: ${GUNICORN_FORWARDED_ALLOW_IPS:-*}
+      LINKEDEYE_TRUSTED_PROXIES: ${LINKEDEYE_TRUSTED_PROXIES:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7,127.0.0.1,::1}
+    expose:
+      - "8000"
+    networks: [default, proxy]          # default: db, worker, Alertmanager; proxy: caddy
+    mem_limit: ${LINKEDEYE_WEB_MEMORY:-2g}
+    healthcheck:
+      test: ["CMD", "python", "/app/deploy/docker/healthcheck.py", "web"]
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 40s
+    stop_grace_period: 40s
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    <<: *app
+    command: ["python", "manage.py", "run_probes"]
+    deploy:
+      replicas: 1          # the probe scheduler must never run more than once per database
+    mem_limit: ${LINKEDEYE_WORKER_MEMORY:-1g}
+    healthcheck:
+      test: ["CMD", "python", "/app/deploy/docker/healthcheck.py", "probes"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 120s
+    stop_grace_period: 60s  # SIGTERM: the loop finishes the current pass, then exits
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  caddy:
+    image: ${LINKEDEYE_CADDY_IMAGE:-caddy:2.10.0-alpine}
+    restart: unless-stopped
+    # one Caddyfile per mode: caddy/https.Caddyfile, caddy/internal.Caddyfile, caddy/http.Caddyfile (all import caddy/linkedeye.snippet)
+    command: ["caddy", "run", "--config", "/etc/caddy/${LINKEDEYE_MODE:-https}.Caddyfile", "--adapter", "caddyfile"]
+    environment:
+      LINKEDEYE_DOMAIN: ${LINKEDEYE_DOMAIN:?set LINKEDEYE_DOMAIN in deploy/live/.env}
+      LINKEDEYE_ACME_EMAIL: ${LINKEDEYE_ACME_EMAIL:-}
+    networks: [proxy]
+    # LINKEDEYE_BIND_ADDRESS: 0.0.0.0 = every interface (the default); bootstrap.sh sets 127.0.0.1 for a localhost trial
+    ports:
+      - "${LINKEDEYE_BIND_ADDRESS:-0.0.0.0}:${LINKEDEYE_HTTP_PORT:-80}:80"
+      - "${LINKEDEYE_BIND_ADDRESS:-0.0.0.0}:${LINKEDEYE_HTTPS_PORT:-443}:443"
+      - "${LINKEDEYE_BIND_ADDRESS:-0.0.0.0}:${LINKEDEYE_HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - ./caddy:/etc/caddy:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: ${LINKEDEYE_CADDY_MEMORY:-512m}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      web:
+        condition: service_healthy
+    logging: *logging
+
+  # ---------------------------------------------------------------- optional: --profile observability
+  # Same images and configuration as the observability profile of the repository's docker-compose.yml.
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    profiles: [observability]
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+    volumes:
+      - ../prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PUBLISH:-127.0.0.1:9090}:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      - alertmanager
+    logging: *logging
+
+  alertmanager:
+    image: prom/alertmanager:v0.34.2
+    profiles: [observability]
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ../alertmanager:/etc/alertmanager:ro
+      - alertmanager-data:/alertmanager
+    secrets:
+      - alertmanager_webhook_token
+    ports:
+      - "${ALERTMANAGER_PUBLISH:-127.0.0.1:9093}:9093"
+    healthcheck:
+      # unhealthy while LINKEDEYE_ALERTMANAGER_WEBHOOK_TOKEN is empty: no token file is mounted and every notification would fail
+      test: ["CMD-SHELL", "test -s /run/secrets/alertmanager_webhook_token && wget -q -O /dev/null http://127.0.0.1:9093/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      web:
+        condition: service_started
+    logging: *logging
+
+  node-exporter:
+    image: prom/node-exporter:v1.12.1
+    profiles: [observability]
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|var/lib/docker/.+)($|/)
+    pid: host
+    volumes:
+      - /:/host:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9100/metrics"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging: *logging
+
+secrets:
+  alertmanager_webhook_token:
+    environment: LINKEDEYE_ALERTMANAGER_WEBHOOK_TOKEN
+
+networks:
+  # caddy <-> web only. "default" (db, worker, web, Alertmanager, Prometheus) is NOT reachable from caddy, so a compromised
+  # proxy process cannot talk to PostgreSQL. Neither network is "internal": the worker must reach the targets it probes.
+  proxy:
+
+volumes:
+  pgdata:
+  caddy-data:
+  caddy-config:
+  prometheus-data:
+  alertmanager-data:

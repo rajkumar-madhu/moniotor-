@@ -26,7 +26,14 @@ page says "Not connected" and names the setting; nothing is invented. Each modul
 | Administration | `/administration/` | Users and site roles, sites, audit log, integrations with test buttons, system health |
 | Domains JSON API (integration-patch contract) | `/configuration/domains/api/` | Staff only |
 
-The original design mock-ups with sample data are kept under `/legacy/` for comparison.
+The original design mock-ups with fabricated sample data under `/legacy/` answer 404 unless `LINKEDEYE_SHOW_SAMPLE_PAGES=true`; a live console shows no invented numbers (see [docs/LIVE_DATA.md](docs/LIVE_DATA.md)), and `manage.py remove_examples` clears demo data created by the `seed_*` commands.
+
+## Run it live
+
+`./deploy/live/bootstrap.sh --domain linkedeye.example.com --email ops@example.com` brings up the console on one Docker
+host with HTTPS (Caddy and Let's Encrypt), PostgreSQL, the scheduler, backups and a post-start readiness report;
+`manage.py go_live_check` prints PASS / WARN / FAIL for the running configuration (the same report is on
+Administration > System health). Runbook, pre-flight checklist and what is and is not tested: [docs/GO_LIVE.md](docs/GO_LIVE.md).
 
 ## Run locally
 

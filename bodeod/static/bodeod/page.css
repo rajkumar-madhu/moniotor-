@@ -221,3 +221,46 @@
 .pg-bodeod .legend .fill-ok { background: var(--chart-ok); }
 .pg-bodeod .legend .fill-warn { background: var(--chart-warn); }
 .pg-bodeod .legend .fill-crit { background: var(--chart-crit); }
+
+/* live checks: bar, stale banner, per-mode line, rows, change list */
+.pg-bodeod .bod-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.pg-bodeod .bod-live { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
+.pg-bodeod .bod-livepill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 8px; border-radius: 999px; font-weight: 600; letter-spacing: .04em;
+  border: 1px solid var(--ok-line); background: var(--ok-bg); color: var(--ok-ink); }
+.pg-bodeod .bod-livepill[data-state="paused"], .pg-bodeod .bod-livepill[data-state="idle"] { border-color: var(--mute-line); background: var(--mute-bg); color: var(--mute-ink); }
+.pg-bodeod .bod-livepill[data-state="stale"], .pg-bodeod .bod-livepill[data-state="error"] { border-color: var(--warn-line); background: var(--warn-bg); color: var(--warn-ink); }
+.pg-bodeod .bod-live-msg { color: var(--ink-2); }
+.pg-bodeod .bod-live .btn { margin-left: auto; }
+.pg-bodeod .bod-stale, .pg-bodeod .bod-notice { display: flex; gap: 8px; align-items: flex-start; padding: 8px 12px; border-radius: 10px; font-size: 13px; }
+.pg-bodeod .bod-stale { background: var(--warn-bg); color: var(--warn-ink); border: 1px solid var(--warn-line); }
+.pg-bodeod .bod-notice { background: var(--info-bg); color: var(--info-ink); border: 1px solid var(--info-line); }
+.pg-bodeod .bod-stale[hidden], .pg-bodeod .bod-notice[hidden], .pg-bodeod .bod-changes[hidden], .pg-bodeod [data-live="running"][hidden], .pg-bodeod [data-live="diff"][hidden] { display: none; }
+.pg-bodeod .bod-stale .ic, .pg-bodeod .bod-notice .ic { margin-top: 1px; flex: none; }
+.pg-bodeod .bod-modelive { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
+.pg-bodeod .bod-livelbl { color: var(--muted); font: 600 10.5px/1.3 var(--font); letter-spacing: .1em; text-transform: uppercase; }
+.pg-bodeod .bod-livecount { color: var(--ink-2); }
+.pg-bodeod .bod-running { color: var(--info-ink); font-weight: 600; }
+.pg-bodeod .bod-modeline { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; margin: 0 0 10px; }
+.pg-bodeod .bod-livehint { font-size: 12px; }
+.pg-bodeod .bod-cardlive { padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--panel-2); }
+.pg-bodeod .bod-livecell { display: flex; align-items: center; gap: 4px 8px; flex-wrap: wrap; max-width: 380px; }
+/* the Checklist table also carries the Actions column next to a form panel: keep the live cell narrow so it does not push the actions off-screen */
+.pg-bodeod .table-wrap.dense .bod-livecell { max-width: 160px; }
+.pg-bodeod .table-wrap.dense .bod-ref a, .pg-bodeod .table-wrap.dense .bod-ref span:not(.chip) { max-width: 150px; }
+.pg-bodeod .bod-livecell .bod-detail { min-width: 0; flex: 1 1 100%; color: var(--ink-2); }
+.pg-bodeod .bod-livecol .bod-detail { min-width: 0; margin-top: 2px; color: var(--ink-2); }
+.pg-bodeod .bod-age { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.pg-bodeod [data-recheck] { vertical-align: middle; }
+.pg-bodeod [data-recheck][aria-busy="true"] { opacity: .75; }
+.pg-bodeod .btn.icon.sm { width: 28px; height: 28px; padding: 0; display: inline-grid; place-items: center; }
+/* a row that changed while the page was open */
+.pg-bodeod tr.bod-flash td, .pg-bodeod li.bod-flash { animation: bod-flash 6s ease-out; }
+@keyframes bod-flash { 0%, 55% { background-color: var(--info-bg); } 100% { background-color: transparent; } }
+.pg-bodeod li.cell.bod-flash { animation: none; box-shadow: 0 0 0 2px var(--info); }
+.pg-bodeod .bod-changes-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; }
+.pg-bodeod .bod-changes-list li { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; font-size: 13px; padding: 4px 0; border-bottom: 1px solid var(--line-soft); }
+.pg-bodeod .bod-changes-list time { color: var(--muted); font: 500 12px var(--mono); flex: none; }
+.pg-bodeod .bod-changes-list .arrow { color: var(--muted); }
+@media (prefers-reduced-motion: reduce) {
+  .pg-bodeod tr.bod-flash td, .pg-bodeod li.bod-flash { animation: none; background-color: var(--info-bg); }
+}
