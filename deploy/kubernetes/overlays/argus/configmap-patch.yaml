@@ -1,0 +1,14 @@
+# Public host name + the in-cluster service names (the kubelet probes send Host: linkedeye-web).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: linkedeye-config
+  namespace: fs-linkedeye
+data:
+  LINKEDEYE_ALLOWED_HOSTS: "argus.monitoring.wecrew.in,linkedeye-web,linkedeye-web.fs-linkedeye.svc,linkedeye-web.fs-linkedeye.svc.cluster.local"
+  LINKEDEYE_CSRF_TRUSTED_ORIGINS: "https://argus.monitoring.wecrew.in"
+  # REPLACE: the ingress-nginx controller's pod IP / CIDR (kubectl -n ingress-nginx get pods -o wide). The pods refuse
+  # to start while a <REPLACE ...> placeholder is left, so a forgotten value cannot go live silently.
+  LINKEDEYE_TRUSTED_PROXIES: "<REPLACE: ingress-nginx pod CIDR, e.g. 10.244.0.0/16>"
+  # Probes refuse private ranges unless listed (SSRF guard). Add the ranges of the servers, BMCs and vCenters you monitor.
+  LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS: ""
