@@ -70,7 +70,7 @@ class ExampleScopeTests(Base):
 
     def test_a_real_device_with_a_seed_name_gets_no_links_and_no_rack_item(self):
         Device.objects.filter(pk=self.spine.pk).update(name="mumbai-spine")     # free the seed name
-        real = Device.objects.create(name="dc1-spine-01", device_type="switch", site="London", mgmt_ip="192.0.2.99")
+        real = Device.objects.create(name="dc1-spine-01", device_type="switch", site="London", mgmt_ip="192.0.2.252")
         n = example.load("Mumbai", user=self.mum_op)
         self.assertGreater(n["skipped"], 0)
         self.assertFalse(Link.objects.filter(a_device=real).exists() or Link.objects.filter(b_device=real).exists())
@@ -176,10 +176,10 @@ class LldpScopeTests(Base):
     def test_rows_between_devices_the_user_cannot_see_are_not_counted(self):
         from architecture import lldp
         from .test_lldp import series
-        Device.objects.filter(pk=self.spine.pk).update(prometheus_instance="192.0.2.41", mgmt_ip="192.0.2.41")
-        Device.objects.filter(pk=self.lon_sw.pk).update(prometheus_instance="192.0.2.99", mgmt_ip="192.0.2.99")
-        data = series([("192.0.2.99", "1", "1", "some-other-london-box", "x", ""),     # invisible to a Mumbai user
-                       ("192.0.2.41", "2", "1", "stranger", "y", "")])                 # a visible device, unknown neighbour
+        Device.objects.filter(pk=self.spine.pk).update(prometheus_instance="192.0.2.251", mgmt_ip="192.0.2.251")
+        Device.objects.filter(pk=self.lon_sw.pk).update(prometheus_instance="192.0.2.252", mgmt_ip="192.0.2.252")
+        data = series([("192.0.2.252", "1", "1", "some-other-london-box", "x", ""),     # invisible to a Mumbai user
+                       ("192.0.2.251", "2", "1", "stranger", "y", "")])                 # a visible device, unknown neighbour
         visible = list(Device.objects.filter(site="Mumbai"))
         res = lldp.parse(data, visible)
         self.assertEqual((res.rows, res.unknown, len(res.suggestions)), (1, 1, 0))

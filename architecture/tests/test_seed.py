@@ -72,7 +72,7 @@ class SeedTests(Base):
         self.run_cmd("--remove")
 
     def test_a_real_device_with_a_seed_name_is_never_overwritten_or_removed(self):
-        Device.objects.create(name="dc1-fw-01", device_type="firewall", mgmt_ip="192.0.2.99", site="Mumbai", vendor="Real")
+        Device.objects.create(name="dc1-fw-01", device_type="firewall", mgmt_ip="192.0.2.252", site="Mumbai", vendor="Real")
         out = self.run_cmd("--site", "Mumbai")
         self.assertIn("real device", out)
         self.assertEqual(Device.objects.get(name="dc1-fw-01").vendor, "Real")
