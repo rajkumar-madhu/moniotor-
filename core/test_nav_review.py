@@ -174,8 +174,8 @@ class SparkCacheTests(Base):
 class FleetPanelPickerTests(Base):
     HOSTS = [
         {"instance": "m1:9100", "name": "m1", "state": "live", "cpu": 80.0, "memory": 10.0, "site": "Mumbai", "url": "/x/m1/"},
-        {"instance": "d1:9100", "name": "d1", "state": "down", "cpu": None, "memory": None, "site": "DR Site", "url": "/x/d1/"},
-        {"instance": "d2:9100", "name": "d2", "state": "live", "cpu": 99.0, "memory": 99.0, "site": "DR Site", "url": "/x/d2/"},
+        {"instance": "drhost-one:9100", "name": "drhost-one", "state": "down", "cpu": None, "memory": None, "site": "DR Site", "url": "/x/drhost-one/"},
+        {"instance": "drhost-two:9100", "name": "drhost-two", "state": "live", "cpu": 99.0, "memory": 99.0, "site": "DR Site", "url": "/x/drhost-two/"},
     ]
 
     def warm(self):
@@ -208,8 +208,8 @@ class FleetPanelPickerTests(Base):
     def test_a_site_limited_user_gets_only_their_hosts_through_the_real_scope(self):
         from telemetry import tests_fleet as tf
         tf.ci("m1", "m1:9100", site="Mumbai")
-        tf.ci("d1", "d1:9100", site="DR Site")
-        tf.ci("d2", "d2:9100", site="DR Site")
+        tf.ci("drhost-one", "drhost-one:9100", site="DR Site")
+        tf.ci("drhost-two", "drhost-two:9100", site="DR Site")
         self.client.force_login(self.one)
         with self.warm():
             r = self.client.get(reverse("dashboard"))
@@ -217,7 +217,7 @@ class FleetPanelPickerTests(Base):
         for f in (r.context["fleet"], j["fleet"]):
             self.assertEqual(f["total"], 1)
             self.assertEqual([h["name"] for h in f["top_cpu"]], ["m1"])
-        self.assertNotContains(r, "d2")
+        self.assertNotContains(r, "drhost-")   # a unique marker: a short name like "d2" can occur inside a CSRF token
 
 
 class HostileNamesTests(TestCase):
