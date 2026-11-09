@@ -10,5 +10,7 @@ data:
   # REPLACE: the ingress-nginx controller's pod IP / CIDR (kubectl -n ingress-nginx get pods -o wide). The pods refuse
   # to start while a <REPLACE ...> placeholder is left, so a forgotten value cannot go live silently.
   LINKEDEYE_TRUSTED_PROXIES: "<REPLACE: ingress-nginx pod CIDR, e.g. 10.244.0.0/16>"
-  # Probes refuse private ranges unless listed (SSRF guard). Add the ranges of the servers, BMCs and vCenters you monitor.
+  # Probes refuse private ranges unless listed (SSRF guard). Left EMPTY on purpose: list only the specific subnets of the servers,
+  # BMCs and vCenters you monitor, as narrow as possible (for example "10.20.5.0/24"), NOT a whole /16: every address listed can be
+  # reached by anyone who may configure a probe. Do not list the cluster control-plane or API-server addresses.
   LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS: ""
