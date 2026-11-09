@@ -3,7 +3,7 @@ celery==5.6.3
 psycopg2==2.9.12
 requests==2.34.2
 pynag==1.1.2
-neo4j==6.2.0
+neo4j==6.4.1
 jinja2==3.1.6
 neo4jrestclient==2.1.1
 scapy==2.7.0
