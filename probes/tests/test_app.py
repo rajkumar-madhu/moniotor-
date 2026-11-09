@@ -110,9 +110,14 @@ class ViewTests(TestCase):
         self.client.force_login(self.staff)
         UrlCheck.objects.create(name="A", url="https://example.com/")
         Domain.objects.create(tenant_key="default", site_key="s", hostname="example.com")
-        for name in ("dashboard", "urlchecker:index", "domains:overview", "domains:list", "domains:ssl",
-                     "heatmap", "exporters", "incidents", "firewall"):
+        for name in ("dashboard", "urlchecker:index", "domains:overview", "domains:list", "domains:ssl"):
             self.assertEqual(self.client.get(reverse(name)).status_code, 200, name)
+        # the fabricated /legacy/ mock-ups are off unless LINKEDEYE_SHOW_SAMPLE_PAGES=true (core/test_examples.py has the full contract)
+        for name in ("heatmap", "exporters", "incidents", "firewall"):
+            self.assertEqual(self.client.get(reverse(name)).status_code, 404, name)
+        with self.settings(SHOW_SAMPLE_PAGES=True):
+            for name in ("heatmap", "exporters", "incidents", "firewall"):
+                self.assertEqual(self.client.get(reverse(name)).status_code, 200, name)
         self.assertEqual(self.client.get(reverse("coming_soon", args=["switches"])).status_code, 200)
         self.assertEqual(self.client.get(reverse("search") + "?q=exa").status_code, 200)
 

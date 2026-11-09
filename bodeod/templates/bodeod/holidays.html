@@ -19,7 +19,7 @@
   <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "calendar" 22 %}</div><div class="kpi-body"><div class="label">Holidays in {{ year }}</div><div class="value">{{ k.total }}</div></div></div><div class="sub">{% if exchange %}{{ exchange }} only{% else %}All exchanges{% endif %}</div></div>
   <div class="kpi stacked"><div class="kpi-top"><div class="tile s-crit">{% icon "x" 24 %}</div><div class="kpi-body"><div class="label">Weekday Closures</div><div class="value">{{ k.trading_closed }}</div></div></div><div class="sub">NSE / all-exchange, Mon–Fri</div></div>
   <div class="kpi stacked"><div class="kpi-top"><div class="tile s-purple">{% icon "clock" 22 %}</div><div class="kpi-body"><div class="label">Next Holiday</div><div class="value bod-kpi-text">{% with upcoming|first as h %}{% if h %}{{ h.date|date:"d M Y" }}{% else %}–{% endif %}{% endwith %}</div></div></div><div class="sub">{% with upcoming|first as h %}{% if h %}{{ h.exchange }} · {{ h.description }}{% else %}None recorded{% endif %}{% endwith %}</div></div>
-  <div class="kpi stacked"><div class="kpi-top"><div class="tile s-warn">{% icon "tag" 22 %}</div><div class="kpi-body"><div class="label">Example Entries</div><div class="value">{{ k.examples }}</div></div></div><div class="sub">From seed_bodeod; verify them</div></div>
+  {% if k.examples %}<div class="kpi stacked"><div class="kpi-top"><div class="tile s-warn">{% icon "tag" 22 %}</div><div class="kpi-body"><div class="label">Example Entries</div><div class="value">{{ k.examples }}</div></div></div><div class="sub">Example data: verify or remove them</div></div>{% endif %}
 </section>
 
 <section class="grid g-main">

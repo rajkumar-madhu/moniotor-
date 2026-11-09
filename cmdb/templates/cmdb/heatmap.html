@@ -39,8 +39,7 @@
 <div class="panel empty hm-empty-state">
   <p><b>No services in the CMDB yet.</b></p>
   <p>The heatmap groups configuration items of type Service, Application, Database and Middleware under their business domain and colours them from linked URL checks, domains and Prometheus.</p>
-  {% if can_operate %}<p><a class="btn primary" href="{% url 'cmdb:item_create' %}?type=service&amp;next={% url 'cmdb:heatmap' %}">{% icon "plus" 15 %}Add a service</a> <a class="btn" href="{{ links.add_domain }}">{% icon "plus" 15 %}Add a business domain</a></p>
-  <p class="t-mute">For a demo, run <code>manage.py seed_cmdb</code>.</p>{% endif %}
+  {% if can_operate %}<p><a class="btn primary" href="{% url 'cmdb:item_create' %}?type=service&amp;next={% url 'cmdb:heatmap' %}">{% icon "plus" 15 %}Add a service</a> <a class="btn" href="{{ links.add_domain }}">{% icon "plus" 15 %}Add a business domain</a></p>{% endif %}
 </div>
 {% else %}
 <section class="grid hm-main">

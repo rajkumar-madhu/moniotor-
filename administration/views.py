@@ -899,4 +899,5 @@ def integration_test(request, key):
 # ------------------------------------------------------------------ system health
 @admin_required
 def health(request):
-    return render(request, "administration/health.html", {"h": services.health()})
+    from . import golive
+    return render(request, "administration/health.html", {"h": services.health(), "golive": golive.report(fast=True)})

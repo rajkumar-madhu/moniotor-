@@ -19,6 +19,9 @@
   {% endfor %}
 </section>
 
+{% include "administration/_golive_card.html" %}
+{% load le_examples %}{% demo_data_card %}
+
 <section class="grid g-2">
   <div class="panel">
     <div class="panel-h"><h2>Probe scheduler freshness</h2><small>warn when the newest result is older than the longest check interval plus a grace period (at most {{ h.stale_minutes }} min)</small></div>

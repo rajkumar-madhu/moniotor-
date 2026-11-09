@@ -144,8 +144,11 @@ SESSION_COOKIE_HTTPONLY = True
 # would keep a stolen or forgotten session alive for 14 days. LINKEDEYE_SESSION_SAVE_EVERY_REQUEST=false makes it absolute.
 SESSION_COOKIE_AGE = int(env("SESSION_COOKIE_AGE", "28800"))
 SESSION_SAVE_EVERY_REQUEST = env("SESSION_SAVE_EVERY_REQUEST", "true").lower() in ("1", "true", "yes")
-SESSION_COOKIE_SECURE = not DEBUG
-CSRF_COOKIE_SECURE = not DEBUG
+# Cookies are Secure (HTTPS only) unless DEBUG is on. LINKEDEYE_SECURE_COOKIES=false is for the plain-HTTP trial
+# mode of deploy/live (docs/GO_LIVE.md): sign-in cookies then travel unencrypted, so use it on a trusted network only.
+SESSION_COOKIE_SECURE = CSRF_COOKIE_SECURE = env("SECURE_COOKIES", "false" if DEBUG else "true").lower() in ("1", "true", "yes")
+# Strict-Transport-Security on HTTPS responses (0 = not sent here; a reverse proxy may send it instead).
+SECURE_HSTS_SECONDS = int(env("HSTS_SECONDS", "0"))
 # Cookies are scoped to the host, not the port. Another Django process on the same host
 # (for example 127.0.0.1:8000 beside this app on 127.0.0.1:8012) would overwrite the
 # default csrftoken, and the next POST fails with "CSRF token from POST incorrect."
@@ -270,3 +273,6 @@ HYPERVISOR_EVENT_RETENTION_DAYS = int(env("HYPERVISOR_EVENT_RETENTION_DAYS", "30
 HYPERVISOR_MISSING_DAYS = int(env("HYPERVISOR_MISSING_DAYS", "30"))
 HYPERVISOR_REQUEST_TTL_DAYS = int(env("HYPERVISOR_REQUEST_TTL_DAYS", "7"))
 HYPERVISOR_OVERWRITE_PLACEMENT = env("HYPERVISOR_OVERWRITE_PLACEMENT", "false").lower() in ("1", "true", "yes", "on")
+# The original design mock-ups under /legacy/ (heatmap, exporters, incidents, FG-01) are filled with fabricated sample data.
+# They answer 404 unless LINKEDEYE_SHOW_SAMPLE_PAGES=true (default false: a live console shows no invented numbers).
+SHOW_SAMPLE_PAGES = env("SHOW_SAMPLE_PAGES", "false").lower() in ("1", "true", "yes", "on")

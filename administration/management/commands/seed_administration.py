@@ -30,8 +30,16 @@ EXAMPLE_USERS = [
 class Command(BaseCommand):
     help = "Create example sites and users (marked 'example'; example users cannot sign in until given a password)."
 
+    def add_arguments(self, parser):
+        parser.add_argument("--remove", action="store_true",
+                            help="Delete the example sites (unless a real user belongs to them) and the example users.")
+
     @transaction.atomic
     def handle(self, *args, **opts):
+        if opts.get("remove"):
+            from core.examples import remove_administration_examples
+            self.stdout.write(self.style.SUCCESS(f"Removed {remove_administration_examples()} example site/user row(s)."))
+            return
         User = get_user_model()
         tenant = settings.LINKEDEYE_TENANT
         sites_made = users_made = ms_made = 0

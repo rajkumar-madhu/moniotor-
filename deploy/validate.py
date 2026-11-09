@@ -56,6 +56,12 @@ def known_settings():
 
 SETTINGS = known_settings()
 COMPOSE_ONLY = {"LINKEDEYE_IMAGE", "LINKEDEYE_DB_EXTRAS"}
+# read by deploy/live (compose, the scripts, go_live_check) and not by settings.py
+LIVE_ONLY = {"LINKEDEYE_DOMAIN", "LINKEDEYE_MODE", "LINKEDEYE_ACME_EMAIL", "LINKEDEYE_HTTP_PORT", "LINKEDEYE_HTTPS_PORT",
+             "LINKEDEYE_ADMIN_USER", "LINKEDEYE_ADMIN_EMAIL", "LINKEDEYE_ADMIN_PASSWORD", "LINKEDEYE_CADDY_IMAGE",
+             "LINKEDEYE_BACKUP_DIR", "LINKEDEYE_BACKUP_KEEP_DAYS", "LINKEDEYE_VALIDATE_COMPOSE", "LINKEDEYE_BIND_ADDRESS",
+             "LINKEDEYE_WEB_MEMORY", "LINKEDEYE_WORKER_MEMORY", "LINKEDEYE_APP_MEMORY", "LINKEDEYE_CADDY_MEMORY",
+             "LINKEDEYE_ALLOW_PLAIN_HTTP"}
 
 
 def check_env_names(where, names):
@@ -401,6 +407,174 @@ def check_compose():
         err("deploy/compose.env.example", "LINKEDEYE_ALLOWED_HOSTS must include 'web' (Alertmanager webhook)")
 
 
+# ------------------------------------------------------------------ deploy/live (single-host pack with HTTPS proxy)
+LIVE = ROOT / "deploy" / "live"
+LIVE_SCRIPTS = ["bootstrap.sh", "backup.sh", "restore.sh", "healthcheck.sh", "update.sh"]
+LIVE_SECRET_KEYS = ("LINKEDEYE_SECRET_KEY", "LINKEDEYE_DB_PASSWORD", "LINKEDEYE_CREDENTIAL_KEY",
+                    "LINKEDEYE_ALERTMANAGER_WEBHOOK_TOKEN", "LINKEDEYE_LOG_INGEST_TOKEN")
+
+
+def check_live():
+    if not LIVE.is_dir():
+        err("deploy/live", "directory missing")
+        return
+    path = LIVE / "docker-compose.live.yml"
+    docs = load_all(path) if path.exists() else []
+    if not docs:
+        err("deploy/live/docker-compose.live.yml", "missing or empty")
+        return
+    where = "deploy/live/docker-compose.live.yml"
+    services = docs[0].get("services", {})
+    for name in ("db", "migrate", "web", "worker", "caddy"):
+        if name not in services:
+            err(where, f"service {name} missing")
+    if any(n not in services for n in ("db", "migrate", "web", "worker", "caddy")):
+        return
+
+    def deps_of(name):
+        deps = services.get(name, {}).get("depends_on") or {}
+        return {d: {} for d in deps} if isinstance(deps, list) else deps
+
+    if (services["worker"].get("deploy") or {}).get("replicas") != 1:
+        err(where, "worker must declare deploy.replicas: 1 (one scheduler per database)")
+    if services["worker"].get("command", [])[-1:] != ["run_probes"]:
+        err(where, "worker must run manage.py run_probes")
+    for name in ("db", "web", "worker", "caddy"):
+        hc = services[name].get("healthcheck") or {}
+        if hc.get("disable") or not hc.get("test"):
+            err(where, f"{name} needs a healthcheck")
+    for name in ("web", "worker", "migrate"):
+        if services[name].get("env_file") not in (".env", [".env"]):
+            err(where, f"{name} must use env_file .env")
+        if (deps_of(name).get("db") or {}).get("condition") != "service_healthy":
+            err(where, f"{name} must wait for a healthy db")
+    for name in ("web", "worker"):
+        if (deps_of(name).get("migrate") or {}).get("condition") != "service_completed_successfully":
+            err(where, f"{name} must start after migrate completed")
+    if (deps_of("caddy").get("web") or {}).get("condition") != "service_healthy":
+        err(where, "caddy must wait for a healthy web")
+    published = sorted(n for n, svc in services.items() if svc.get("ports") and "observability" not in (svc.get("profiles") or []))
+    if published != ["caddy"]:
+        err(where, f"only caddy may publish ports (found {published}); db and web stay on the internal network")
+    for n in ("prometheus", "alertmanager"):
+        for port in (services.get(n) or {}).get("ports") or []:
+            if not str(port).startswith("${"):
+                err(where, f"{n} must publish on a configurable loopback address, not {port}")
+    app_env = services["web"].get("environment") or {}
+    if str(app_env.get("LINKEDEYE_DEBUG")).lower() != "false":
+        err(where, "LINKEDEYE_DEBUG must be forced to \"false\" in the web environment")
+    for key in ("LINKEDEYE_SECRET_KEY", "LINKEDEYE_DB_PASSWORD", "LINKEDEYE_ALLOWED_HOSTS"):
+        if ":?" not in str(app_env.get(key, "")):
+            err(where, f"{key} must be required with ${{{key}:?message}} so compose refuses to start without it")
+    if "GUNICORN_FORWARDED_ALLOW_IPS" in app_env and "LINKEDEYE_TRUSTED_PROXIES" not in app_env:
+        err(where, PROXY_PAIR_MESSAGE)
+    if not str(services["db"].get("image", "")).startswith("postgres:16"):
+        err(where, "db must be PostgreSQL 16")
+    caddy = services["caddy"]
+    if "NET_BIND_SERVICE" not in (caddy.get("cap_add") or []) or "ALL" not in (caddy.get("cap_drop") or []):
+        err(where, "caddy must drop ALL capabilities and add back only NET_BIND_SERVICE")
+    if caddy.get("networks") != ["proxy"]:
+        err(where, "caddy must sit on the proxy network alone, so it cannot reach the database or the worker")
+    for name in ("db", "worker", "migrate"):
+        if "proxy" in (services[name].get("networks") or []):
+            err(where, f"{name} must not be on the proxy network")
+    for name in ("web", "worker", "migrate", "caddy"):
+        if not services[name].get("mem_limit") or not services[name].get("pids_limit"):
+            err(where, f"{name} needs mem_limit and pids_limit (a runaway container must not take the host down)")
+    for name, svc in services.items():
+        image = str(svc.get("image", ""))
+        tag = re.sub(r"^\$\{[A-Z_]+:-(.*)\}$", r"\1", image)
+        if name not in ("web", "worker", "migrate") and (":" not in tag.rsplit("/", 1)[-1] or tag.endswith(":latest")):
+            err(where, f"{name}: image {image!r} must be pinned to a version tag")
+    # the observability profile must stay in step with the repository's docker-compose.yml
+    base = load_all(ROOT / "docker-compose.yml")
+    base_services = base[0].get("services", {}) if base else {}
+    for name in ("prometheus", "alertmanager", "node-exporter"):
+        svc = services.get(name)
+        if not svc:
+            err(where, f"observability service {name} missing")
+            continue
+        if svc.get("profiles") != ["observability"]:
+            err(where, f"{name} must be in the observability profile only")
+        if not svc.get("healthcheck"):
+            err(where, f"{name} needs a healthcheck")
+        if base_services.get(name) and base_services[name].get("image") != svc.get("image"):
+            err(where, f"{name} image differs from docker-compose.yml ({svc.get('image')} vs {base_services[name].get('image')})")
+    am_test = " ".join(((services.get("alertmanager") or {}).get("healthcheck") or {}).get("test") or [])
+    if "/run/secrets/alertmanager_webhook_token" not in am_test:
+        err(where, "alertmanager healthcheck must fail while the webhook token file is missing")
+    for vol in ("pgdata", "caddy-data"):
+        if vol not in (docs[0].get("volumes") or {}):
+            err(where, f"named volume {vol} missing")
+
+    # Caddy: one Caddyfile per mode, all through the shared snippet to web:8000
+    snippet = LIVE / "caddy" / "linkedeye.snippet"
+    if not snippet.exists() or "reverse_proxy web:8000" not in snippet.read_text():
+        err("deploy/live/caddy/linkedeye.snippet", "must reverse_proxy to web:8000")
+    for mode, needle in (("https", "{$LINKEDEYE_DOMAIN}"), ("internal", "local_certs"), ("http", "auto_https off")):
+        f = LIVE / "caddy" / f"{mode}.Caddyfile"
+        if not f.exists():
+            err(f"deploy/live/caddy/{mode}.Caddyfile", "missing")
+        elif needle not in f.read_text() or "import linkedeye.snippet" not in f.read_text():
+            err(f"deploy/live/caddy/{mode}.Caddyfile", f"must contain {needle!r} and import linkedeye.snippet")
+    if "caddy/" not in (path.read_text()):
+        err(where, "caddy must mount ./caddy")
+
+    # the environment template
+    example = LIVE / ".env.live.example"
+    if not example.exists():
+        err("deploy/live/.env.live.example", "missing")
+        return
+    text = example.read_text()
+    names = re.findall(r"^#?\s*([A-Z][A-Z0-9_]+)=", text, re.M)
+    for n in names:
+        if n.startswith("LINKEDEYE_") and n not in SETTINGS | COMPOSE_ONLY | LIVE_ONLY:
+            err("deploy/live/.env.live.example", f"{n} is not read by the application (typo?)")
+    check_env_names(where, [n for n in re.findall(r"\b(LINKEDEYE_[A-Z0-9_]+)", path.read_text()) if n not in LIVE_ONLY])
+    for key in LIVE_SECRET_KEYS:
+        m = re.search(rf"^{key}=(.*)$", text, re.M)
+        if not m:
+            err("deploy/live/.env.live.example", f"{key} missing")
+        elif m.group(1).strip():
+            err("deploy/live/.env.live.example", f"{key} must be blank (bootstrap.sh generates it), never a value")
+    for required in ("LINKEDEYE_DOMAIN", "LINKEDEYE_MODE", "LINKEDEYE_ACME_EMAIL", "LINKEDEYE_ALLOWED_HOSTS",
+                     "LINKEDEYE_CSRF_TRUSTED_ORIGINS", "LINKEDEYE_SECURE_COOKIES", "LINKEDEYE_HSTS_SECONDS", "LINKEDEYE_LOGIN_OTP"):
+        if not re.search(rf"^{required}=", text, re.M):
+            err("deploy/live/.env.live.example", f"{required} missing")
+    if re.search(r"^LINKEDEYE_ADMIN_PASSWORD=", text, re.M):
+        err("deploy/live/.env.live.example", "the admin password must not live in .env (it would reach the containers' environment)")
+
+    # the scripts
+    for name in LIVE_SCRIPTS + ["lib.sh"]:
+        f = LIVE / name
+        if not f.exists():
+            err(f"deploy/live/{name}", "missing")
+            continue
+        body = f.read_text()
+        if name != "lib.sh":
+            if not body.startswith("#!/usr/bin/env bash\n"):
+                err(f"deploy/live/{name}", "must start with #!/usr/bin/env bash")
+            if not re.search(r"^set -[a-z]*u[a-z]*o pipefail|^set -euo pipefail", body, re.M):
+                err(f"deploy/live/{name}", "must set -u and pipefail")
+            if not f.stat().st_mode & 0o111:
+                err(f"deploy/live/{name}", "must be executable")
+        if re.search(r"(?<![A-Za-z_])eval\s", body):
+            err(f"deploy/live/{name}", "must not use eval")
+        if re.search(r"rm\s+-[a-z]*r[a-z]*f?\s+(/|\$HOME|~)\s*$", body, re.M):
+            err(f"deploy/live/{name}", "dangerous rm")
+    guide = ROOT / "docs" / "GO_LIVE.md"
+    if not guide.exists():
+        err("docs/GO_LIVE.md", "missing")
+    else:
+        g = guide.read_text()
+        for name in LIVE_SCRIPTS + ["go_live_check", "docker-compose.live.yml", ".env.live.example"]:
+            if name not in g:
+                err("docs/GO_LIVE.md", f"does not mention {name}")
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    if "deploy/live" not in ci:
+        err(".github/workflows/ci.yml", "no job exercises deploy/live")
+
+
 # ------------------------------------------------------------------ Prometheus / Alertmanager / CI / Dockerfile
 def check_observability():
     prom = load_all(ROOT / "deploy" / "prometheus" / "prometheus.yml")
@@ -456,6 +630,7 @@ def main():
     check_kubernetes()
     check_optional()
     check_compose()
+    check_live()
     check_observability()
     check_docs()
     if errors:

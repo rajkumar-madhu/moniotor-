@@ -1,6 +1,7 @@
 import secrets
 import time
 
+from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
@@ -172,7 +173,9 @@ def overview(request):
             "q_view": {k: _query(request, ["view"], view=k if k != "diagram" else "").urlencode() for k, _l in services.VIEWS},
             "q_lc": {k: _query(request, ["lc"], lc=k if k != "fabric" else "").urlencode() for k, _l in services.LINK_COLOURS},
             "q_live": _query(request, ["live"], live="0" if f["live"] else "").urlencode(),
-            "example_site": services.example_site(request.user) if can(request.user, "operate") else None}
+            "example_site": services.example_site(request.user) if can(request.user, "operate") else None,
+            # the "Load example fabric" button is a demo aid: off on a live console unless LINKEDEYE_SHOW_SAMPLE_PAGES=true
+            "show_example_loader": getattr(settings, "SHOW_SAMPLE_PAGES", False)}
     if not fb.devices:
         return render(request, "architecture/overview.html", {**base, "empty": True, "hidden_count": len(fb.hidden)})
     chips = services.tier_chips(fb)
@@ -498,6 +501,8 @@ def placement_reset(request, pk):
 @require("operate")
 @require_POST
 def example_load(request):
+    if not getattr(settings, "SHOW_SAMPLE_PAGES", False):   # a live console never invents devices (the button is hidden too)
+        raise Http404("The example fabric loader is switched off (LINKEDEYE_SHOW_SAMPLE_PAGES).")
     site = services.example_site(request.user)
     if site is None:
         messages.error(request, "You do not have permission to add devices on any site.")

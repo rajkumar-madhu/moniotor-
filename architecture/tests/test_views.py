@@ -87,11 +87,15 @@ class PageTests(Base):
 
     def test_empty_state_offers_the_example_only_to_operators(self):
         Device.objects.all().delete()
+        # off by default: a live console does not offer to fill itself with example devices (docs/LIVE_DATA.md)
         r = self.get(self.operator)
         self.assertTrue(r.context["empty"])
-        self.assertIn("Load example fabric", r.content.decode())
-        r = self.get(self.viewer)
         self.assertNotIn("Load example fabric", r.content.decode())
+        with override_settings(SHOW_SAMPLE_PAGES=True):
+            r = self.get(self.operator)
+            self.assertIn("Load example fabric", r.content.decode())
+            r = self.get(self.viewer)
+            self.assertNotIn("Load example fabric", r.content.decode())
 
     def test_hidden_devices_are_not_drawn(self):
         Placement.objects.create(device=self.leaf2, hidden=True)

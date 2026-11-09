@@ -1,0 +1,4 @@
+{% if show %}<ul class="messages le-ex-banner" role="status"><li class="warning" style="display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center">
+  <span>Showing example data. Remove it under <a href="{% url 'administration:health' %}#demo-data">Administration &gt; System health</a> before you rely on this console.</span>
+  <form method="post" action="{% url 'administration:demo_dismiss' %}" style="margin-left:auto">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn sm" type="submit">Dismiss for this session</button></form>
+</li></ul>{% endif %}

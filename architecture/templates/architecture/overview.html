@@ -47,9 +47,9 @@
   {% endif %}
   <div class="actions">
     {% if can_edit %}<a class="btn" href="{% url 'architecture:link_create' %}">{% icon "plus" 16 %}Add link</a><a class="btn" href="{% url 'architecture:links_import' %}">{% icon "upload" 16 %}Import links</a>{% endif %}
-    {% if example_site and not hidden_count %}<form method="post" action="{% url 'architecture:example_load' %}" data-confirm="Load the example fabric (19 servers, 12 switches, routers and firewalls, tagged “example”) on {{ example_site }}?">{% csrf_token %}<button class="btn primary" type="submit">{% icon "layers" 16 %}Load example fabric</button></form>{% endif %}
+    {% if show_example_loader and example_site and not hidden_count %}<form method="post" action="{% url 'architecture:example_load' %}" data-confirm="Load the example fabric (19 servers, 12 switches, routers and firewalls, tagged “example”) on {{ example_site }}?">{% csrf_token %}<button class="btn primary" type="submit">{% icon "layers" 16 %}Load example fabric</button></form>{% endif %}
   </div>
-  <p class="t-mute small">The example is made of real records on documentation IP ranges, so nothing is probed. Remove it again with <code>manage.py seed_architecture --remove</code>.</p>
+  {% if show_example_loader %}<p class="t-mute small">The example is made of real records on documentation IP ranges, so nothing is probed. Remove it again under Administration > System health > Demo data (or <code>manage.py remove_examples</code>).</p>{% endif %}
 </section>
 {% else %}
 

@@ -24,7 +24,7 @@ moniotor-/
 ├── linkedeye/                  project package
 │   ├── settings.py             env-driven settings (LINKEDEYE_*), INSTALLED_APPS, security headers
 │   ├── urls.py                 dashboard, login, /monitoring/url-checker/, /domains/, /agent/, then every module app at ""
-│   │                           (modules declare full paths), /legacy/ sample pages, /soon/, /admin/
+│   │                           (modules declare full paths), /legacy/ sample pages (404 unless LINKEDEYE_SHOW_SAMPLE_PAGES), /soon/, /admin/
 │   └── wsgi.py
 │
 ├── core/                       PLATFORM: shared by every module
@@ -39,7 +39,7 @@ moniotor-/
 │   ├── nav.py                  sidebar menu → URL names (unbuilt names fall back to "coming soon")
 │   ├── context_processors.py   nav state, site selector, problem count
 │   ├── views.py                dashboard, global search, healthz, legacy sample pages
-│   ├── samples/                sample data for the /legacy/ reference pages only
+│   ├── samples/                fabricated data for the gated /legacy/ design mock-ups only (never on a live console)
 │   ├── templatetags/le.py      {% icon %} {% ficon %} {% badge %} {% delta %}
 │   ├── templates/core/         base.html (shell: sidebar, top bar, site selector), dashboard, pager
 │   ├── static/linkedeye/       app.css (UI kit), app.js, charts.js (SVG line/bars/donut/spark)

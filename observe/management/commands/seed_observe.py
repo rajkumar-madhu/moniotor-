@@ -50,12 +50,17 @@ class Command(BaseCommand):
     help = "Create example exporters (no metrics URL) and example log lines, all marked as examples."
 
     def add_arguments(self, parser):
+        parser.add_argument("--remove", action="store_true", help="Delete the example exporters and example log lines instead.")
         parser.add_argument("--no-logs", action="store_true", help="Only create the example exporters.")
         parser.add_argument("--refresh-logs", action="store_true",
                             help="Delete the previous example log lines and create new ones relative to now.")
         parser.add_argument("--lines", type=int, default=400, help="Number of example log lines (default 400, max 5000).")
 
     def handle(self, *args, **opts):
+        if opts["remove"]:
+            from core.examples import remove_observe_examples
+            self.stdout.write(self.style.SUCCESS(f"Removed {remove_observe_examples()} example exporter/log row(s)."))
+            return
         tenant = settings.LINKEDEYE_TENANT
         created = 0
         for name, typ, cat, target, site in EXPORTERS:

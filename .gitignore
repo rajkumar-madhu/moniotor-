@@ -11,3 +11,7 @@ staticfiles/
 # Local onboarding exports (often contain credentials)
 /*.xlsx
 /LinkedEye_Client_Wise_Tracker*.csv
+# deploy/live: backups (contain secrets), rollback notes, the .env that restore.sh replaces
+deploy/live/backups/
+deploy/live/.last-update
+deploy/live/.env.before-restore-*

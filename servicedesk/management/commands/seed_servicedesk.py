@@ -88,9 +88,12 @@ class Command(BaseCommand):
         tenant = settings.LINKEDEYE_TENANT
         if opts["remove"]:
             n = Ticket.objects.filter(tenant_key=tenant, fingerprint__startswith=FP).delete()[1].get("servicedesk.Ticket", 0)
-            c = CatalogItem.objects.filter(tenant_key=tenant, description__startswith="Example:").delete()[0]
+            # only the rows this command wrote: the seed names AND the "Example:" mark; an agent who was given a password
+            # (and so became a real user) is kept
+            c = CatalogItem.objects.filter(tenant_key=tenant, name__in=[x[0] for x in CATALOG], description__startswith="Example:").delete()[0]
             User = get_user_model()
-            u = User.objects.filter(username__in=[f"example.{a[0]}" for a in AGENTS]).delete()[1].get(User._meta.label, 0)
+            pks = [x.pk for x in User.objects.filter(username__in=[f"example.{a[0]}" for a in AGENTS]) if not x.has_usable_password()]
+            u = User.objects.filter(pk__in=pks).delete()[1].get(User._meta.label, 0)
             self.stdout.write(self.style.SUCCESS(f"Removed {n} example tickets, {c} catalog items and {u} example agents."))
             return
         with transaction.atomic():

@@ -895,7 +895,7 @@ class ViewTests(Users, TestCase):
         self.c.force_login(self.viewer)
         r = self.c.get(reverse("ipam:overview"))
         self.assertContains(r, "No subnets yet")
-        self.assertContains(r, "seed_ipam")
+        self.assertNotContains(r, "seed_ipam")            # a live console never tells the visitor to load demo data
         for name in ("ipam:subnets", "ipam:addresses", "ipam:vlans", "ipam:dns", "ipam:conflicts"):
             self.assertEqual(self.c.get(reverse(name)).status_code, 200, name)
 

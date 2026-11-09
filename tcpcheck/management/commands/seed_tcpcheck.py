@@ -33,7 +33,8 @@ class Command(BaseCommand):
     def handle(self, *args, run=False, remove=False, **opts):
         tenant = settings.LINKEDEYE_TENANT
         if remove:
-            qs = TcpCheck.objects.filter(tenant_key=tenant, name__in=[e["name"] for e in EXAMPLES])
+            # only checks still tagged "example": a real check that reuses an example name is never touched
+            qs = TcpCheck.objects.filter(tenant_key=tenant, tags__icontains="example", name__in=[e["name"] for e in EXAMPLES])
             SlaTarget.objects.filter(tenant_key=tenant, kind="tcp", object_id__in=list(qs.values_list("pk", flat=True))).delete()
             n, _ = qs.delete()
             self.stdout.write(self.style.SUCCESS(f"Removed example TCP checks ({n} row(s) incl. history)."))

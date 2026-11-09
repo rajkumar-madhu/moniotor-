@@ -1,0 +1,17 @@
+# LINKEDEYE_MODE=http: plain HTTP for localhost, a laptop or a trusted network. Passwords and cookies are NOT encrypted.
+{
+	auto_https off
+	servers {
+		timeouts {
+			# slow-loris: a client that dribbles request headers is cut off; idle keep-alive connections are recycled
+			read_header 30s
+			idle 2m
+		}
+	}
+}
+
+import linkedeye.snippet
+
+:80 {
+	import linkedeye
+}

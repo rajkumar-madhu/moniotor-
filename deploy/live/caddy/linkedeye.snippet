@@ -1,0 +1,27 @@
+# Shared by the three Caddyfiles: what is served for the console, whatever the TLS mode.
+(linkedeye) {
+	encode zstd gzip
+
+	# Datasheet PDFs are up to 25 MB (the console enforces its own limits); anything larger is refused here.
+	request_body {
+		max_size 30MB
+	}
+
+	header {
+		-Server
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	}
+
+	# web is the gunicorn container. Caddy sets X-Forwarded-For (replacing whatever the client sent), X-Forwarded-Proto
+	# and X-Forwarded-Host itself. "Run check now" probes the target inside the request, hence the long read timeout.
+	reverse_proxy web:8000 {
+		transport http {
+			read_timeout 90s
+		}
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

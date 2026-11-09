@@ -40,7 +40,7 @@
         </div></td>
       </tr>
     {% empty %}
-      <tr><td colspan="7" class="empty">{% if request.GET.q or request.GET.kind %}No templates match.{% else %}No templates yet.{% if can_operate %} <a href="{% url 'automation:template_create' %}">Create one</a> or load examples with <code>manage.py seed_automation</code>.{% endif %}{% endif %}</td></tr>
+      <tr><td colspan="7" class="empty">{% if request.GET.q or request.GET.kind %}No templates match.{% else %}No templates yet.{% if can_operate %} <a href="{% url 'automation:template_create' %}">Create one</a>.{% endif %}{% endif %}</td></tr>
     {% endfor %}
     </tbody></table></div>
   {% include "core/_pager.html" with pager_noun="templates" %}

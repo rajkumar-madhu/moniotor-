@@ -35,7 +35,8 @@ class Command(BaseCommand):
         Device = apps.get_model("network", "Device")
         if opts["remove"]:
             with transaction.atomic():
-                srcs = VCenterSource.objects.filter(tenant_key=tenant, name=NAME)
+                # only the synthetic source: a real vCenter source that happens to carry the same name is never touched
+                srcs = VCenterSource.objects.filter(tenant_key=tenant, name=NAME, description__startswith=EXAMPLE_MARK)
                 n = srcs.count()
                 srcs.delete()
                 devs = list(Device.objects.filter(tenant_key=tenant, description__startswith=MARK))

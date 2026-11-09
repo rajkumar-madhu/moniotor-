@@ -15,6 +15,9 @@ Two ready-made layouts:
   Prometheus / Alertmanager / node-exporter under `deploy/prometheus/` and `deploy/alertmanager/`.
 * [Kubernetes](#kubernetes): `deploy/kubernetes/` (kustomize).
 
+**Going live for real users** (HTTPS, sign-in mail, backups, a readiness report)? Start with [GO_LIVE.md](GO_LIVE.md): `deploy/live/` is a
+ready-to-run single-host pack (Caddy + web + worker + PostgreSQL) with `bootstrap.sh`, `backup.sh`, `restore.sh`, `update.sh` and `healthcheck.sh`.
+
 ## The probe scheduler runs exactly once
 
 `run_probes` must run as **one process per database, never more**. Two schedulers would check every target
@@ -348,6 +351,8 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 | `LINKEDEYE_SECRET_KEY` | none (**required** unless DEBUG) | yes | Django signing key: 50+ random characters (`python3 -c "import secrets; print(secrets.token_urlsafe(50))"`). With DEBUG off the console refuses to start on a key shorter than 50 characters, with fewer than 20 distinct characters, or starting with `change-me` or `dev-only`. Changing it signs everyone out. |
 | `LINKEDEYE_SESSION_COOKIE_AGE` | `28800` | | Seconds a sign-in session lives (8 hours); with the next setting on, seconds without a request. |
 | `LINKEDEYE_SESSION_SAVE_EVERY_REQUEST` | `true` | | `true`: every request renews the session, so `LINKEDEYE_SESSION_COOKIE_AGE` is an idle timeout. `false`: an absolute lifetime from sign-in. |
+| `LINKEDEYE_SECURE_COOKIES` | `true` (`false` with DEBUG) | | Session and CSRF cookies carry the `Secure` flag, so browsers send them over HTTPS only. `false` is for the plain-HTTP trial mode of [`deploy/live`](GO_LIVE.md) on a trusted network: sign-in cookies then travel unencrypted. |
+| `LINKEDEYE_HSTS_SECONDS` | `0` | | `Strict-Transport-Security: max-age` sent on HTTPS responses (`0` = not sent by the console; a reverse proxy may send it instead). `deploy/live` starts at `86400`; raise it to `31536000` once HTTPS is verified. |
 | `LINKEDEYE_DEBUG` | `false` | | `true` only for local development (also makes cookies non-Secure and e-mail print to the console). Never in production. |
 | `LINKEDEYE_ALLOWED_HOSTS` | `localhost,127.0.0.1` with DEBUG, else empty (**required**) | | Comma-separated host names the console answers to. Include the public name and the names health checks / Alertmanager use (`web` in compose, `linkedeye-web…` in Kubernetes). A leading dot matches subdomains. |
 | `LINKEDEYE_CSRF_TRUSTED_ORIGINS` | empty | | Comma-separated origins with scheme, e.g. `https://linkedeye.example.com`. Required behind HTTPS. |
@@ -399,6 +404,7 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 | `LINKEDEYE_DEFAULT_FROM_EMAIL` | `linkedeye@localhost` | | Sender address. |
 | `LINKEDEYE_PROMETHEUS_URL` | empty (not connected) | | Prometheus base URL, e.g. `http://prometheus:9090`. Queried server-side only. |
 | `LINKEDEYE_PROMETHEUS_TIMEOUT` | `8` | | Seconds per Prometheus API call. |
+| `LINKEDEYE_SHOW_SAMPLE_PAGES` | `false` | | Serve the four `/legacy/` design mock-ups (fabricated sample data) and the architecture "Load example fabric" button. Leave it off on a live console; demo data created by the `seed_*` commands is removed with `manage.py remove_examples` ([LIVE_DATA.md](LIVE_DATA.md)). |
 | `LINKEDEYE_ALERTMANAGER_WEBHOOK_TOKEN` | empty (webhook answers 503) | yes | Bearer token Alertmanager must send to `POST /api/v1/alertmanager/`. |
 | `LINKEDEYE_LOG_INGEST_TOKEN` | empty (endpoint disabled) | yes | Bearer token for `POST /api/v1/logs/`. |
 | `LINKEDEYE_CREDENTIAL_KEY` | empty (the vault refuses to store a secret) | yes | Fernet key that encrypts every credential stored by Onboarding (SSH passwords and keys, SNMP communities, exporter bearer tokens) and the Prometheus service-discovery token. Generate with `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Comma-separate several keys to rotate: the first encrypts, every one may decrypt. Needs the `cryptography` package (in `requirements.txt`). Without the key or the package storing a secret **fails** with a clear message; there is no plaintext fallback. Back it up apart from the database: losing it makes the stored credentials unreadable (they are then re-entered, never guessed). |

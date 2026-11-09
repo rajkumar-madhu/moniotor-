@@ -28,6 +28,7 @@ Every LinkedEye module is a Django app that owns its directory. Shared code live
 | Site health overview | Import lazily inside the view: `from core import overview`. `overview.site_names(user)` (visible site names), `overview.site_matrix(user, selected_site="", names=None)` (per-site / per-kind counts; an out-of-scope `selected_site` returns no rows). Set `request.le_site_names = names` so the base context reuses them. Render with `{% include "core/_legacy_heatmap.html" %}` + `linkedeye/pages/site-heatmap.css`. |
 | Legacy backend summary | `{% include "core/_backend_health.html" %}` + `linkedeye/pages/backend-health.css` / `backend-health.js` (the CMDB heat-map page); the page fetches `/api/backend-summary/` (`core.backend_summary.summary`) asynchronously, so never call it in a page view. The dashboard draws its own compact card only when `core.dashboard.legacy_backend_configured()`. |
 | Notifications | Automatic for critical/warning events (core/notify.py); nothing to do. |
+| Example (demo) data | A `seed_*` command must mark what it writes and remove exactly that with its own `--remove`; register it as an `Area` in `core/examples.py` (counts, removal) so `manage.py remove_examples`, the Administration > System health "Demo data" card, the admin banner and the go-live warning know it, and add it to the mixed real/example test in `core/test_examples.py`. A live page never shows an invented number: show "not reported" or an empty state that names what to connect. Audit and contract: [LIVE_DATA.md](LIVE_DATA.md). |
 | Tenant | `settings.LINKEDEYE_TENANT`; models carry `tenant_key` where data could belong to more than one customer. |
 | Ops Agent | `agent` at `/agent/`. Threads are per-user. Tools call `core.overview` and other apps lazily and are always `scope_by_site`. The model key is `LINKEDEYE_AGENT_API_KEY` (server-side only). |
 
@@ -198,6 +199,45 @@ Draws the spine-leaf view of the data centre (Internet / WAN, firewalls, core / 
   (scoping, link state, page and live payloads), `csvio.py`, `lldp.py`, `example.py` (used by `manage.py seed_architecture`).
 * **Scoping** a Link has no site name: it is visible only when both devices are visible and editable only when both devices'
   sites are operable, so it is deliberately **not** in `SITE_NAME_FIELDS`.
+
+## BOD / EOD live checks (`bodeod`)
+
+The automated checklist items (kind `domain`, `url_check`, `tcp_check`) show the **live** state of the check they reference. The
+pages (Status Dashboard cards, Key Validation, Checklist, and the Live-now column of the open run) patch themselves in place;
+there is no reload loop.
+
+* **Read path** `GET /bod-eod/api/live/` (`bodeod:api_live`, optional `?mode=BOD` or `?run=<id>`) returns, per mode, the overall live
+  status and counts plus each automated item's `status` (`ok | warning | failed | unknown`; the stored "critical" is "failed"),
+  a short `detail` ("DNS resolves; certificate valid, 41 days left"), the long wording, the referenced object's `link`, `checked_at`
+  (ISO) / `checked_at_ist` and `age_s`. It reads the **stored** results of the referenced checks (`bodeod.live.evaluate`): a GET never
+  probes anything. Site-scoped like the pages (`_modes`, resolver scoped to the mode's own site), rate limited per user (120 per
+  minute, 429 with `Retry-After`), `Cache-Control: no-store`. The number of queries depends on the number of modes, never of items.
+* **Re-check** `POST /bod-eod/api/recheck/` (`bodeod:api_recheck`; form fields `mode`, optional `run`, optional repeated `item`
+  keys `i<checklist item id>` / `r<run row id>`): operator on the mode's site (a global mode needs the role on every site), CSRF
+  (`X-CSRFToken`), audited (`recheck`), 12 per user per minute, one re-check per mode at a time (cache lock, so with several
+  gunicorn workers the lock is per process). It calls `services.refresh_references` (so `probes.checks` and its SSRF policy) on a
+  worker thread and waits at most `live.RECHECK_WAIT` (6 s): the answer is `state` = `done | partial | failed | skipped`, or
+  `running` / `busy` with HTTP 202 when the probes are still going (they finish in the background and the page keeps polling).
+  Manual rows are never refreshed. The run itself is never edited: a live failure changes what the page shows, sign-off stays manual,
+  and "Re-validate" is still the only way to record the current state in a run.
+* **Page script** `bodeod/static/bodeod/bodeod.js`, configured by a `json_script` (`#bod-live-cfg`). Rows carry
+  `data-live-row="<key>"`, `data-live-status`, and children `data-live="pill|detail|age|diff"`; modes carry `data-live-mode`. It polls
+  every 15 to 30 s (jittered), not while the tab is hidden or a text field has focus, backs off after errors (and on 429), shows a
+  "stale" banner when the data is three intervals old, flags changed rows (highlight, "Changes since you opened this page" list,
+  one throttled `aria-live` message), tells the viewer when a newer run exists, and writes everything with `textContent`. Without
+  JavaScript the status page falls back to `<noscript><meta http-equiv="refresh">` and the other pages to a "Reload" link.
+* **Tests** `bodeod/test_live.py` (shape, scoping, GET makes no probe, re-check permission/CSRF/audit/rate limit/bounded wait, query
+  count, IST, hostile names, the JS contract). The in-browser check with a fake clock and stub servers is
+  `bodeod/browser/live_check.js` (manual; needs Playwright and a running server, see the header of the file).
+
+## Go-live readiness (`administration.golive`)
+
+`manage.py go_live_check` and the "Go-live readiness" card on Administration > System health share one registry of read-only
+checks in `administration/golive.py` (PASS / WARN / FAIL, a fix hint each, never a secret value). **Other apps add a check
+without editing that file**: put `golive_checks.py` in the app (imported automatically) and decorate a function with
+`administration.golive.register(key, label)`; it receives a `Context` and returns a `Result` (`ok` / `warn` / `fail`) or a list
+(`core/golive_checks.py` does this for example data). A check that raises is reported as FAIL, not raised. The deployment pack
+that uses it is `deploy/live/` (docs/GO_LIVE.md).
 
 ## Cross-module interfaces
 

@@ -1,0 +1,22 @@
+{% load le %}<section class="panel adm-demo" id="demo-data" aria-labelledby="demo-h">
+  <div class="panel-h"><h2 id="demo-h">Demo data</h2>
+    <small>{% if total %}{{ total }} example record{{ total|pluralize }} in {{ areas|length }} area{{ areas|length|pluralize }}{% else %}none{% endif %}</small>
+    <span class="adm-golive-v">{% if total %}{% badge "warning" "Example data present" %}{% else %}{% badge "ok" "Clean" %}{% endif %}</span></div>
+  {% if total %}
+  <p class="t-mute">Created by the <code>manage.py seed_*</code> commands. Only records that still carry the example marker are removed; your own records are never touched.</p>
+  <div class="table-wrap dense"><table>
+    <thead><tr><th>Area</th><th>What</th><th class="num">Records</th><th>Created by</th></tr></thead>
+    <tbody>{% for a in areas %}
+      <tr><td>{% if a.link %}<a href="{% url a.link %}">{{ a.label }}</a>{% else %}{{ a.label }}{% endif %}</td>
+        <td>{% for noun, n in a.rows %}{{ noun }}: {{ n }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
+        <td class="num">{{ a.total }}</td><td><code>{{ a.seed }}</code></td></tr>
+    {% endfor %}</tbody></table></div>
+  <form method="post" action="{% url 'administration:demo_remove' %}" class="adm-demo-form" data-confirm="Permanently delete {{ total }} example record{{ total|pluralize }}? Your own records are not affected.">{% csrf_token %}
+    <label class="adm-demo-confirm"><input type="checkbox" name="confirm" value="remove" required> I understand this permanently deletes the {{ total }} example record{{ total|pluralize }} listed above.</label>
+    <button class="btn danger-outline" type="submit">{% icon "trash" 16 %}Remove all example data</button>
+  </form>
+  <p class="t-mute small">The same from a shell: <code>python manage.py remove_examples</code> (dry run) and <code>--yes</code> to delete.</p>
+  {% else %}
+  <p class="t-ok">{% icon "check-circle" 16 %} No example data. Everything this console shows comes from your own records and monitors.</p>
+  {% endif %}
+</section>

@@ -47,7 +47,7 @@
         </div></td>
       </tr>
     {% empty %}
-      <tr><td colspan="8" class="empty">{% if request.GET.q or request.GET.state %}No rules match.{% else %}No rules yet.{% if can_operate %} <a href="{% url 'automation:rule_create' %}">Create a rule</a> or load disabled examples with <code>manage.py seed_automation</code>.{% endif %}{% endif %}</td></tr>
+      <tr><td colspan="8" class="empty">{% if request.GET.q or request.GET.state %}No rules match.{% else %}No rules yet.{% if can_operate %} <a href="{% url 'automation:rule_create' %}">Create a rule</a>.{% endif %}{% endif %}</td></tr>
     {% endfor %}
     </tbody></table></div>
   <p class="hint am-note">{% icon "info" 14 %}Rules see every event except the automation module's own. A rule fires at most once per event fingerprint within its cooldown.</p>
