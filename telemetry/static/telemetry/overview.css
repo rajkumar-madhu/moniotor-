@@ -1,0 +1,145 @@
+/* Fleet Overview (telemetry/overview.html). Scoped to .pg-overview; tokens only, so light and dark both work.
+   Reuses the host-metrics chart panel / legend styles (.hm-chart, .hm-legend, .hm-missing, ...) from page.css and the
+   Fleet bar styles (.fl-bar, .fl-keys, .fl-total) because the page carries both .pg-telemetry and .pg-fleet. */
+
+/* ---------- nodes summary strip ---------- */
+.pg-overview .ov-strip { display: flex; flex-direction: column; gap: 14px; }
+.pg-overview .ov-strip-top { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+.pg-overview .ov-strip-top .fl-total { flex: none; }
+.pg-overview .ov-strip-top .fl-total span a { margin-left: 6px; font-size: 12.5px; }
+.pg-overview .ov-states { flex: 1 1 320px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+/* the :has() twin outranks the shared "six cards -> three columns" rule of app.css */
+.pg-overview .kpis.ov-kpis, .pg-overview .kpis.ov-kpis:has(> .kpi:nth-child(6):last-child) { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+.pg-overview .ov-kpis .kpi { padding: 12px; }
+.pg-overview .ov-kpis .kpi .value { font-size: 24px; white-space: nowrap; }
+.pg-overview a.ov-kpi-link { color: inherit; text-decoration: none; }
+.pg-overview a.ov-kpi-link:hover { border-color: var(--line-strong); }
+@media (max-width: 1100px) { .pg-overview .kpis.ov-kpis, .pg-overview .kpis.ov-kpis:has(> .kpi:nth-child(6):last-child) { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 860px) { .pg-overview .kpis.ov-kpis, .pg-overview .kpis.ov-kpis:has(> .kpi:nth-child(6):last-child) { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.pg-overview .ov-n { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 10px; background: var(--mute-bg); color: var(--mute-ink); font-size: 12px; line-height: 18px; text-align: center; }
+.pg-overview .ov-n.crit { background: var(--crit-bg); color: var(--crit-ink); }
+
+/* ---------- controls ---------- */
+.pg-overview .ov-controls { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px; }
+.pg-overview .ov-row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+.pg-overview .ov-ctl { display: inline-flex; align-items: center; gap: 8px; min-width: 0; position: relative; }
+.pg-overview .ov-lbl { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.pg-overview .ov-ctl select { height: 32px; max-width: 150px; text-overflow: ellipsis; }
+.pg-overview .ov-check { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+.pg-overview .ov-meta { margin-left: auto; color: var(--muted); font: 500 11.5px var(--mono); letter-spacing: .03em; }
+.pg-overview details.ov-pop-wrap, .pg-overview details.ov-nodes-pick { position: relative; }
+.pg-overview details > summary.btn { list-style: none; cursor: pointer; user-select: none; }
+.pg-overview details > summary.btn::-webkit-details-marker { display: none; }
+.pg-overview details.ov-pop-wrap.on > summary.btn { border-color: var(--primary-line); color: var(--primary); }
+.pg-overview .ov-pop { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  min-width: 260px; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-pop); }
+.pg-overview .ov-pop input[type=number] { width: 84px; height: 32px; }
+.pg-overview .ov-pop select { height: 32px; }
+.pg-overview .ov-hint { flex: 1 1 100%; margin: 2px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.pg-overview .ov-nodes-pop { width: 340px; max-width: calc(100vw - 32px); flex-direction: column; align-items: stretch; }
+.pg-overview .ov-nodes-pop input[type=search] { width: 100%; height: 32px; }
+.pg-overview .ov-nodes-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.pg-overview .ov-node-list { list-style: none; margin: 0; padding: 0; max-height: 280px; overflow: auto; border: 1px solid var(--line-soft); border-radius: 8px; }
+.pg-overview .ov-node-list li { border-top: 1px solid var(--line-soft); }
+.pg-overview .ov-node-list li:first-child { border-top: 0; }
+.pg-overview .ov-node-list li[hidden] { display: none; }
+.pg-overview .ov-node-list label { display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer; font-size: 13px; min-width: 0; }
+.pg-overview .ov-node-list label:hover { background: var(--panel-2); }
+.pg-overview .ov-node-list .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-overview .dot { flex: none; margin: 0; }
+.pg-overview .dot.fill-mute { background: var(--stone-2); }
+.pg-overview .ov-live { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pg-overview .ov-live select { height: 30px; }
+.pg-overview #ov-live[aria-pressed="true"] { background: var(--ok-bg); border-color: var(--ok-line); color: var(--ok-ink); }
+.pg-overview #ov-live[aria-pressed="true"] .ic { animation: hm-pulse 2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .pg-overview #ov-live .ic { animation: none; } }
+@media (max-width: 860px) {
+  .pg-overview .ov-ctl { flex: 1 1 100%; }
+  .pg-overview .ov-ctl select { flex: 1; max-width: none; }
+  .pg-overview .ov-meta { margin-left: 0; flex: 1 1 100%; }
+  .pg-overview .ov-pop { min-width: 0; width: calc(100vw - 56px); max-width: 360px; }
+}
+
+/* ---------- layout, sections, charts ---------- */
+.pg-overview .ov-layout { display: grid; grid-template-columns: minmax(0, 1fr) 168px; gap: 18px; align-items: start; }
+.pg-overview .ov-main { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+.pg-overview .ov-section { scroll-margin-top: calc(var(--top-h, 56px) + 16px); min-width: 0; }
+.pg-overview .ov-sec { display: flex; flex-direction: column; gap: 12px; }
+.pg-overview .ov-sec-h { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding-bottom: 8px; cursor: pointer; list-style: none; user-select: none; }
+.pg-overview .ov-sec-h::-webkit-details-marker { display: none; }
+.pg-overview .ov-sec-h:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 4px; }
+.pg-overview .ov-sec-h h2 { font: 600 22px/1.2 var(--serif); letter-spacing: -.01em; }
+.pg-overview .ov-sec-h .eyebrow { color: var(--muted); }
+.pg-overview .ov-sec-h .right { margin-left: auto; color: var(--muted); font-size: 12.5px; }
+.pg-overview .ov-chev { width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(-45deg); transition: transform .15s; align-self: center; flex: none; }
+.pg-overview details[open] > .ov-sec-h .ov-chev { transform: rotate(45deg); }
+@media (prefers-reduced-motion: reduce) { .pg-overview .ov-chev { transition: none; } }
+.pg-overview .ov-grid { gap: 14px; }
+.pg-overview .ov-chart .tm-chart { height: 200px; }
+.pg-overview .ov-legend { max-height: 176px; overflow: auto; }
+.pg-overview .ov-legend thead th { position: sticky; top: 0; z-index: 1; }
+.pg-overview .hm-missing.err { border-style: solid; border-color: var(--crit-line); background: var(--crit-bg); color: var(--crit-ink); }
+.pg-overview .ov-missing { color: var(--muted); font-size: 13px; }
+.pg-overview .ov-missing summary { cursor: pointer; width: max-content; max-width: 100%; }
+.pg-overview .ov-missing ul { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.pg-overview .ov-missing li { overflow-wrap: anywhere; }
+.pg-overview .ov-uptime .ov-bars { display: flex; flex-direction: column; gap: 8px; }
+.pg-overview .ov-uptime .hbar { grid-template-columns: minmax(110px, 160px) 1fr 44px; }
+.pg-overview .ov-uptime .hbar .val { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* section list on the right (sticky), a select on narrow screens */
+.pg-overview .ov-toc { position: sticky; top: calc(var(--top-h, 56px) + 16px); min-width: 0; }
+.pg-overview .ov-toc .eyebrow { display: block; margin: 0 0 8px 14px; color: var(--muted); }
+.pg-overview .ov-toc nav { display: flex; flex-direction: column; gap: 1px; border-left: 2px solid var(--line); }
+.pg-overview .ov-toc nav a { display: flex; justify-content: space-between; gap: 8px; padding: 6px 12px; color: var(--ink-2); font-size: 13.5px; margin-left: -2px; border-left: 2px solid transparent; min-width: 0; }
+.pg-overview .ov-toc nav a:hover { text-decoration: none; color: var(--ink); background: var(--panel-2); }
+.pg-overview .ov-toc nav a.on { color: var(--ink); border-left-color: var(--brand); font-weight: 600; }
+.pg-overview .ov-toc nav a .n { color: var(--muted); font: 500 11px/1.6 var(--mono); }
+.pg-overview .ov-toc select { display: none; width: 100%; }
+.pg-overview .ov-toc .hm-foot { margin: 12px 0 0 14px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+@media (max-width: 1080px) {
+  .pg-overview .ov-layout { grid-template-columns: minmax(0, 1fr); }
+  .pg-overview .ov-toc { order: -1; top: calc(var(--top-h, 56px) + 4px); z-index: 4; background: var(--bg); padding: 6px 0 8px; }
+  .pg-overview .ov-toc nav, .pg-overview .ov-toc .eyebrow, .pg-overview .ov-toc .hm-foot { display: none; }
+  .pg-overview .ov-toc select { display: block; }
+  .pg-overview .ov-section { scroll-margin-top: calc(var(--top-h, 56px) + 56px); }
+  .pg-overview .ov-grid.g-2 { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 860px) {
+  .pg-overview .ov-sec-h h2 { font-size: 19px; }
+  .pg-overview .ov-chart .tm-chart { height: 170px; }
+}
+
+/* ---------- right drawer: alerts / hot nodes / nodes ---------- */
+.pg-overview .ov-drawer { position: fixed; z-index: 45; top: var(--top-h, 56px); right: 0; bottom: 0; width: 360px; max-width: 100vw; display: flex; flex-direction: column;
+  background: var(--panel); border-left: 1px solid var(--line); box-shadow: var(--shadow-pop); }
+.pg-overview .ov-drawer[hidden] { display: none; }
+.pg-overview .ov-drawer-h { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.pg-overview .ov-tabs { display: flex; gap: 2px; flex: 1; min-width: 0; overflow-x: auto; }
+.pg-overview .ov-tabs button { appearance: none; border: 0; background: none; color: var(--ink-2); font: 600 13px/1 var(--font); padding: 9px 10px; border-radius: 7px; cursor: pointer; white-space: nowrap; }
+.pg-overview .ov-tabs button:hover { background: var(--panel-2); color: var(--ink); }
+.pg-overview .ov-tabs button[aria-selected="true"] { background: var(--primary-soft); color: var(--primary); }
+.pg-overview .ov-tabs button:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.pg-overview .ov-tabs .n { margin-left: 4px; color: var(--muted); font-weight: 500; }
+.pg-overview .ov-drawer-b { padding: 12px; overflow: auto; flex: 1; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.pg-overview .ov-drawer-b[hidden] { display: none; }
+.pg-overview .ov-drawer-b input[type=search] { width: 100%; height: 32px; }
+.pg-overview .ov-list { list-style: none; margin: 0; padding: 0; width: 100%; display: flex; flex-direction: column; }
+.pg-overview .ov-list li { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-top: 1px solid var(--line-soft); min-width: 0; }
+.pg-overview .ov-list li:first-child { border-top: 0; }
+.pg-overview .ov-list li[hidden] { display: none; }
+.pg-overview .ov-list li > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.pg-overview .ov-list li a { font-weight: 600; overflow-wrap: anywhere; }
+.pg-overview .ov-list .tm-meta { overflow-wrap: anywhere; }
+.pg-overview .ov-list .sev { margin-top: 5px; flex: none; }
+.pg-overview .ov-list .sev.crit { color: var(--crit); }
+.pg-overview .ov-list .sev.warn { color: var(--warn); }
+.pg-overview .ov-list .sev.info { color: var(--info); }
+.pg-overview .ov-list .sev.mute { color: var(--stone-2); }
+@media (max-width: 860px) { .pg-overview .ov-drawer { width: 100vw; } }
+
+@media print {
+  .pg-overview .ov-controls, .pg-overview .ov-drawer, .pg-overview .ov-toc { display: none; }
+  .pg-overview .ov-layout { grid-template-columns: minmax(0, 1fr); }
+  .pg-overview .ov-sec:not([open]) > :not(summary) { display: block; }
+}

@@ -273,7 +273,7 @@ class BaseTemplateTests(TestCase):
         r = self.client.get("/", {"site": "Mumbai (NSE)"})
         html = r.content.decode()
         self.assertIn('name="site" value="Mumbai (NSE)"', html)
-        self.assertNotIn("Mumbai%20", html)
+        self.assertNotIn('value="Mumbai%20', html)   # form values stay plain; the range links do carry the encoded query
 
     def test_hidden_client_input_is_plain(self):
         r = self.client.get("/", {"client": str(self.c1.pk)})

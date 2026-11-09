@@ -144,28 +144,29 @@ class OverviewTests(TestCase):
         self.assertContains(resp, "core-sw-01")
         self.assertContains(resp, "Oracle (db.example.com:1521)")
         self.assertNotContains(resp, "dr-fw-01")
-        self.assertContains(resp, 'class="ov-health-card"')
-        self.assertContains(resp, 'class="legacy-heatmap-card"')
-        self.assertContains(resp, '<th>Devices</th>')  # site matrix column for the device kind
+        self.assertContains(resp, 'class="dash-svc"')            # service health rings
+        self.assertContains(resp, "dash-heat-table")             # the site heat-map card
+        self.assertContains(resp, '<th scope="col">Devices</th>')  # site matrix column for the device kind
 
-    def test_recent_events_render_in_one_wrapping_cell(self):
-        # The events panel is a narrow column: the time sits on the source line and the title cell may wrap,
-        # instead of three nowrap cells that were clipped by the table's scroll box.
+    def test_recent_events_render_as_a_compact_timeline(self):
+        # The events panel is a narrow column: a severity dot, the title (which may wrap) and one meta line.
         emit("bodeod", "BOD validation completed with warnings", severity="warning", site="Mumbai")
         self.client.force_login(self.admin)
         resp = self.client.get(reverse("dashboard"))
-        self.assertContains(resp, '<td class="wrap ev"><span class="t-mute small">bodeod · ')
-        self.assertContains(resp, "BOD validation completed with warnings</td>")
+        self.assertContains(resp, '<li class="sev-warning"><span class="dash-ev-dot" aria-hidden="true"></span>')
+        self.assertContains(resp, "BOD validation completed with warnings</span>")
+        self.assertContains(resp, "bodeod · ")
 
-    def test_service_desk_is_the_last_sidebar_section(self):
-        from core.nav import NAV
-        labels = [item["label"] for item in NAV]
-        self.assertEqual(labels[-1], "Service Desk")
-        self.assertEqual(labels[0], "Dashboard")
+    def test_the_sidebar_is_grouped_into_sections_with_the_dashboard_first(self):
+        from core.nav import NAV, SECTIONS
+        self.assertEqual(NAV[0]["label"], "Dashboard")
+        self.assertEqual([k for k, _l in SECTIONS][:2], ["operate", "observe"])
         self.client.force_login(self.admin)
         html = self.client.get(reverse("dashboard")).content.decode()
-        side = html[html.index('class="nav"'):html.index("</nav>")]
-        self.assertGreater(side.index("Service Desk"), side.index("Administration"))
+        side = html[html.index('<nav class="nav"'):html.index("</nav>")]
+        self.assertLess(side.index("Operate"), side.index("Observe"))
+        self.assertLess(side.index("Observe"), side.index("Platform"))
+        self.assertGreater(side.index("Service Desk"), side.index("Dashboard"))
 
     def test_sidebar_labels_render_and_every_path_opens(self):
         # Django does not parse {{ }} or {% %} across a line break, so a wrapped tag shows up as source text.

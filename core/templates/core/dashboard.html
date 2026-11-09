@@ -1,92 +1,200 @@
 {% extends "core/base.html" %}{% load static le %}
 {% block title %}Operations{% endblock %}
-{% block page_css %}<link rel="stylesheet" href="{% static 'linkedeye/pages/overview.css' %}"><link rel="stylesheet" href="{% static 'linkedeye/pages/site-heatmap.css' %}"><link rel="stylesheet" href="{% static 'linkedeye/pages/backend-health.css' %}">{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'linkedeye/pages/dashboard.css' %}?v=dash-1">{% endblock %}
 {% block content %}
-{% include "core/_legacy_heatmap.html" %}
-{% include "core/_backend_health.html" %}
+<div class="dash" data-dash data-data-url="{% url 'dashboard_data' %}" data-range="{{ range }}" data-every="60">
 
-<section class="ov-hero legacy-local-summary">
-  <div class="ov-title"><span class="ov-eyebrow">LINKED EYE · LIVE OPERATIONS</span><h2>Dashboard overview</h2>
-    <p>{% if le_site %}{{ le_site }}{% else %}All sites{% endif %}{% if md %} <span class="ov-sep">·</span> <time datetime="{{ md.now|date:'c' }}">{{ md.now|date:"l j F, H:i" }} IST</time>{% endif %}</p></div>
-  <dl class="ov-figs">
-    <div class="ov-fig{% if problems %} is-crit{% endif %}"><dt>Needs attention</dt><dd><a href="#attention">{{ problems|length }}</a></dd><dd class="ov-fig-note">down or degraded now</dd></div>
-    {% if desk.incidents is not None %}<div class="ov-fig{% if desk.p12 %} is-crit{% endif %}"><dt>Open incidents</dt><dd><a href="{{ desk.incidents_href }}">{{ desk.incidents }}</a></dd><dd class="ov-fig-note">{{ desk.p12 }} at P1 or P2</dd></div>{% endif %}
-    {% if desk.alerts is not None %}<div class="ov-fig{% if desk.alerts %} is-warn{% endif %}"><dt>Alerts firing</dt><dd><a href="{{ desk.alerts_href }}">{{ desk.alerts }}</a></dd><dd class="ov-fig-note">from Alertmanager</dd></div>{% endif %}
-    <div class="ov-fig"><dt>URL uptime</dt><dd>{% if uptime7 is None %}–{% else %}{{ uptime7|pct }}{% endif %}</dd><dd class="ov-fig-note">last 7 days</dd></div>
-  </dl>
-</section>
-
-{% if matrix.totals %}
-<section class="ov-health" aria-labelledby="ov-health-h">
-  <div class="ov-section-head"><div><span class="ov-eyebrow">MONITORING</span><h2 id="ov-health-h">Service health</h2></div><span class="ov-live"><i aria-hidden="true"></i>Current status</span></div>
-  <div class="ov-health-grid">
-    {% for t in matrix.totals %}
-    <a class="ov-health-card" href="{{ t.href }}">
-      <div class="ov-ring{% if not t.total %} is-empty{% endif %}" role="img" aria-label="{{ t.label }}: {{ t.ok }} healthy, {{ t.bad }} down, {{ t.other }} degraded or unknown, {{ t.total }} total" style="--ok-stop: {{ t.ok_pct }}%; --bad-stop: {{ t.bad_end_pct }}%"><span>{{ t.total }}</span></div>
-      <div class="ov-health-copy"><span class="ov-health-label">{{ t.label }}</span><strong>{% if t.total %}{{ t.ok|floatformat:0 }} healthy{% else %}No checks yet{% endif %}</strong>
-        <div class="ov-health-stats"><span><i class="dot-ok"></i>{{ t.ok }} OK</span><span><i class="dot-bad"></i>{{ t.bad }} down</span><span><i class="dot-other"></i>{{ t.other }} other</span></div>
+  {# ---- 1. one status line, the scope, and the range that drives the sparklines #}
+  <section class="dash-banner tone-{{ banner.tone }}" aria-label="Overall status" data-banner>
+    <div class="dash-banner-main">
+      <span class="dash-banner-ic" aria-hidden="true"><span class="i-ok">{% icon "check-circle" 26 %}</span><span class="i-warn">{% icon "alert" 26 %}</span><span class="i-crit">{% icon "x-circle" 26 %}</span><span class="i-info">{% icon "info" 26 %}</span></span>
+      <div class="dash-banner-copy">
+        <h1 data-banner-title>{{ banner.title }}</h1>
+        <p class="dash-banner-detail" data-banner-detail>{{ banner.detail }}</p>
+        <p class="dash-scope">{% if le_site %}{{ le_site }}{% elif le_client_name %}{{ le_client_name }}{% else %}All sites{% endif %}<span class="dash-sep" aria-hidden="true">·</span><time datetime="{{ banner.iso }}">{{ banner.time }}{% if md %} IST{% endif %}</time></p>
       </div>
-      <span class="ov-card-arrow" aria-hidden="true">↗</span>
+    </div>
+    <div class="dash-tools">
+      <nav class="seg dash-range" aria-label="Sparkline range">
+        {% for r in ranges %}<a href="?{% for k, v in request.GET.items %}{% if k != 'range' %}{{ k|urlencode:'' }}={{ v|urlencode:'' }}&amp;{% endif %}{% endfor %}range={{ r.key }}"{% if r.key == range %} class="on" aria-current="true"{% endif %} data-range-link="{{ r.key }}">{{ r.label }}</a>{% endfor %}
+      </nav>
+      <button type="button" class="btn sm dash-refresh" data-dash-refresh title="Refresh now">{% icon "refresh" 15 %}<span data-updated>Live</span></button>
+    </div>
+  </section>
+
+  {% if start %}
+  {# ---- brand-new install: what to do first #}
+  <section class="panel dash-start" aria-labelledby="dash-start-h">
+    <div class="panel-h"><h2 id="dash-start-h">Get started</h2><small>{{ start.done }} of {{ start.total }} done</small></div>
+    <ol class="dash-steps">
+      {% for s in start.steps %}
+      <li class="{% if s.done %}is-done{% endif %}"><span class="dash-step-mark" aria-hidden="true">{% if s.done %}{% icon "check" 14 %}{% else %}{{ forloop.counter }}{% endif %}</span>
+        <div><b>{{ s.label }}</b><span>{{ s.detail }}</span></div>
+        <a class="btn sm{% if not s.done %} primary{% endif %}" href="{{ s.url }}">{{ s.cta }}</a></li>
+      {% endfor %}
+    </ol>
+  </section>
+  {% endif %}
+
+  {# ---- 2. six figures, each a link, with the history it has #}
+  <section class="dash-kpis" aria-label="Key figures">
+    {% for k in kpis %}
+    <a class="dk tone-{{ k.tone }}" href="{{ k.href }}" data-kpi="{{ k.key }}">
+      <span class="dk-top"><span class="dk-ic" aria-hidden="true">{% icon k.icon 15 %}</span><span class="dk-label">{{ k.label }}</span></span>
+      <span class="dk-value" data-kpi-value>{{ k.value }}</span>
+      <span class="dk-sub" data-kpi-sub>{{ k.sub }}</span>
+      {% if k.spark %}<div class="chart dk-spark" data-chart="spark" data-src="dk-spark-{{ k.key }}" style="height:30px" role="img" aria-label="{{ k.label }} over the selected range"></div>
+      <script type="application/json" id="dk-spark-{{ k.key }}">{"values": [], "color": "var(--chart-{% if k.key == 'health' %}ok{% elif k.key == 'alerts' %}crit{% else %}warn{% endif %})"}</script>{% endif %}
     </a>
     {% endfor %}
-  </div>
-</section>
-{% endif %}
+  </section>
 
-{% if md %}
-<section class="panel ov-day{% if not md.trading %} is-closed{% endif %}" aria-labelledby="ov-day-h">
-  <div class="ov-day-head">
-    <h2 id="ov-day-h">{{ md.line }}</h2>
-    <p>{% if md.crit or md.warn %}{{ md.crit }} critical and {{ md.warn }} warning event{{ md.warn|pluralize }} since 06:00{% else %}No critical or warning events since 06:00{% endif %}</p>
-    <a class="ov-link" href="{% url 'bodeod:status' %}">BOD / EOD status</a>
-  </div>
-  <div class="ov-strip-scroll">
-    <div class="ov-strip" style="--lanes: {{ md.lanes }}">
-      <div class="ov-lanes" aria-label="Validation windows today">
-        {% for m in md.modes %}
-        <a class="ov-win st-{{ m.status }}" href="{{ m.href }}" style="left: {{ m.left }}%; width: {{ m.width }}%; --lane: {{ m.lane }}"
-           title="{{ m.name }} ({{ m.site }}), {{ m.start|time:'H:i' }}–{{ m.end|time:'H:i' }} IST">
-          <b>{{ m.code }}</b>
-          <span>{% if m.status == "pass" %}Passed{% elif m.status == "warn" %}Warnings{% elif m.status == "fail" %}Failed{% elif m.status == "running" %}Running{% elif m.status == "missed" %}No run{% else %}{{ m.start|time:"H:i" }}{% endif %}</span>
-        </a>
-        {% empty %}
-        <span class="ov-lanes-empty">No BOD or EOD validations set up. <a href="{% url 'bodeod:status' %}">Set one up</a></span>
-        {% endfor %}
+  {# ---- 3. the queue and the stream #}
+  <section class="dash-row dash-row-main">
+    <div class="panel dash-panel" id="attention" aria-labelledby="dash-att-h">
+      <div class="panel-h"><h2 id="dash-att-h">Needs attention</h2><span class="dash-count{% if problem_total %} is-on{% endif %}" data-problem-count>{{ problem_total }}</span>
+        <div class="right"><small>down, critical or degraded, newest first</small></div></div>
+      <div class="dash-scroll">
+        <table class="dash-table" data-problems>
+          <thead><tr><th scope="col">Severity</th><th scope="col">Source</th><th scope="col">Name</th><th scope="col">Site</th><th scope="col">Since</th><th scope="col"><span class="sr">Actions</span></th></tr></thead>
+          <tbody>
+          {% for p in problems %}
+          <tr><td><span class="dash-sev {{ p.tone }}">{% if p.tone == "crit" %}{% icon "x-circle" 13 %}{% else %}{% icon "alert" 13 %}{% endif %}{{ p.status_label }}</span></td>
+            <td><span class="dash-src">{% icon p.icon 14 %}{{ p.kind }}</span></td>
+            <td class="wrap"><a href="{{ p.href }}">{{ p.name }}</a>{% if p.detail %}<small class="dash-detail">{{ p.detail }}</small>{% endif %}</td>
+            <td>{{ p.site|default:"All sites" }}</td><td>{{ p.since }}</td>
+            <td class="dash-act">{% if p.ack_url %}<button type="button" class="btn sm" data-post="{{ p.ack_url }}" data-busy="Acknowledging…">Acknowledge</button>{% endif %}</td></tr>
+          {% empty %}
+          <tr class="dash-empty-row"><td colspan="6" class="empty">{% if start %}Nothing is monitored yet, so nothing can need attention.{% else %}Everything monitored is healthy.{% endif %} <a href="{% url 'urlchecker:index' %}#form">Add a URL check</a></td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
       </div>
-      <div class="ov-track">
-        {% for p in md.phases %}
-        <div class="ov-phase ph-{{ p.key }}{% if p.current %} is-current{% endif %}{% if p.width < 6 %} is-narrow{% endif %}" title="{{ p.label }}, {{ p.start|time:'H:i' }}–{{ p.end|time:'H:i' }} IST" style="left: {{ p.left }}%; width: {{ p.width }}%"><span>{{ p.label }}</span></div>
-        {% endfor %}
-      </div>
-      <div class="ov-marks" role="list" aria-label="Critical and warning events today">
-        {% for e in md.marks %}<i class="ov-mark sev-{{ e.severity }}" role="listitem" style="left: {{ e.left }}%" title="{{ e.at|time:'H:i' }} {{ e.title }}"><span class="sr">{{ e.at|time:"H:i" }} {{ e.severity }}: {{ e.title }}</span></i>{% endfor %}
-      </div>
-      <div class="ov-hours" aria-hidden="true">
-        {% for h in md.hours %}<span style="left: {{ h.left }}%">{{ h.h|stringformat:"02d" }}:00</span>{% endfor %}
-      </div>
-      {% if md.now_left is not None %}<div class="ov-now" style="left: {{ md.now_left }}%"><span>{{ md.now|time:"H:i" }}</span></div>{% endif %}
+      {% if problem_total > problems|length %}<p class="dash-more">Showing the newest {{ problems|length }} of {{ problem_total }}.</p>{% endif %}
     </div>
-  </div>
-</section>
-{% endif %}
+    <div class="panel dash-panel" aria-labelledby="dash-ev-h">
+      <div class="panel-h"><h2 id="dash-ev-h">Recent events</h2><div class="right">{% if events %}<a class="view-all" href="{% url 'observe:events' %}">All events</a>{% endif %}</div></div>
+      <ol class="dash-events" data-events>
+        {% for e in events %}<li class="sev-{{ e.severity }}"><span class="dash-ev-dot" aria-hidden="true"></span><div><span class="dash-ev-title">{{ e.title }}</span><small>{{ e.source }} · {{ e.when }} · {{ e.severity|capfirst }}</small></div></li>
+        {% empty %}<li class="dash-ev-empty">No warnings or failures recorded yet.</li>{% endfor %}
+      </ol>
+    </div>
+  </section>
 
+  {# ---- 4. fleet health (cache only) beside the site heat-map #}
+  {% if not start %}
+  <section class="dash-row dash-row-fleet">
+    <div class="panel dash-panel" aria-labelledby="dash-fleet-h" data-fleet>
+      <div class="panel-h"><h2 id="dash-fleet-h">Fleet health</h2><div class="right">{% if fleet.overview_href and fleet.configured %}<a class="view-all" href="{{ fleet.overview_href }}">Charts</a>{% endif %}{% if fleet.href %}<a class="view-all" href="{{ fleet.href }}">Open Fleet {% icon "arrow-right" 13 %}</a>{% endif %}</div></div>
+      {% if fleet.loaded %}
+      <div class="dash-statebar" role="img" aria-label="{% for s in fleet.segments %}{{ s.count }} {{ s.label }}{% if not forloop.last %}, {% endif %}{% endfor %}">
+        {% for s in fleet.segments %}{% if s.count %}<a class="st-{{ s.key }}" style="flex-grow: {{ s.count }}" href="{{ s.href }}" title="{{ s.label }}: {{ s.count }}">{{ s.count }}</a>{% endif %}{% endfor %}
+      </div>
+      <ul class="dash-statelegend">{% for s in fleet.segments %}<li><a href="{{ s.href }}"><i class="st-{{ s.key }}" aria-hidden="true"></i>{{ s.label }} <b>{{ s.count }}</b></a></li>{% endfor %}</ul>
+      <div class="dash-tops">
+        <div><h3>Top CPU</h3><ul>{% for h in fleet.top_cpu %}<li><a href="{{ h.href }}">{{ h.name }}</a><span class="dash-bar"><i class="{{ h.tone }}" style="width: {{ h.value }}%"></i></span><b>{{ h.value|floatformat:0 }}%</b></li>{% empty %}<li class="t-mute">No CPU data</li>{% endfor %}</ul></div>
+        <div><h3>Top memory</h3><ul>{% for h in fleet.top_memory %}<li><a href="{{ h.href }}">{{ h.name }}</a><span class="dash-bar"><i class="{{ h.tone }}" style="width: {{ h.value }}%"></i></span><b>{{ h.value|floatformat:0 }}%</b></li>{% empty %}<li class="t-mute">No memory data</li>{% endfor %}</ul></div>
+      </div>
+      {% else %}
+      <div class="dash-cold">
+        {% if fleet.configured %}<p>Host states and the busiest hosts appear here once the Fleet page has loaded them.</p>
+        {% if fleet.href %}<a class="btn sm primary" href="{{ fleet.href }}">Open Fleet</a>{% endif %}
+        {% else %}<p>Prometheus is not connected, so there is no host data yet.</p>
+        <a class="btn sm primary" href="{% url 'administration:integrations' %}#prometheus">Connect Prometheus</a>{% endif %}
+      </div>
+      {% endif %}
+    </div>
 
-<section class="grid g-main">
-  <div class="panel" id="attention">
-    <div class="panel-h"><h2>Needs attention</h2><small>{{ problems|length }} down or degraded, newest first</small></div>
-    <div class="table-wrap"><table><thead><tr><th>Type</th><th>Name</th><th>Site</th><th>Status</th><th>Detail</th><th>Since</th></tr></thead><tbody>
-    {% for p in problems %}<tr><td>{{ p.kind }}</td><td><a href="{{ p.href }}">{{ p.name }}</a></td><td>{{ p.site }}</td><td>{% badge p.status %}</td><td class="wrap">{{ p.detail|truncatechars:90 }}</td><td>{{ p.when|ago }}</td></tr>
-    {% empty %}<tr><td colspan="6" class="empty">Everything monitored is healthy. <a href="{% url 'urlchecker:index' %}#form">Add a URL check</a></td></tr>{% endfor %}</tbody></table></div>
-  </div>
-  <div class="panel">
-    <div class="panel-h"><h2>Recent events</h2>{% if events %}<div class="right"><a class="view-all" href="{% url 'observe:events' %}">All events</a></div>{% endif %}</div>
-    <div class="table-wrap"><table><tbody>
-    {% for e in events %}<tr><td class="ev-sev">{% badge e.severity %}</td><td class="wrap ev"><span class="t-mute small">{{ e.source }} · {{ e.occurred_at|short_dt }}</span><br>{{ e.title|truncatechars:70 }}</td></tr>
-    {% empty %}<tr><td class="empty">No warnings or failures recorded yet.</td></tr>{% endfor %}</tbody></table></div>
-  </div>
-</section>
+    <div class="panel dash-panel dash-heat" aria-labelledby="dash-heat-h">
+      <div class="panel-h"><h2 id="dash-heat-h">Site heat-map</h2><span class="chip">PROD</span>
+        <div class="right"><ul class="dash-legend" aria-label="Legend"><li><i class="ok"></i>Healthy</li><li><i class="warn"></i>Degraded</li><li><i class="crit"></i>Down</li><li><i class="none"></i>No data</li></ul>
+          {% if heatmap_url %}<a class="view-all" href="{{ heatmap_url }}">Details {% icon "arrow-right" 13 %}</a>{% endif %}</div></div>
+      {% if heat.rows %}
+      <div class="dash-scroll dash-heat-scroll"><table class="dash-heat-table">
+        <thead><tr><th scope="col">Site</th>{% for k in matrix.kinds %}<th scope="col">{{ k.label }}</th>{% endfor %}<th scope="col">Alerts</th><th scope="col">Updated</th></tr></thead>
+        <tbody>{% for r in heat.rows %}<tr{% if r.site == le_site %} class="is-selected"{% endif %}>
+          <th scope="row"><i class="dash-dot {{ r.tone }}" aria-hidden="true"></i>{{ r.site }}</th>
+          {% for c in r.cells %}<td><a class="hc {{ c.tone }}" href="{{ c.href }}" title="{{ c.c.ok|default:0 }} healthy of {{ c.c.total|default:0 }} monitored">{% if c.c %}{{ c.c.ok }}/{{ c.c.total }}{% else %}–{% endif %}</a></td>{% endfor %}
+          <td><span class="hc {% if r.alerts.crit %}crit{% elif r.alerts.n %}warn{% else %}ok{% endif %}">{{ r.alerts.n }}</span></td>
+          <td class="dash-upd">{% if r.last_update %}<time datetime="{{ r.last_update|date:'c' }}" title="{{ r.last_update|date:'Y-m-d H:i:s' }}">{{ r.last_update|date:"j M, H:i" }}</time>{% else %}–{% endif %}</td>
+        </tr>{% endfor %}</tbody>
+      </table></div>
+      {% else %}
+      <p class="dash-cold">No site reports any check yet.</p>
+      {% endif %}
+      {% if heat.empty %}
+      <details class="dash-disc"><summary>{{ heat.empty|length }} site{{ heat.empty|length|pluralize }} without data</summary>
+        <ul>{% for s in heat.empty %}<li class="chip">{{ s }}</li>{% endfor %}</ul></details>
+      {% endif %}
+    </div>
+  </section>
+
+  {% endif %}
+
+  {# ---- 5. service health and the market day #}
+  <section class="dash-stack">
+    {% if matrix.totals and not start %}
+    <div class="panel dash-panel" aria-labelledby="dash-svc-h">
+      <div class="panel-h"><h2 id="dash-svc-h">Service health</h2><div class="right"><small>current status</small></div></div>
+      <ul class="dash-svc">
+        {% for t in matrix.totals %}
+        <li><a href="{{ t.href }}">
+          <div class="dk-ring{% if not t.total %} is-empty{% endif %}" role="img" aria-label="{{ t.label }}: {{ t.ok }} healthy, {{ t.bad }} down, {{ t.other }} degraded or unknown, {{ t.total }} total" style="--ok-stop: {{ t.ok_pct }}%; --bad-stop: {{ t.bad_end_pct }}%"><span>{{ t.total }}</span></div>
+          <div class="dash-svc-copy"><b>{{ t.label }}</b><span>{% if t.total %}{{ t.ok|floatformat:0 }} healthy{% else %}No checks yet{% endif %}</span>
+            <small><i class="ok"></i>{{ t.ok }} OK<i class="crit"></i>{{ t.bad }} down<i class="warn"></i>{{ t.other }} other</small></div></a></li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+    {% if md %}
+    <div class="panel dash-panel dash-day{% if not md.trading %} is-closed{% endif %}" aria-labelledby="dash-day-h">
+      <div class="panel-h"><h2 id="dash-day-h">BOD / EOD today</h2><small>{{ md.line }}</small>
+        <div class="right"><a class="view-all" href="{% url 'bodeod:status' %}">Status {% icon "arrow-right" 13 %}</a></div></div>
+      <p class="dash-day-note">{% if md.crit or md.warn %}{{ md.crit }} critical and {{ md.warn }} warning event{{ md.warn|pluralize }} since 06:00{% else %}No critical or warning events since 06:00{% endif %}</p>
+      <div class="dash-strip-scroll">
+        <div class="dash-strip" style="--lanes: {{ md.lanes }}">
+          <div class="dash-lanes" aria-label="Validation windows today">
+            {% for m in md.modes %}
+            <a class="dash-win st-{{ m.status }}" href="{{ m.href }}" style="left: {{ m.left }}%; width: {{ m.width }}%; --lane: {{ m.lane }}"
+               title="{{ m.name }} ({{ m.site }}), {{ m.start|time:'H:i' }}–{{ m.end|time:'H:i' }} IST">
+              <b>{{ m.code }}</b>
+              <span>{% if m.status == "pass" %}Passed{% elif m.status == "warn" %}Warnings{% elif m.status == "fail" %}Failed{% elif m.status == "running" %}Running{% elif m.status == "missed" %}No run{% else %}{{ m.start|time:"H:i" }}{% endif %}</span>
+            </a>
+            {% empty %}
+            <span class="dash-lanes-empty">No BOD or EOD validations set up. <a href="{% url 'bodeod:status' %}">Set one up</a></span>
+            {% endfor %}
+          </div>
+          <div class="dash-track">
+            {% for p in md.phases %}
+            <div class="dash-phase ph-{{ p.key }}{% if p.current %} is-current{% endif %}{% if p.width < 6 %} is-narrow{% endif %}" title="{{ p.label }}, {{ p.start|time:'H:i' }}–{{ p.end|time:'H:i' }} IST" style="left: {{ p.left }}%; width: {{ p.width }}%"><span>{{ p.label }}</span></div>
+            {% endfor %}
+          </div>
+          <div class="dash-marks" role="list" aria-label="Critical and warning events today">
+            {% for e in md.marks %}<i class="dash-mark sev-{{ e.severity }}" role="listitem" style="left: {{ e.left }}%" title="{{ e.at|time:'H:i' }} {{ e.title }}"><span class="sr">{{ e.at|time:"H:i" }} {{ e.severity }}: {{ e.title }}</span></i>{% endfor %}
+          </div>
+          <div class="dash-hours" aria-hidden="true">
+            {% for h in md.hours %}<span style="left: {{ h.left }}%">{{ h.h|stringformat:"02d" }}:00</span>{% endfor %}
+          </div>
+          {% if md.now_left is not None %}<div class="dash-now" style="left: {{ md.now_left }}%"><span>{{ md.now|time:"H:i" }}</span></div>{% endif %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </section>
+
+  {# ---- 6. the legacy backend: a card when it is connected, one muted line when it is not #}
+  {% if legacy_backend %}
+  <section class="panel dash-panel dash-legacy" aria-labelledby="dash-legacy-h" data-backend-summary data-summary-url="{% url 'backend_summary_api' %}" data-site="{{ request.GET.site|default:'' }}">
+    <div class="panel-h"><h2 id="dash-legacy-h">Legacy backend</h2><span class="chip" data-summary-status>Loading…</span></div>
+    <div class="dash-legacy-grid" data-summary-grid></div>
+    <p class="dash-more" data-summary-foot></p>
+  </section>
+  {% endif %}
+  <footer class="dash-foot">{% if not legacy_backend %}<span>Legacy backend: not connected</span>{% endif %}<span>Figures refresh every minute while this tab is visible.</span></footer>
+</div>
 {% endblock %}
 
 {% block scripts %}
-<script src="{% static 'linkedeye/pages/backend-health.js' %}"></script>
+<template id="dash-icons"><span data-ic="link">{% icon "link" 14 %}</span><span data-ic="globe">{% icon "globe" 14 %}</span><span data-ic="network">{% icon "network" 14 %}</span><span data-ic="plug">{% icon "plug" 14 %}</span><span data-ic="bell">{% icon "bell" 14 %}</span><span data-ic="alert">{% icon "alert" 13 %}</span><span data-ic="x-circle">{% icon "x-circle" 13 %}</span></template>
+<script src="{% static 'linkedeye/pages/dashboard.js' %}?v=dash-1"></script>
 {% endblock %}
