@@ -14,9 +14,10 @@ not download the tool): run `kubectl kustomize deploy/kubernetes/overlays/argus`
 The target is the **FinSpot dev cluster**, the same one the `finspot-dev` overlay ([FINSPOT_DEV_K8S.md](FINSPOT_DEV_K8S.md)) deploys to.
 Its admin kubeconfig is issued on the bastion `fs-dev-cp-ps` (API server on the private address `172.16.0.70:8443`, so it is only
 reachable from inside that network). Keep the kubeconfig off git and run every `kubectl` command below from the bastion or a machine
-that can reach it. This overlay is the same as `finspot-dev` for the namespace (`fs-linkedeye`) and the probe ranges
-(`10.10.0.0/16`, `10.20.0.0/16`, `172.16.0.0/16`); only the public host name differs (`argus.monitoring.wecrew.in` instead of
-`fs-le-dx.finspot.in`). The two overlays must not be applied to the same cluster at once: they patch the same objects.
+that can reach it. This overlay uses the same namespace (`fs-linkedeye`) as `finspot-dev`; the public host name differs (`argus.monitoring.wecrew.in`
+instead of `fs-le-dx.finspot.in`). Unlike `finspot-dev` it does **not** pre-list any private probe range (see step 2): the dev
+overlay's `/16` ranges include the cluster's own API-server address, and every listed address can be reached by anyone who may
+configure a probe. The two overlays must not be applied to the same cluster at once: they patch the same objects.
 
 ## Prerequisites
 - `kubectl` with access to the cluster (admin on one namespace is enough: `fs-linkedeye`), Kubernetes 1.27+.
@@ -38,8 +39,9 @@ Behind a TLS-intercepting proxy see the pip CA note in DEPLOYMENT.md.
 In `overlays/argus/configmap-patch.yaml`:
 - `LINKEDEYE_TRUSTED_PROXIES`: the ingress controller's pod network, `kubectl -n ingress-nginx get pods -o wide`
   (the pods refuse to start while the `<REPLACE ...>` placeholder is there).
-- `LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS`: the private ranges of the servers, iDRAC/iLO BMCs, vCenters and devices you monitor
-  (probes refuse private addresses otherwise).
+- `LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS`: the private subnets of the servers, iDRAC/iLO BMCs, vCenters and devices you monitor
+  (probes refuse private addresses otherwise). List the narrowest subnets that cover them (a `/24` or single hosts), never a whole `/16`
+  and never the cluster's control-plane or API-server addresses.
 
 The ingress controller's namespace and pod labels in `deploy/kubernetes/networkpolicy.yaml` default to `ingress-nginx` /
 `app.kubernetes.io/name=ingress-nginx`; check them with `kubectl get ns` and `kubectl -n ingress-nginx get pods --show-labels`.
@@ -78,6 +80,11 @@ kubectl -n fs-linkedeye logs deploy/linkedeye-probes --tail=50 # the scheduler h
 Sign in at https://argus.monitoring.wecrew.in/ . The sign-in mails a one-time code unless `LINKEDEYE_LOGIN_OTP=false`: configure SMTP
 (`LINKEDEYE_EMAIL_*` in the ConfigMap and `LINKEDEYE_EMAIL_HOST_PASSWORD` in the Secret) before the first user signs in, or the
 code never arrives.
+
+## Changing settings later
+The web and probes pods read the ConfigMap at start-up (`envFrom`), so editing `configmap-patch.yaml` and re-applying does **not** restart
+them. After changing any setting, restart both: `kubectl -n fs-linkedeye rollout restart deploy/linkedeye-web deploy/linkedeye-probes`.
+(The Secret behaves the same way.)
 
 ## Updating and rolling back
 New image: build, push, change the tag in the overlay, `kubectl apply -k ...`; the migrate Job runs first and the web pods wait for it.
