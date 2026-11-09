@@ -30,8 +30,12 @@
     set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) { /* private window: not remembered */ } }
   };
   function csrf() {
-    var m = document.cookie.match(/csrftoken=([^;]+)/);
-    return (m && m[1]) || (document.querySelector('[name=csrfmiddlewaretoken]') || {}).value || '';
+    var meta = document.querySelector('meta[name="csrf-cookie-name"]');
+    var name = (meta && meta.content) || 'linkedeyecsrftoken';
+    var m = document.cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]*)'));
+    if (m) return decodeURIComponent(m[1]);
+    var input = document.querySelector('[name=csrfmiddlewaretoken]');
+    return (input && input.value) || '';
   }
   function cellUrl(base, id) { return base.replace('/0/', '/' + id + '/'); }
   function human(sec) {

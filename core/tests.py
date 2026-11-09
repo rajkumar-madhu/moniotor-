@@ -211,3 +211,21 @@ class OverviewTests(TestCase):
         self.assertEqual(resp.context["le_role"], "Operator")
         self.assertEqual(resp.context["le_problem_count"], 4)
         self.assertTrue(resp.context["le_admin_url"])
+
+    def test_sign_in_ignores_another_apps_csrf_cookie(self):
+        # A second Django app on the same host shares the default csrftoken cookie (cookies have no port).
+        from django.conf import settings
+        from django.test import Client
+        self.assertEqual(settings.CSRF_COOKIE_NAME, "linkedeyecsrftoken")
+        client = Client(enforce_csrf_checks=True)
+        page = client.get(reverse("login"))
+        token = page.cookies[settings.CSRF_COOKIE_NAME].value
+        client.cookies["csrftoken"] = "token-from-another-app-on-this-host"
+        response = client.post(reverse("login"), {
+            "username": "root",
+            "password": "Corr3ct-horse-battery",
+            "csrfmiddlewaretoken": token,
+        }, follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "CSRF token from POST incorrect")
+        self.assertContains(response, 'name="csrf-cookie-name" content="linkedeyecsrftoken"')

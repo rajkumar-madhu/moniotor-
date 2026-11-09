@@ -1,7 +1,14 @@
 /* LinkedEye console behaviour: async "run now" buttons, confirm dialogs, auto-refresh. */
 (function () {
   'use strict';
-  const csrf = () => (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || (document.querySelector('[name=csrfmiddlewaretoken]') || {}).value;
+  const csrf = () => {
+    const meta = document.querySelector('meta[name="csrf-cookie-name"]');
+    const name = (meta && meta.content) || 'linkedeyecsrftoken';
+    const match = document.cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]*)'));
+    if (match) return decodeURIComponent(match[1]);
+    const input = document.querySelector('[name=csrfmiddlewaretoken]');
+    return (input && input.value) || '';
+  };
 
   // <button data-post="/url" data-reload> : POST via fetch, then reload (or show JSON result in data-target)
   document.addEventListener('click', async e => {

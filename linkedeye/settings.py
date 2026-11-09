@@ -146,6 +146,11 @@ SESSION_COOKIE_AGE = int(env("SESSION_COOKIE_AGE", "28800"))
 SESSION_SAVE_EVERY_REQUEST = env("SESSION_SAVE_EVERY_REQUEST", "true").lower() in ("1", "true", "yes")
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
+# Cookies are scoped to the host, not the port. Another Django process on the same host
+# (for example 127.0.0.1:8000 beside this app on 127.0.0.1:8012) would overwrite the
+# default csrftoken, and the next POST fails with "CSRF token from POST incorrect."
+CSRF_COOKIE_NAME = env("CSRF_COOKIE_NAME", "linkedeyecsrftoken")
+SESSION_COOKIE_NAME = env("SESSION_COOKIE_NAME", "linkedeyesessionid")
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
 
