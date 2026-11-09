@@ -4,8 +4,9 @@
 .pg-domains .dm-detail { padding: 16px 14px; }
 
 /* header */
-.pg-domains .dm-glyph { width: 64px; height: 64px; border-radius: 14px; color: var(--primary); }
-.pg-domains .dm-glyph-plain { width: 56px; height: 56px; color: var(--ink); background: none; }
+.pg-domains .dm-glyph { width: 44px; height: 44px; border-radius: 11px; color: var(--primary); }   /* same size as every page header icon (app.css .head .glyph) */
+.pg-domains .dm-glyph-plain { width: 44px; height: 44px; color: var(--primary); }
+.pg-domains .dm-glyph svg, .pg-domains .dm-glyph-plain svg { width: 24px; height: 24px; }
 .pg-domains .dm-head .actions { align-self: center; margin-top: 0; }
 .pg-domains .dm-head .actions .btn { height: 38px; }
 .pg-domains .dm-btn-sq { width: 38px; height: 38px; }
@@ -171,7 +172,6 @@
 @media (max-width: 860px) {
   .pg-domains .dm-charts { grid-template-columns: minmax(0, 1fr); }
   .pg-domains .dm-charts .donut-wrap { flex-wrap: wrap; justify-content: center; }
-  .pg-domains .dm-glyph { width: 52px; height: 52px; }
   .pg-domains .dm-filters > * { flex: 1 1 140px; max-width: none; }
   .pg-domains .dm-tbar .dm-filters { flex-basis: 100%; }
   .pg-domains .dm-kpis .sub, .pg-domains .dm-kpis .label { white-space: normal; }

@@ -1,0 +1,190 @@
+{% extends "core/base.html" %}{% load le static telemetry_tags %}
+{% block title %}Overview{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'telemetry/page.css' %}"><link rel="stylesheet" href="{% static 'telemetry/overview.css' %}">{% endblock %}
+{% block crumbs %}{% include "telemetry/_crumbs.html" with crumb_here="Overview" %}{% endblock %}
+{% block content %}
+<div class="pg-telemetry pg-fleet pg-overview" id="ov" data-json-url="{{ json_url }}" data-live="{{ params.live }}" data-live-interval="{{ live_interval }}" data-q-live="{{ q_live.urlencode }}">
+<div class="head">
+  <div class="glyph">{% icon "analytics" 30 %}</div>
+  <div><h1>Overview</h1><p>Every node in one set of synced charts{% if prom_configured %} <span class="src">· {{ prom_host }}</span>{% endif %}</p></div>
+  <div class="actions">
+    <button type="button" class="btn" data-ov-share title="Copy a link to this exact view">{% icon "share" 17 %}<span data-ov-share-text>Share</span></button>
+    <button type="button" class="btn" data-ov-drawer-toggle aria-expanded="false" aria-controls="ov-drawer">{% icon "bell" 17 %}Alerts &amp; nodes{% if alerts_total %} <span class="n ov-n crit">{{ alerts_total }}</span>{% endif %}</button>
+    {% if can_operate and prom_configured %}<a class="btn" href="?{{ q_base.urlencode }}{% if q_base.urlencode %}&amp;{% endif %}refresh=1">{% icon "refresh" 17 %}Refresh</a>{% endif %}
+    <a class="btn primary" href="{% url 'telemetry:fleet' %}">{% icon "grid" 17 %}Fleet</a>
+  </div>
+</div>
+
+{% if not prom_configured %}
+  {% include "telemetry/_not_connected.html" with nc_title="Prometheus" nc_env="LINKEDEYE_PROMETHEUS_URL" nc_extra="(for example http://prometheus.internal:9090)" nc_keep=True nc_text="The Overview draws every chart from node_exporter metrics in Prometheus. Until it is connected the node counts below come from the CMDB inventory only and no chart is shown." %}
+{% elif prom_error %}
+  {% include "telemetry/_error.html" with err_title="Prometheus query failed" err_message=prom_error %}
+{% endif %}
+
+<section class="panel ov-strip" aria-label="Nodes summary">
+  <div class="ov-strip-top">
+    <div class="fl-total"><b data-ov="selected">{{ strip.selected }}</b><span>node{{ strip.selected|pluralize }} in view{% if params.filtered %} <a href="{% url 'telemetry:overview' %}?range={{ range_key }}{% if params.range_key == 'custom' %}&amp;last={{ params.last }}&amp;unit={{ params.unit }}{% endif %}">clear filters</a>{% endif %}</span></div>
+    <div class="ov-states">
+      {% if state_bar %}<div class="fl-bar" role="list" aria-label="Nodes by state">{% for s in state_bar %}<a role="listitem" class="fl-seg" style="width:{{ s.pct }}%;background:{{ s.colour }};color:{{ s.ink }}" href="{% url 'telemetry:fleet' %}?state={{ s.key }}" title="{{ s.value }} {{ s.label }} · open in Fleet">{% if s.wide %}<span class="fl-seg-txt">{{ s.label }} {{ s.value }}</span>{% endif %}</a>{% endfor %}</div>
+      <div class="fl-keys">{% for s in state_bar %}<a class="fl-key" href="{% url 'telemetry:fleet' %}?state={{ s.key }}"><i style="background:{{ s.colour }}"></i>{{ s.label }}<b data-ov-count="{{ s.key }}">{{ s.value }}</b></a>{% endfor %}</div>
+      {% else %}<p class="empty">No nodes yet.</p>{% endif %}
+    </div>
+  </div>
+  {% if prom_configured %}
+  <div class="kpis tm-kpis ov-kpis">
+    <div class="kpi stacked hm-kpi-gauge"><div class="label">{% icon "cpu" 14 %}Avg CPU</div><div class="chart hm-gauge" data-chart="gauge" data-src="ov-g-cpu"></div><div class="sub">{{ strip.gauges.cpu.sub }}</div></div>
+    <div class="kpi stacked hm-kpi-gauge"><div class="label">{% icon "memory" 14 %}Avg RAM</div><div class="chart hm-gauge" data-chart="gauge" data-src="ov-g-memory"></div><div class="sub">{{ strip.gauges.memory.sub }}</div></div>
+    <div class="kpi stacked hm-kpi-gauge"><div class="label">{% icon "hdd" 14 %}Avg root disk</div><div class="chart hm-gauge" data-chart="gauge" data-src="ov-g-disk"></div><div class="sub">{{ strip.gauges.disk.sub }}</div></div>
+    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-ok">{% icon "arrow-down" 22 %}</div><div class="kpi-body"><div class="label">Network in</div><div class="value">{{ strip.rx|hrate|unit_small }}</div></div></div><div class="sub">now, all live nodes</div></div>
+    <div class="kpi stacked"><div class="kpi-top"><div class="tile s-info">{% icon "arrow-up" 22 %}</div><div class="kpi-body"><div class="label">Network out</div><div class="value">{{ strip.tx|hrate|unit_small }}</div></div></div><div class="sub">now, all live nodes</div></div>
+    <a class="kpi stacked ov-kpi-link" href="{% url 'telemetry:alertmanager' %}"><div class="kpi-top"><div class="tile s-crit">{% icon "flame" 22 %}</div><div class="kpi-body"><div class="label">Alerts firing</div><div class="value{% if alerts_total %} t-crit{% endif %}">{{ alerts_total }}</div></div></div><div class="sub">{{ alert_split.critical }} critical · {{ alert_split.warning }} warning</div></a>
+  </div>
+  {% endif %}
+</section>
+
+<form class="panel ov-controls" method="get" action="{% url 'telemetry:overview' %}" aria-label="Overview controls">
+  <input type="hidden" name="range" value="{{ range_key }}">
+  {% if params.live %}<input type="hidden" name="live" value="{{ params.live }}">{% endif %}
+  <div class="ov-row">
+    <div class="ov-ctl"><span class="ov-lbl" id="ov-lbl-range">Time range</span>
+      <nav class="seg" aria-labelledby="ov-lbl-range">{% for k, l in ranges %}<a href="?{% if q_range.urlencode %}{{ q_range.urlencode }}&amp;{% endif %}range={{ k }}" class="{% if k == range_key %}on{% endif %}" title="{{ l }}"{% if k == range_key %} aria-current="true"{% endif %}>{{ k }}</a>{% endfor %}</nav>
+      <details class="ov-pop-wrap{% if range_key == 'custom' %} on{% endif %}"><summary class="btn sm" title="A custom length of time, ending now">{% if range_key == 'custom' %}{{ range_label }}{% else %}Custom{% endif %}</summary>
+        <div class="ov-pop">
+          <label class="ov-lbl" for="ov-last">Last</label>
+          <input type="number" id="ov-last" name="last" min="1" max="999999" step="1" value="{{ params.last }}" placeholder="90" inputmode="numeric">
+          <select name="unit" aria-label="Unit">{% for k, l in custom_units %}<option value="{{ k }}"{% if params.unit == k %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+          <button class="btn sm primary" type="submit" name="range" value="custom">Apply</button>
+          <p class="ov-hint">Between 5 minutes and 30 days, ending now.</p>
+        </div></details>
+    </div>
+    <label class="ov-ctl"><span class="ov-lbl">Group by</span>
+      <select name="by" data-autosubmit aria-label="Group by">{% for k, l in by_choices %}<option value="{{ k }}"{% if params.by == k %} selected{% endif %}>{{ l }}</option>{% endfor %}</select></label>
+    <label class="ov-ctl"><span class="ov-lbl">Site</span>
+      <select name="site" data-autosubmit aria-label="Site"><option value="">All sites</option>{% for s in site_choices %}<option value="{{ s }}"{% if params.site == s %} selected{% endif %}>{{ s }}</option>{% endfor %}</select></label>
+    <label class="ov-ctl"><span class="ov-lbl">Environment</span>
+      <select name="env" data-autosubmit aria-label="Environment"><option value="">All</option>{% for k, l in env_choices %}<option value="{{ k }}"{% if params.env == k %} selected{% endif %}>{{ l }}</option>{% endfor %}</select></label>
+    {% if client_choices %}<label class="ov-ctl"><span class="ov-lbl">Client</span>
+      <select name="client_name" data-autosubmit aria-label="Client"><option value="">All</option>{% for c in client_choices %}<option value="{{ c }}"{% if params.client == c %} selected{% endif %}>{{ c }}</option>{% endfor %}</select></label>{% endif %}
+  </div>
+  <div class="ov-row">
+    <details class="ov-nodes-pick">
+      <summary class="btn sm">{% icon "server" 15 %}Nodes: {% if params.nodes %}{{ sel.hosts|length }} selected{% else %}all{% endif %} <span class="tm-meta">of {{ nodes_total }}</span></summary>
+      <div class="ov-pop ov-nodes-pop">
+        <input type="search" data-ov-node-filter placeholder="Filter nodes…" aria-label="Filter nodes">
+        <div class="ov-nodes-actions"><button type="button" class="btn sm" data-ov-nodes="all">Select all</button><button type="button" class="btn sm" data-ov-nodes="none">Clear</button><button type="submit" class="btn sm primary">Apply</button></div>
+        <ul class="ov-node-list" role="group" aria-label="Nodes">
+          {% for h in node_options %}<li data-name="{{ h.name|lower }} {{ h.instance|lower }}"><label><input type="checkbox" name="nodes" value="{{ h.instance }}"{% if h.instance in chosen %} checked{% endif %}><span class="dot fill-{{ h.state|state_tone }}"></span><span class="nm">{{ h.name }}</span>{% if h.site %}<span class="tm-meta">{{ h.site }}</span>{% endif %}</label></li>{% empty %}<li class="tm-meta">No nodes with metrics yet.</li>{% endfor %}
+        </ul>
+        {% if nodes_capped %}<p class="ov-hint">Showing the first {{ node_options|length }} of {{ nodes_total }} nodes: narrow by site or environment to reach the rest.</p>{% endif %}
+      </div>
+    </details>
+    <label class="ov-check"><input type="checkbox" name="compare" value="1" data-autosubmit{% if params.compare %} checked{% endif %}> Compare to previous period</label>
+    <div class="ov-live">
+      <button type="button" class="btn sm" id="ov-live" aria-pressed="false" title="Refresh the charts in place; paused while this tab is hidden">{% icon "activity" 16 %}Live</button>
+      <select id="ov-live-int" aria-label="Live refresh interval">{% for n in live_choices %}<option value="{{ n }}"{% if n == live_interval %} selected{% endif %}>every {{ n }} s</option>{% endfor %}</select>
+      <span class="hm-updated" id="ov-updated" aria-live="polite"></span>
+      <span class="hm-live-err" id="ov-live-err" role="alert" hidden></span>
+    </div>
+    <span class="ov-meta">{{ range_label }}{% if charts_ready %} · step {{ page.charts.step }}s · {{ page.charts.query_count }} quer{{ page.charts.query_count|pluralize:'y,ies' }} · cached {{ cache_seconds }}s{% endif %}</span>
+  </div>
+  <noscript><button class="btn sm primary" type="submit">Apply</button></noscript>
+</form>
+
+{% if sel.ignored %}<p class="tm-note">{{ sel.ignored|length }} node{{ sel.ignored|length|pluralize }} in the link {{ sel.ignored|length|pluralize:"is,are" }} not available to you or not reporting and {{ sel.ignored|length|pluralize:"was,were" }} left out.</p>{% endif %}
+{% if sel.truncated %}<p class="tm-note">Charts cover the first {{ page.matched }} of {{ page.matched|add:sel.truncated }} selected nodes. Narrow the selection by site, environment or node to cover the rest.</p>{% endif %}
+{% if params.by and charts_ready %}<p class="tm-note info">Grouped by {{ by_label|lower }}: the {{ max_series }} biggest series are drawn, the rest are summed into <b>Other</b> (or averaged / maxed for ratio charts, matching what the chart measures).</p>{% endif %}
+
+{% if prom_configured and not prom_error and not sel.hosts %}
+  <div class="panel tm-nc" role="status"><div class="tile">{% icon "server" 22 %}</div>
+    <div><h2>{% if params.filtered %}No nodes match the filters{% else %}No nodes reporting metrics yet{% endif %}</h2>
+    <p>{% if params.filtered %}Widen the site, environment or node selection. <a href="{% url 'telemetry:overview' %}">Clear all filters</a>{% else %}Add node_exporter scrape jobs (a job name containing <code>node</code>) to Prometheus, or onboard servers from <a href="{% url 'telemetry:discovery' %}">Discovery</a>.{% endif %}</p></div></div>
+{% elif charts_ready %}
+<div class="ov-layout">
+<div class="ov-main">
+{% if shown_total == 0 %}
+  <div class="panel tm-nc" role="status"><div class="tile">{% icon "info" 22 %}</div>
+    <div><h2>No node_exporter metrics for this selection</h2>
+    <p>Prometheus has no <code>node_cpu_seconds_total</code>, <code>node_memory_*</code>, <code>node_disk_*</code> or <code>node_network_*</code> series{% if prom_configured and page.present %} for the selected nodes in this range{% endif %}. Check that the scrape job reaches the exporters.</p></div></div>
+{% endif %}
+{% for sec in sections %}
+<section id="{{ sec.id }}" class="ov-section" aria-labelledby="h-{{ sec.id }}">
+  <details class="ov-sec" open data-section="{{ sec.id }}">
+    <summary class="ov-sec-h"><span class="ov-chev" aria-hidden="true"></span><span class="eyebrow">{{ sec.eyebrow }}</span><h2 id="h-{{ sec.id }}">{{ sec.title }}</h2>
+      <span class="right">{{ sec.shown }} chart{{ sec.shown|pluralize }}{% if sec.missing %} · {{ sec.missing|length }} not reported{% endif %}</span></summary>
+    <div class="grid g-2 ov-grid">
+    {% for c in sec.charts %}{% if c.reason != "not_reported" %}
+      <div class="panel hm-chart ov-chart" id="chart-{{ c.key }}">
+        <div class="panel-h"><h2>{{ c.title }}</h2>
+          <div class="right">{% if c.unit %}<span class="hm-unit">{{ c.unit }}</span>{% endif %}
+            {% if c.note %}<span class="tm-meta">{{ c.note }}</span>{% endif %}
+            {% if c.has %}<a class="hm-explore" href="?{{ q_base.urlencode }}{% if q_base.urlencode %}&amp;{% endif %}format=csv&amp;chart={{ c.key }}" title="Download this chart's series as CSV" download>{% icon "download" 14 %}CSV</a>{% endif %}
+            {% if c.explore_q %}<a class="hm-explore" href="{% url 'telemetry:explorer' %}?expr={{ c.explore_q|urlencode }}&amp;range={{ explore_range }}" title="Open this query in the Metrics Explorer">{% icon "analytics" 14 %}Explore</a>{% endif %}</div></div>
+        {% if c.has %}
+          <div class="chart tm-chart" data-chart="{{ c.kind }}" data-src="{{ c.dom_id }}" data-sync="overview" data-kinds="{% if c.stacked %}line,area,bars{% else %}line,area{% endif %}"></div>
+          <div class="table-wrap dense hm-legend ov-legend" data-chart-legend="{{ c.dom_id }}"><table>
+            <thead><tr><th>Series</th><th class="num">Last</th><th class="num">Mean</th><th class="num">Min</th><th class="num">Max</th></tr></thead>
+            <tbody>{% for s in c.legend %}<tr data-series="{{ s.name }}"><td class="name"><i style="background:{{ s.color }}"></i>{{ s.name }}</td><td class="num" data-col="last">{{ s.last }}</td><td class="num" data-col="mean">{{ s.mean }}</td><td class="num" data-col="min">{{ s.min }}</td><td class="num" data-col="max">{{ s.max }}</td></tr>{% endfor %}</tbody>
+          </table></div>
+          {% if c.truncated %}<p class="hm-more">Showing the {{ max_series }} biggest of {{ c.total }} series; the rest are in Other.</p>{% endif %}
+        {% elif c.reason == "error" %}
+          <div class="hm-missing err">{% icon "alert" 16 %}<span>This chart's query failed: {{ c.error }}</span></div>
+        {% else %}
+          <div class="hm-missing">{% icon "info" 16 %}<span>No <code>{{ c.metrics }}</code> data for the selected nodes in this range.</span></div>
+        {% endif %}
+      </div>
+    {% endif %}{% endfor %}
+    </div>
+    {% if sec.id == "system" %}
+    <div class="panel ov-uptime"><div class="panel-h"><h2>Uptime distribution</h2><div class="right tm-meta">{{ uptime_n }} live node{{ uptime_n|pluralize }}</div></div>
+      {% if uptime_n %}<div class="ov-bars">{% for b in uptime %}<div class="hbar"><span class="lbl">{{ b.label }}</span><span class="track"><i class="fill-info" style="width:{{ b.pct }}%"></i></span><span class="val">{{ b.count }}</span></div>{% endfor %}</div>
+      {% else %}<div class="hm-missing">{% icon "info" 16 %}<span>No live node reports an uptime yet.</span></div>{% endif %}</div>
+    {% endif %}
+    {% if sec.missing %}
+    <details class="ov-missing"><summary>{{ sec.missing|length }} chart{{ sec.missing|length|pluralize }} not reported by any node</summary>
+      <ul>{% for c in sec.missing %}<li><b>{{ c.title }}</b> <span class="tm-meta">needs {{ c.metrics }}{% if c.hint %} · {{ c.hint }}{% endif %}</span></li>{% endfor %}</ul></details>
+    {% endif %}
+  </details>
+</section>
+{% endfor %}
+</div>
+
+<aside class="ov-toc" aria-label="Sections">
+  <span class="eyebrow">On this page</span>
+  <nav>{% for sec in sections %}<a href="#{{ sec.id }}" data-toc="{{ sec.id }}">{{ sec.title }}<span class="n">{{ sec.shown }}</span></a>{% endfor %}</nav>
+  <select aria-label="Jump to section" data-toc-select>{% for sec in sections %}<option value="{{ sec.id }}">{{ sec.title }} ({{ sec.shown }})</option>{% endfor %}</select>
+  <div class="hm-foot">{{ page.charts.query_count }} Prometheus queries (budget {{ call_budget }}) · {{ page.charts.step }}s step · cached {{ cache_seconds }}s</div>
+</aside>
+</div>
+{% endif %}
+
+<aside class="ov-drawer" id="ov-drawer" aria-label="Alerts and nodes" hidden>
+  <div class="ov-drawer-h">
+    <div class="ov-tabs" role="tablist" aria-label="Drawer sections">
+      <button type="button" role="tab" id="ovt-alerts" aria-controls="ovp-alerts" aria-selected="true" data-ov-tab="alerts">Alerts <span class="n">{{ alerts_total }}</span></button>
+      <button type="button" role="tab" id="ovt-hot" aria-controls="ovp-hot" aria-selected="false" tabindex="-1" data-ov-tab="hot">Hot nodes <span class="n">{{ hot|length }}</span></button>
+      <button type="button" role="tab" id="ovt-nodes" aria-controls="ovp-nodes" aria-selected="false" tabindex="-1" data-ov-tab="nodes">Nodes <span class="n">{{ sel.hosts|length }}</span></button>
+    </div>
+    <button type="button" class="btn icon" data-ov-drawer-toggle aria-label="Close the panel">{% icon "x" 16 %}</button>
+  </div>
+  <div class="ov-drawer-b" role="tabpanel" id="ovp-alerts" aria-labelledby="ovt-alerts" data-ov-pane="alerts">
+    {% if alerts %}<ul class="ov-list">{% for a in alerts %}<li><span class="sev {{ a.severity_tone }}"></span><div><a href="{% url 'telemetry:alert_detail' a.pk %}">{{ a.alertname }}</a><span class="tm-meta">{{ a.instance|default:"no instance" }} · {{ a.last_received_at|since }}</span></div><span class="badge {{ a.severity_tone }}">{{ a.severity|default:"alert" }}</span></li>{% endfor %}</ul>
+      {% if alerts_total > alerts|length %}<p class="ov-hint">{{ alerts|length }} of {{ alerts_total }} shown.</p>{% endif %}
+    {% else %}<p class="ov-hint">Nothing firing{% if params.filtered %} on the selected nodes{% endif %}.</p>{% endif %}
+    <a class="btn sm" href="{% url 'telemetry:alertmanager' %}">Open Alert Manager {% icon "arrow-right" 14 %}</a>
+  </div>
+  <div class="ov-drawer-b" role="tabpanel" id="ovp-hot" aria-labelledby="ovt-hot" data-ov-pane="hot" hidden>
+    {% if hot %}<ul class="ov-list">{% for r in hot %}<li><span class="sev {% if r.rank == 2 %}crit{% else %}warn{% endif %}"></span><div><a href="{% url 'telemetry:host_metrics' r.host.instance %}">{{ r.host.name }}</a><span class="tm-meta">CPU {{ r.host.cpu|pct1 }} · RAM {{ r.host.memory|pct1 }} · disk {{ r.host.disk|pct1 }}</span></div></li>{% endfor %}</ul>
+    {% else %}<p class="ov-hint">No selected node is above the CPU, memory or disk thresholds right now.</p>{% endif %}
+  </div>
+  <div class="ov-drawer-b" role="tabpanel" id="ovp-nodes" aria-labelledby="ovt-nodes" data-ov-pane="nodes" hidden>
+    <input type="search" data-ov-drawer-filter placeholder="Filter nodes…" aria-label="Filter nodes">
+    <ul class="ov-list ov-nodes-list">{% for h in drawer_nodes %}<li data-name="{{ h.name|lower }} {{ h.instance|lower }}"><span class="dot fill-{{ h.state|state_tone }}"></span><div><a href="{% url 'telemetry:host_metrics' h.instance %}">{{ h.name }}</a><span class="tm-meta">{{ h.state_label }}{% if h.site %} · {{ h.site }}{% endif %}</span></div><span class="tm-meta">{{ h.cpu|pct1 }}</span></li>{% empty %}<li class="ov-hint">No nodes in view.</li>{% endfor %}</ul>
+    {% if sel.hosts|length > drawer_nodes|length %}<p class="ov-hint">First {{ drawer_nodes|length }} of {{ sel.hosts|length }}.</p>{% endif %}
+  </div>
+</aside>
+
+{% if charts_ready %}{% for sec in sections %}{% for c in sec.charts %}{% if c.has %}{{ c.data|json_script:c.dom_id }}{% endif %}{% endfor %}{% endfor %}{% endif %}
+{{ strip.gauges.cpu|json_script:"ov-g-cpu" }}{{ strip.gauges.memory|json_script:"ov-g-memory" }}{{ strip.gauges.disk|json_script:"ov-g-disk" }}
+</div>
+{% endblock %}
+{% block scripts %}<script src="{% static 'telemetry/overview.js' %}"></script>{% endblock %}

@@ -12,6 +12,7 @@ admin.site.site_title = "LinkedEye"   # admin.site.login_form is set in Administ
 urlpatterns = [
     path("welcome/", core.b2b_landing, name="b2b_landing"),
     path("", core.dashboard, name="dashboard"),
+    path("dashboard/data/", core.dashboard_data, name="dashboard_data"),
     path("search/", core.search, name="search"),
     path("healthz", core.healthz, name="healthz"),
     path("api/backend-summary/", core.backend_summary_api, name="backend_summary_api"),

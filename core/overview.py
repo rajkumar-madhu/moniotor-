@@ -38,23 +38,41 @@ def _tenant(qs):
     return qs.filter(tenant_key=settings.LINKEDEYE_TENANT) if hasattr(qs.model, "tenant_key") else qs
 
 
-def _scoped(m, user, field="site"):
+def _scoped(m, user, field="site", sites=None):
+    """Tenant rows on the user's sites. `sites` (a set of site names, or None) narrows further, to what the site
+    and client pickers selected: records without a site ("All Sites") are then left out, as on the heat-map."""
     qs = _tenant(m.objects.all())
-    return scope_by_site(qs, user, field=field) if user is not None else qs
+    qs = scope_by_site(qs, user, field=field) if user is not None else qs
+    return qs if sites is None else qs.filter(**{f"{field}__in": list(sites)})
+
+
+def focus_sites(user, selected_site="", client_param="", names=None):
+    """The set of site names the dashboard is narrowed to by the site and client pickers, or None for no narrowing.
+    A site the user cannot see (or a client with none of their sites) gives an empty set: nothing, never everything."""
+    from .client_scope import client_site_names
+    names = site_names(user) if names is None else names
+    focus = None
+    if client_param:
+        focus = client_site_names(user, client_param) or set()
+    if selected_site:
+        picked = {selected_site} if selected_site in names else set()
+        focus = picked if focus is None else focus & picked
+    return focus
 
 
 # ------------------------------------------------------------------ problems ("needs attention")
-def problems(user, limit=None):
-    """Everything currently down or degraded, newest first. Each item: kind, name, status, detail, when, href."""
+def problems(user, limit=None, sites=None):
+    """Everything currently down or degraded, newest first. Each item: kind, name, status, detail, when, href, site.
+    Alert items also carry `alert_pk` and `acknowledged`. `sites` narrows to the picker selection (focus_sites)."""
     out = []
     UrlCheck = model("urlchecker", "UrlCheck")
     if UrlCheck:
-        for c in _safe(lambda: list(_scoped(UrlCheck, user).filter(enabled=True, last_status__in=["down", "degraded"])), []):
+        for c in _safe(lambda: list(_scoped(UrlCheck, user, sites=sites).filter(enabled=True, last_status__in=["down", "degraded"])), []):
             out.append({"kind": "URL", "name": c.name, "status": c.last_status, "detail": c.last_error,
                         "when": c.last_checked_at, "href": _url("urlchecker:detail", c.pk), "site": c.site})
     Domain = model("domainmonitor", "Domain")
     if Domain:
-        qs = _safe(lambda: list(_scoped(Domain, user, "site_key").filter(is_active=True).exclude(
+        qs = _safe(lambda: list(_scoped(Domain, user, "site_key", sites).filter(is_active=True).exclude(
             status="up", ssl_status__in=["Valid", "Unknown"])), [])
         for d in qs:
             if d.status != "down" and d.ssl_status not in ("Expiring", "Expired", "Invalid"):
@@ -64,21 +82,22 @@ def problems(user, limit=None):
                         "href": f"{_url('domains:list')}?selected={d.pk}", "site": d.site_key})
     Device = model("network", "Device")
     if Device:
-        for d in _safe(lambda: list(_scoped(Device, user).filter(enabled=True, status="down")), []):
+        for d in _safe(lambda: list(_scoped(Device, user, sites=sites).filter(enabled=True, status="down")), []):
             out.append({"kind": "Device", "name": d.name, "status": "down", "detail": d.last_error,
                         "when": d.last_checked_at, "href": d.get_absolute_url(), "site": d.site})
     TcpCheck = model("tcpcheck", "TcpCheck")
     if TcpCheck:
-        for c in _safe(lambda: list(_scoped(TcpCheck, user).filter(enabled=True, last_status__in=["down", "degraded"])), []):
+        for c in _safe(lambda: list(_scoped(TcpCheck, user, sites=sites).filter(enabled=True, last_status__in=["down", "degraded"])), []):
             out.append({"kind": "TCP", "name": f"{c.name} ({c.host}:{c.port})", "status": c.last_status,
                         "detail": c.last_error, "when": c.last_checked_at, "href": _url("tcpcheck:detail", c.pk),
                         "site": c.site})
     Alert = model("telemetry", "Alert")
     if Alert:
-        for a in _safe(lambda: list(_scoped(Alert, user).filter(status="firing", severity="critical")
+        for a in _safe(lambda: list(_scoped(Alert, user, sites=sites).filter(status="firing", severity="critical")
                                     .order_by("-starts_at")[:50]), []):
             out.append({"kind": "Alert", "name": a.alertname, "status": "critical", "detail": a.summary or a.instance,
-                        "when": a.starts_at, "href": _url("telemetry:alert_detail", a.pk), "site": a.site})
+                        "when": a.starts_at, "href": _url("telemetry:alert_detail", a.pk), "site": a.site,
+                        "alert_pk": a.pk, "acknowledged": a.acknowledged_at is not None})
     out.sort(key=lambda p: p["when"].timestamp() if p["when"] else 0, reverse=True)
     return out[:limit] if limit else out
 
@@ -100,6 +119,39 @@ def problem_count(user):
         if m:
             total += _safe(lambda: _scoped(m, user, field).filter(cond).count(), 0)
     return total
+
+
+# ------------------------------------------------------------------ sidebar badges
+BADGE_CACHE_SECONDS = 30
+BADGE_CAP = 99
+
+
+def nav_badges(user, tenant_key=None):
+    """Counts for the sidebar badges: ``{"incidents", "alerts", "checks"}``. Three cheap COUNT queries (four with
+    both check kinds), cached per user for BADGE_CACHE_SECONDS so that a page view costs nothing extra most of the
+    time. The dashboard computes the same numbers anyway and hands them over through ``request.le_badges``."""
+    from django.core.cache import cache
+    key = f"le:nav-badges:{tenant_key or settings.LINKEDEYE_TENANT}:{getattr(user, 'pk', 0)}"
+    hit = cache.get(key)
+    if hit is not None:
+        return hit
+    out = {"incidents": 0, "alerts": 0, "checks": 0}
+    Ticket, Alert = model("servicedesk", "Ticket"), model("telemetry", "Alert")
+    if Ticket:
+        out["incidents"] = _safe(lambda: _scoped(Ticket, user).filter(kind="incident").open().count(), 0)
+    if Alert:
+        out["alerts"] = _safe(lambda: _scoped(Alert, user).filter(status="firing").count(), 0)
+    for app_label, name in (("urlchecker", "UrlCheck"), ("tcpcheck", "TcpCheck")):
+        m = model(app_label, name)
+        if m:
+            out["checks"] += _safe(lambda: _scoped(m, user).filter(enabled=True, last_status="down").count(), 0)
+    cache.set(key, out, BADGE_CACHE_SECONDS)
+    return out
+
+
+def badge_text(count):
+    """'' for none, the number up to BADGE_CAP, then '99+'."""
+    return "" if not count else (str(count) if count <= BADGE_CAP else f"{BADGE_CAP}+")
 
 
 # ------------------------------------------------------------------ KPIs
@@ -147,9 +199,9 @@ def kpis(user):
     return tiles
 
 
-def recent_events(user, limit=10):
+def recent_events(user, limit=10, sites=None):
     Event = model("core", "Event")
-    return _safe(lambda: list(_scoped(Event, user).exclude(severity="info").order_by("-occurred_at")[:limit]), [])
+    return _safe(lambda: list(_scoped(Event, user, sites=sites).exclude(severity="info").order_by("-occurred_at")[:limit]), [])
 
 
 # ------------------------------------------------------------------ site picker
@@ -295,7 +347,7 @@ def _strip_pct(t):
     return round(max(0.0, min(100.0, (h - DAY_START_H) * 100 / (DAY_END_H - DAY_START_H))), 2)
 
 
-def market_day(user, now=None):
+def market_day(user, now=None, sites=None):
     """Today's trading day in IST: phase bands, BOD/EOD windows with their latest run, critical/warning events
     placed on a 06:00–24:00 strip, and a one-line state. None when the BOD/EOD module is not installed."""
     from datetime import datetime, time as dtime
@@ -313,8 +365,10 @@ def market_day(user, now=None):
                "width": round(_strip_pct(e) - _strip_pct(s), 2), "current": phase["key"] == k}
               for k, label, s, e in bo.PHASES]
     modes = []
-    for mode in _safe(lambda: list(scope_by_site(bo.modes_qs().filter(enabled=True), user)
-                                   .order_by("window_start")), []):
+    mode_qs = scope_by_site(bo.modes_qs().filter(enabled=True), user)
+    if sites is not None:
+        mode_qs = mode_qs.filter(site__in=list(sites))
+    for mode in _safe(lambda: list(mode_qs.order_by("window_start")), []):
         run = _safe(lambda: Run.objects.filter(mode=mode, trading_date=today).order_by("-started_at").first(), None)
         state = bo.window_state(mode, now, trading) if trading else "no_trading"
         status = run.status if run else ("missed" if state == "closed" else "pending")
@@ -337,7 +391,7 @@ def market_day(user, now=None):
     start = timezone.make_aware(datetime.combine(today, dtime(DAY_START_H)), bo.IST)
     marks = []
     if Event:
-        evs = _safe(lambda: list(_scoped(Event, user).filter(occurred_at__gte=start, severity__in=["critical", "warning"])
+        evs = _safe(lambda: list(_scoped(Event, user, sites=sites).filter(occurred_at__gte=start, severity__in=["critical", "warning"])
                                  .order_by("occurred_at")[:400]), [])
         for e in evs:
             t = timezone.localtime(e.occurred_at, bo.IST).time()
@@ -360,19 +414,28 @@ def market_day(user, now=None):
             "line": line, "lanes": max(1, len(lanes))}
 
 
-def desk_summary(user):
-    """Open incidents (and P1/P2 among them) and firing alerts, for the overview header."""
+def desk_summary(user, sites=None):
+    """Open incidents (P1/P2 among them), SLA breaches and firing alerts, for the dashboard header and its badges.
+    One aggregate query per model."""
+    from django.db.models import Count, Q
     out = {}
     Ticket = model("servicedesk", "Ticket")
     if Ticket:
-        r = _safe(lambda: (lambda qs: (qs.count(), qs.filter(priority__in=["P1", "P2"]).count()))(
-            _scoped(Ticket, user).filter(kind="incident").open()), None)
+        def tickets():
+            qs = _scoped(Ticket, user, sites=sites).open()
+            return qs.aggregate(
+                n=Count("pk", filter=Q(kind="incident")),
+                p12=Count("pk", filter=Q(kind="incident", priority__in=["P1", "P2"])),
+                breached=Count("pk", filter=Q(response_breached=True) | Q(resolution_breached=True)))
+        r = _safe(tickets, None)
         if r:
-            out["incidents"], out["p12"] = r
+            out["incidents"], out["p12"], out["breached"] = r["n"], r["p12"], r["breached"]
             out["incidents_href"] = _url("servicedesk:incidents")
+            out["breached_href"] = _url("servicedesk:tickets")
     Alert = model("telemetry", "Alert")
     if Alert:
-        n = _safe(lambda: _scoped(Alert, user).filter(status="firing").count(), None)
-        if n is not None:
-            out["alerts"], out["alerts_href"] = n, _url("telemetry:alertmanager")
+        r = _safe(lambda: _scoped(Alert, user, sites=sites).filter(status="firing").aggregate(
+            n=Count("pk"), crit=Count("pk", filter=Q(severity="critical"))), None)
+        if r is not None:
+            out["alerts"], out["alerts_crit"], out["alerts_href"] = r["n"], r["crit"], _url("telemetry:alertmanager")
     return out
