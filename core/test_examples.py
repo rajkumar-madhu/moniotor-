@@ -514,7 +514,7 @@ class ExampleBannerTests(TestCase):
 
     def test_banner_adds_no_database_query_to_a_page_view(self):
         self.client.force_login(self.admin)
-        self.client.get("/")                                                  # warm anything cached
+        self.client.get(reverse("tcpcheck:index"))                            # warm anything cached (the sidebar badge counts fill on the first view)
         from django.db import connection
         from django.test.utils import CaptureQueriesContext
         with CaptureQueriesContext(connection) as with_banner:
