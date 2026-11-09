@@ -52,6 +52,17 @@ class ArgusOverlayTests(unittest.TestCase):
         # the pods must refuse to start until the operator fills this in
         self.assertIn("<REPLACE", d["LINKEDEYE_TRUSTED_PROXIES"])
 
+    def test_no_private_probe_range_is_pre_listed(self):
+        # Every listed range can be reached by whoever may configure a probe: the operator lists narrow subnets deliberately.
+        # (The finspot-dev overlay lists /16 ranges that include the cluster API-server address; this one must not copy them.)
+        value = docs(OVERLAY / "configmap-patch.yaml")[0]["data"]["LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS"]
+        self.assertEqual(value, "")
+
+    def test_guide_tells_the_operator_to_restart_pods_after_a_settings_change(self):
+        text = (ROOT / "docs" / "ARGUS_K8S.md").read_text()
+        self.assertIn("rollout restart deploy/linkedeye-web deploy/linkedeye-probes", text)
+        self.assertIn("never a whole `/16`", text)
+
     def test_no_secret_value_is_committed(self):
         for f in OVERLAY.iterdir():
             text = f.read_text()

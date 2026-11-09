@@ -113,7 +113,7 @@ class OverviewTests(TestCase):
             r = self.client.get("/")
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "Trading hours until 15:30 IST.")
-        self.assertContains(r, 'class="ov-strip"')
+        self.assertContains(r, 'class="dash-strip"')
         self.assertContains(r, "Mumbai (NSE)")
         self.assertContains(r, "1 down")
 

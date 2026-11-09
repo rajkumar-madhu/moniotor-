@@ -2,7 +2,7 @@ from django.conf import settings
 from django.urls import NoReverseMatch, reverse
 from django.utils.text import slugify
 
-from .nav import NAV
+from .nav import NAV, SECTIONS
 
 
 def _resolve(item, path):
@@ -13,29 +13,54 @@ def _resolve(item, path):
             href = reverse("coming_soon", args=[slugify(item["label"])])
     else:
         href = reverse("coming_soon", args=[slugify(item["label"])])
-    return {"label": item["label"], "icon": item.get("icon"), "href": href, "active": False, "chev": item.get("chev", False)}
+    # `key` is the stable id the browser stores pins under: the URL name for a link, the slug for a group
+    key = item.get("url") or slugify(item["label"])
+    return {"label": item["label"], "icon": item.get("icon"), "href": href, "active": False, "chev": item.get("chev", False),
+            "key": key, "badge": 0, "badge_text": ""}
+
+
+def build_nav(path, badges=None):
+    """The sidebar for one request path: ``(nav, sections)``.
+
+    ``nav`` is the flat list of top-level entries (each with its ``children``, ``active`` and ``open`` flags, as
+    before); ``sections`` files the same entries under the labelled sections of core.nav.SECTIONS, with the
+    section holding the current page marked ``active``. Pure: no queries."""
+    from . import overview
+    badges = badges or {}
+    nav = []
+    for item in NAV:
+        entry = _resolve(item, path)
+        entry["section"] = item.get("section") or SECTIONS[-1][0]
+        entry["children"] = [_resolve(c, path) for c in item.get("children", [])]
+        count = badges.get(item.get("badge"), 0) if item.get("badge") else 0
+        entry["badge"], entry["badge_text"] = count, overview.badge_text(count)
+        nav.append(entry)
+    # highlight the single most specific link whose URL prefixes the current path
+    links = [e for n in nav for e in [n, *n["children"]]]
+    matches = [e for e in links if path == e["href"] or (e["href"] != "/" and path.startswith(e["href"]))]
+    if matches:
+        max(matches, key=lambda e: len(e["href"]))["active"] = True
+    for entry in nav:
+        entry["open"] = entry["active"] or any(c["active"] for c in entry["children"])
+    sections = []
+    for key, label in SECTIONS:
+        items = [e for e in nav if e["section"] == key]
+        if items:
+            sections.append({"key": key, "label": label, "items": items, "active": any(e["open"] for e in items),
+                             "links": sum(len(e["children"]) or 1 for e in items)})
+    return nav, sections
 
 
 def shell(request):
     if not getattr(request, "user", None) or not request.user.is_authenticated:
         return {"le_version": settings.LINKEDEYE_VERSION, "csrf_cookie_name": settings.CSRF_COOKIE_NAME}
-    nav = []
-    for item in NAV:
-        entry = _resolve(item, request.path)
-        entry["children"] = [_resolve(c, request.path) for c in item.get("children", [])]
-        nav.append(entry)
-    # highlight the single most specific link whose URL prefixes the current path
-    links = [e for n in nav for e in [n, *n["children"]]]
-    matches = [e for e in links if request.path == e["href"] or (e["href"] != "/" and request.path.startswith(e["href"]))]
-    if matches:
-        max(matches, key=lambda e: len(e["href"]))["active"] = True
-    for entry in nav:
-        entry["open"] = entry["active"] or any(c["active"] for c in entry["children"])
     from . import overview
     from .access import role_for
     from .client_scope import active_client, narrow_site_names
     from .client_sites import clients_for_user
     role = role_for(request.user)
+    badges = getattr(request, "le_badges", None) or overview.nav_badges(request.user)
+    nav, nav_sections = build_nav(request.path, badges)
     admin_url = overview._url("administration:index") or overview._url("admin:index")
     client = active_client(request)
     sites = getattr(request, "le_site_names", None)
@@ -50,7 +75,7 @@ def shell(request):
             if str(c.pk) == str(client):
                 le_client_name = c.name
                 break
-    return {"nav": nav, "le_version": settings.LINKEDEYE_VERSION, "csrf_cookie_name": settings.CSRF_COOKIE_NAME,
+    return {"nav": nav, "nav_sections": nav_sections, "le_version": settings.LINKEDEYE_VERSION, "csrf_cookie_name": settings.CSRF_COOKIE_NAME,
             "le_problem_count": overview.problem_count(request.user),
             "le_sites": sites,
             "le_site": request.GET.get("site", ""),

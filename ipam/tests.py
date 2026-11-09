@@ -1107,6 +1107,9 @@ class ReviewFixTests(Users, TestCase):
 
         for n in range(5):
             subnet(f"10.1.{n}.0/24")
+        # the sidebar's badge counts are cached per user for a few seconds: the first page view fills that cache
+        # (four extra queries), so warm it first and compare only what the subnet list itself costs
+        self.c.get(reverse("ipam:subnets"))
         few, depths = count()
         self.assertEqual((depths["10.0.0.0/8"], depths["10.1.0.0/16"], depths["10.1.3.0/24"]), (0, 1, 2))
         for n in range(5, 25):

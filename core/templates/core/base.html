@@ -11,6 +11,12 @@
       if (t !== 'dark' && t !== 'light') { t = 'light'; }
       document.documentElement.setAttribute('data-theme', t);
       document.documentElement.style.backgroundColor = t === 'dark' ? '#0e1116' : '#f4f1ea';
+      // sidebar sections the user collapsed last time (app.js owns the rest of the menu state)
+      try {
+        var c = JSON.parse(localStorage.getItem('linkedeye-nav-sections') || '{}'), k = [];
+        for (var n in c) { if (c[n] === false && /^[a-z]+$/.test(n)) k.push(n); }
+        if (k.length) document.documentElement.setAttribute('data-nav-c', k.join(' '));
+      } catch (e) { /* private mode: every section starts open */ }
     })();
   </script>
   <meta charset="utf-8">
@@ -23,7 +29,7 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap"
     rel="stylesheet">
-  <link rel="stylesheet" href="{% static 'linkedeye/app.css' %}?v=infra-theme-2">
+  <link rel="stylesheet" href="{% static 'linkedeye/app.css' %}?v=ui-shell-1">
   {% block page_css %}{% endblock %}
 </head>
 
@@ -35,22 +41,41 @@
         <span class="logo"><img src="{% static 'linkedeye/img/logo-in.png' %}" alt=""></span>
         <div><b>Linked<span>Eye</span></b><small>ITSM · Monitoring</small></div>
       </a>
-      <nav class="nav" aria-label="Main">
-        {% for item in nav %}
-        {% if item.children %}
-        <details class="{% if item.open %}on{% endif %}">
-          <summary>{% icon item.icon 20 %}<span class="lbl">{{ item.label }}</span>{% icon "chevron-right" 15 "chev" %}
-          </summary>
-          <div class="sub">{% for c in item.children %}<a href="{{ c.href }}" class="{% if c.active %}on{% endif %}">{{ c.label }}</a>{% endfor %}</div>
-        </details>
-        {% else %}
-        <a href="{{ item.href }}" class="{% if item.active %}on{% endif %}">{% icon item.icon 20 %}<span class="lbl">{{ item.label }}</span>{% if item.chev %}{% icon "chevron-right" 15 "chev" %}{% endif %}</a>
-        {% endif %}
+      <div class="nav-filter" role="search">
+        {% icon "search" 16 %}
+        <label class="sr" for="nav-filter-input">Filter menu</label>
+        <input id="nav-filter-input" type="search" placeholder="Filter menu…" autocomplete="off" spellcheck="false" aria-controls="nav" data-nav-filter>
+        <kbd aria-hidden="true">/</kbd>
+      </div>
+      <nav class="nav" id="nav" aria-label="Main" data-nav>
+        <p class="nav-empty" data-nav-empty hidden>No menu item matches.</p>
+        <div class="nav-sec nav-pinned" data-sec="pinned" hidden>
+          <div class="nav-sec-h is-static"><span>Pinned</span></div>
+          <div class="nav-sec-body" data-pinned-list></div>
+        </div>
+        {% for sec in nav_sections %}
+        <div class="nav-sec{% if sec.active %} has-active{% endif %}" data-sec="{{ sec.key }}">
+          <button type="button" class="nav-sec-h" aria-expanded="true" aria-controls="nav-sec-{{ sec.key }}" data-nav-sec><span>{{ sec.label }}</span>{% icon "chevron-down" 14 "chev" %}</button>
+          <div class="nav-sec-body" id="nav-sec-{{ sec.key }}">
+            {% for item in sec.items %}
+            {% if item.children %}
+            <details class="nav-group{% if item.open %} on{% endif %}" data-key="{{ item.key }}" data-label="{{ item.label }}"{% if item.open %} open{% endif %}>
+              <summary aria-expanded="{% if item.open %}true{% else %}false{% endif %}">{% icon item.icon 20 %}<span class="lbl">{{ item.label }}</span>{% if item.badge_text %}<span class="nav-badge" title="{{ item.badge }}">{{ item.badge_text }}</span>{% endif %}{% icon "chevron-right" 15 "chev" %}</summary>
+              <div class="sub">{% for c in item.children %}<div class="nav-row" data-key="{{ c.key }}"><a href="{{ c.href }}" data-nav-key="{{ c.key }}"{% if c.active %} class="on" aria-current="page"{% endif %}>{{ c.label }}</a><button type="button" class="nav-pin" data-pin="{{ c.key }}" aria-pressed="false" aria-label="Pin {{ c.label }}" title="Pin to the top of the menu">{% icon "star" 13 %}</button></div>{% endfor %}</div>
+            </details>
+            {% else %}
+            <div class="nav-row nav-top" data-key="{{ item.key }}"><a href="{{ item.href }}" data-nav-key="{{ item.key }}" data-label="{{ item.label }}"{% if item.active %} class="on" aria-current="page"{% endif %}>{% icon item.icon 20 %}<span class="lbl">{{ item.label }}</span>{% if item.badge_text %}<span class="nav-badge" title="{{ item.badge }}">{{ item.badge_text }}</span>{% endif %}</a><button type="button" class="nav-pin" data-pin="{{ item.key }}" aria-pressed="false" aria-label="Pin {{ item.label }}" title="Pin to the top of the menu">{% icon "star" 13 %}</button></div>
+            {% endif %}
+            {% endfor %}
+          </div>
+        </div>
         {% endfor %}
       </nav>
+      <div class="nav-flyout" id="nav-flyout" role="menu" aria-label="Section links" hidden></div>
       <div class="side-bottom">
-        <div class="side-foot">LinkedEye v{{ le_version }} · full-stack observability<div class="ok">System operational
-          </div>
+        <div class="side-foot">
+          {% if le_problem_count %}<a class="ok is-warn" href="{% url 'dashboard' %}#attention">{{ le_problem_count }} need{{ le_problem_count|pluralize:"s," }} attention</a>{% else %}<div class="ok">All operational</div>{% endif %}
+          <span class="ver">LinkedEye v{{ le_version }}</span>
         </div>
         {% if le_clients|length > 1 or le_client == "unassigned" %}
         <form class="site-pick" method="get" action="{{ request.path }}">
@@ -119,6 +144,7 @@
   </div>
   <script src="{% static 'linkedeye/charts.js' %}"></script>
   <script src="{% static 'linkedeye/app.js' %}"></script>
+  <script src="{% static 'linkedeye/menu.js' %}"></script>
   {% block scripts %}{% endblock %}
 </body>
 

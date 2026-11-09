@@ -58,7 +58,7 @@ def csv_response(filename, header, rows):
 def _cell(v):
     s = "" if v is None else str(v)
     # neutralise spreadsheet formulas
-    return "'" + s if s[:1] in ("=", "+", "-", "@") and not _is_number(s) else s
+    return "'" + s if s[:1] in ("=", "+", "-", "@", "\t", "\r") and not _is_number(s) else s
 
 
 def _is_number(s):

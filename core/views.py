@@ -7,11 +7,7 @@ from django.shortcuts import render
 from django.utils.text import capfirst
 from django.views.decorators.http import require_GET
 
-from urlchecker.models import UrlCheck
-from urlchecker.stats import overall_uptime
-
 from .access import scope_by_site
-from .client_scope import active_client
 from .samples import exporters as s_exporters, firewall as s_firewall, heatmap as s_heatmap, incidents as s_incidents
 from .nav import NAV
 
@@ -23,22 +19,18 @@ def b2b_landing(request):
 
 
 def dashboard(request):
-    from . import overview
-    user = request.user
-    t = settings.LINKEDEYE_TENANT
-    urls = scope_by_site(UrlCheck.objects.filter(tenant_key=t, enabled=True), user)
-    request.le_site_names = names = overview.site_names(user)   # reused by the context processor
-    site = request.GET.get("site", "")
-    matrix = overview.site_matrix(user, site, names=names, client_param=active_client(request))
-    return render(request, "core/dashboard.html", {
-        "problems": overview.problems(user, limit=50),
-        "events": overview.recent_events(user, limit=10),
-        "uptime7": overall_uptime(list(urls), 24 * 7),
-        "desk": overview.desk_summary(user),
-        "matrix": matrix,
-        "md": overview.market_day(user),
-        "heatmap_url": overview._url("cmdb:heatmap") or overview._url("heatmap"),
-    })
+    from . import dashboard as dash
+    return render(request, "core/dashboard.html", dash.build(request))
+
+
+@require_GET
+def dashboard_data(request):
+    """The small JSON the dashboard polls (and fetches its sparkline history from): the same figures as the page."""
+    from . import dashboard as dash
+    # ?only=spark: the page was just rendered, so it only needs the history (no second build of every figure)
+    response = JsonResponse(dash.spark_payload(request) if request.GET.get("only") == "spark" else dash.refresh_payload(request))
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 @require_GET

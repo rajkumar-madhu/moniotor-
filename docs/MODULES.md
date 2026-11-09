@@ -8,7 +8,8 @@ Every LinkedEye module is a Django app that owns its directory. Shared code live
 * App listed in `INSTALLED_APPS`; root `urls.py` includes `"<app>.urls"` at `""`, so **the app's `urls.py`
   declares full paths** (e.g. `path("service-desk/incidents/", ...)`) with `app_name = "<app>"`.
 * Sidebar entries (core/nav.py) point at URL names; a name that does not resolve yet falls back to a
-  placeholder page. Required URL names per module are listed below.
+  placeholder page. Entries are filed under the labelled sections of `core.nav.SECTIONS` with an optional `"section"` key
+  (see **docs/UI.md** for how to add one). Required URL names per module are listed below.
 * Page CSS: `<app>/static/<app>/page.css`, linked from templates with
   `{% block page_css %}<link rel="stylesheet" href="{% static '<app>/page.css' %}">{% endblock %}`.
   Scope rules under a wrapper class, e.g. `<div class="pg-<app>">`.
@@ -25,7 +26,7 @@ Every LinkedEye module is a Django app that owns its directory. Shared code live
 | Prometheus | `from core import prometheus`; `prometheus.configured()`, `query(promql)`, `query_range(promql, seconds, step)`, `targets()`, `alerts()`; errors raise `prometheus.PrometheusError` (show its message, never a stack trace). |
 | Network probes | `from probes import checks`; `checks.http_check(url, ...)`, `checks.dns_check(host)`, `checks.tls_check(host, port)`, `checks.fetch_bytes(url, max_bytes, ...)` (https-only, size and time limited download of an asset), `checks.resolve_allowed(host, port)` (SSRF policy), `checks.check_address(ip)`. Any new socket code must go through `resolve_allowed` / `check_address`. |
 | Site health overview | Import lazily inside the view: `from core import overview`. `overview.site_names(user)` (visible site names), `overview.site_matrix(user, selected_site="", names=None)` (per-site / per-kind counts; an out-of-scope `selected_site` returns no rows). Set `request.le_site_names = names` so the base context reuses them. Render with `{% include "core/_legacy_heatmap.html" %}` + `linkedeye/pages/site-heatmap.css`. |
-| Legacy backend summary | `{% include "core/_backend_health.html" %}` + `linkedeye/pages/backend-health.css` / `backend-health.js`; the page fetches `/api/backend-summary/` (`core.backend_summary.summary`) asynchronously, so never call it in a page view. |
+| Legacy backend summary | `{% include "core/_backend_health.html" %}` + `linkedeye/pages/backend-health.css` / `backend-health.js` (the CMDB heat-map page); the page fetches `/api/backend-summary/` (`core.backend_summary.summary`) asynchronously, so never call it in a page view. The dashboard draws its own compact card only when `core.dashboard.legacy_backend_configured()`. |
 | Notifications | Automatic for critical/warning events (core/notify.py); nothing to do. |
 | Example (demo) data | A `seed_*` command must mark what it writes and remove exactly that with its own `--remove`; register it as an `Area` in `core/examples.py` (counts, removal) so `manage.py remove_examples`, the Administration > System health "Demo data" card, the admin banner and the go-live warning know it, and add it to the mixed real/example test in `core/test_examples.py`. A live page never shows an invented number: show "not reported" or an empty state that names what to connect. Audit and contract: [LIVE_DATA.md](LIVE_DATA.md). |
 | Tenant | `settings.LINKEDEYE_TENANT`; models carry `tenant_key` where data could belong to more than one customer. |
@@ -44,13 +45,14 @@ KPI cards (`.kpi.stacked > .kpi-top > .tile.s-* + .kpi-body`), panels (`.panel`,
 `.empty` for empty states, `.messages` via Django messages. Forms: `.form-grid > .field` with labels.
 Follow the existing pages (urlchecker/templates/urlchecker/index.html, domainmonitor/templates/…) for markup.
 
-Theme: the classic LinkedEye look (near-black page, `#1f1f1f` rail and cards, one amber accent), defined by the
-`:root` tokens at the top of `app.css`. Page CSS and Python use tokens, never hex values: `--panel`, `--ink`, `--muted`,
+Theme: the warm paper + coral look (light and dark; see **docs/UI.md**), defined by the `:root` tokens at the top of
+`app.css`. Page CSS and Python use tokens, never hex values: `--panel`, `--ink`, `--muted`,
 `--primary`, status families `--ok|warn|crit|info|purple|teal` with `-bg`, `-ink` and `-line`, `--on-solid` for text on a
 solid status fill, `--active-fill`/`--active-ink` for selected pills. Chart colours from Python are strings such as
 `"var(--chart-1)"` (`--chart-1` to `--chart-10`, `--chart-ok|warn|crit`); `charts.js` resolves them before writing SVG
-attributes. No web font is loaded. The shell is an icon rail (`.side`) that expands on hover or keyboard focus and is
-pinned open by the menu button (`.shell.rail-open`). Nav labels sit in `.lbl`, clipped rather than removed while collapsed.
+attributes. The shell is a sectioned sidebar (`.side`, **docs/UI.md**): pinned open by the menu button
+(`.shell.rail-open`), otherwise an icon rail whose group links open in a flyout. Nav labels sit in `.lbl`, clipped rather than
+removed while collapsed.
 
 ## Data rules
 
@@ -426,6 +428,19 @@ notification channel configured → first alert received. Each step links to the
   cache on Fleet; the Refresh buttons are shown to operators only.
 * **Fleet alert panels** count one occurrence per alert row notified in the selected window (`fire_count` is a
   lifetime counter and is not used).
+* **Fleet Overview** (`telemetry:overview`, `/monitoring/overview/`, `telemetry/overview.py`): synced fleet-wide
+  node_exporter charts in five collapsible sections, with range picker (15m/1h/6h/24h/7d or a custom "last N"
+  of 5 min..30 days), node multi-select, group by node/site/environment/client, compare to previous period, Live
+  mode (`data.json`), per-chart CSV (`?format=csv&chart=<key>`) and a share link; all state is GET parameters.
+  The client-name filter is `client_name`: plain `client` is the sidebar client picker's id (core.client_scope) and
+  must never be read as a name.
+  Nodes come only from `fleet.scope_hosts` (unknown or out-of-scope ids are dropped before any PromQL is built);
+  the matcher is regex-escaped and quoted. **Call budget per cold view: at most 38 Prometheus requests whatever
+  the host count** (probe 1, cached 5 min; 22 range queries in the dimension view or 15 per node/group view;
+  +15 for compare), cached 30 s per matcher+options; `overview.MAX_QUERIES` (45) is a hard guard. Series per chart
+  are capped at 10 plus "Other". Not implemented: anomaly detection (the drawer has Alerts, Hot nodes, Nodes),
+  absolute from/to ranges (core.prometheus only queries "the last N seconds"), and container charts (cAdvisor
+  series carry their own instance label, so they cannot be scoped to a node selection safely).
 * **Stale firing alerts**: the hourly `telemetry.prune_alerts` job first resolves firing alerts that have had no
   repeat notification for `LINKEDEYE_TELEMETRY_ALERT_STALE_HOURS` (default 48, `0` = off; keep it well above
   Alertmanager's `repeat_interval`), emitting the resolve event with reason `stale` so the Service Desk incident
