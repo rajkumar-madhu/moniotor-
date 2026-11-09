@@ -10,6 +10,14 @@ What was and was not checked when this kit was written: the files parse, the ing
 deployment checks pass. It was **not** rendered with `kustomize` or applied to a cluster (the build sandbox has no cluster and could
 not download the tool): run `kubectl kustomize deploy/kubernetes/overlays/argus` and read the output before the first apply.
 
+## The cluster
+The target is the **FinSpot dev cluster**, the same one the `finspot-dev` overlay ([FINSPOT_DEV_K8S.md](FINSPOT_DEV_K8S.md)) deploys to.
+Its admin kubeconfig is issued on the bastion `fs-dev-cp-ps` (API server on the private address `172.16.0.70:8443`, so it is only
+reachable from inside that network). Keep the kubeconfig off git and run every `kubectl` command below from the bastion or a machine
+that can reach it. This overlay is the same as `finspot-dev` for the namespace (`fs-linkedeye`) and the probe ranges
+(`10.10.0.0/16`, `10.20.0.0/16`, `172.16.0.0/16`); only the public host name differs (`argus.monitoring.wecrew.in` instead of
+`fs-le-dx.finspot.in`). The two overlays must not be applied to the same cluster at once: they patch the same objects.
+
 ## Prerequisites
 - `kubectl` with access to the cluster (admin on one namespace is enough: `fs-linkedeye`), Kubernetes 1.27+.
 - ingress-nginx (already there) and a way to get a TLS certificate: **cert-manager** with a ClusterIssuer, or a certificate you

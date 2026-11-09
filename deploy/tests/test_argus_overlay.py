@@ -52,6 +52,11 @@ class ArgusOverlayTests(unittest.TestCase):
         # the pods must refuse to start until the operator fills this in
         self.assertIn("<REPLACE", d["LINKEDEYE_TRUSTED_PROXIES"])
 
+    def test_probe_ranges_match_the_finspot_dev_overlay(self):
+        argus = docs(OVERLAY / "configmap-patch.yaml")[0]["data"]["LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS"]
+        dev = docs(BASE / "overlays" / "finspot-dev" / "configmap-patch.yaml")[0]["data"]["LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS"]
+        self.assertEqual(argus, dev)
+
     def test_no_secret_value_is_committed(self):
         for f in OVERLAY.iterdir():
             text = f.read_text()

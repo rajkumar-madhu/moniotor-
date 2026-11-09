@@ -10,5 +10,6 @@ data:
   # REPLACE: the ingress-nginx controller's pod IP / CIDR (kubectl -n ingress-nginx get pods -o wide). The pods refuse
   # to start while a <REPLACE ...> placeholder is left, so a forgotten value cannot go live silently.
   LINKEDEYE_TRUSTED_PROXIES: "<REPLACE: ingress-nginx pod CIDR, e.g. 10.244.0.0/16>"
-  # Probes refuse private ranges unless listed (SSRF guard). Add the ranges of the servers, BMCs and vCenters you monitor.
-  LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS: ""
+  # Probes refuse private ranges unless listed (SSRF guard). These are the FinSpot dev lab / API ranges the finspot-dev overlay
+  # uses; add the ranges of the servers, BMCs and vCenters you monitor (iDRAC/iLO and vCenter polling need theirs listed too).
+  LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS: "10.10.0.0/16,10.20.0.0/16,172.16.0.0/16"
