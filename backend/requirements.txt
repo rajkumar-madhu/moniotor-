@@ -21,7 +21,7 @@ scalpl==0.4.2
 django-cors-headers==4.9.0
 django-google-sso==10.0.0
 django-crispy-forms==2.7
-django-allauth==65.18.0
+django-allauth==65.21.1
 pyyaml==6.0.3
 redfish==3.4.2
 pymysql==1.2.0
