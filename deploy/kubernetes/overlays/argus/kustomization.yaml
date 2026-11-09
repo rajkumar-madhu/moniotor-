@@ -1,0 +1,31 @@
+# Overlay for https://argus.monitoring.wecrew.in (DNS A record -> 187.127.118.240; the cluster's ingress-nginx
+# answers on 80/443 for that name). Same namespace as the base (fs-linkedeye) so every in-cluster name in the base
+# manifests stays valid.
+#
+#   kubectl apply -k deploy/kubernetes/overlays/argus
+#
+# Not included on purpose (nothing secret in git): Secret "linkedeye-secrets" and TLS Secret "linkedeye-tls"
+# (create-secrets.sh makes the first; cert-manager or a certificate makes the second).
+# Still required before the first apply: the image (images below), LINKEDEYE_TRUSTED_PROXIES in the ConfigMap patch,
+# and a PostgreSQL: either your own (set LINKEDEYE_DB_HOST in the ConfigMap patch) or ../../optional/postgres.yaml.
+# Procedure and verification: docs/ARGUS_K8S.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../
+  # - postgres.yaml        # optional in-cluster PostgreSQL (see the file); leave commented when you use your own
+
+patches:
+  - path: configmap-patch.yaml
+  # Both Ingresses (the global one and the datasheet-upload one) get the same host.
+  - target: {group: networking.k8s.io, version: v1, kind: Ingress, name: linkedeye}
+    path: ingress-host-patch.json
+  - target: {group: networking.k8s.io, version: v1, kind: Ingress, name: linkedeye-datasheet-upload}
+    path: ingress-host-patch.json
+
+# REPLACE: the image you built and pushed (docs/ARGUS_K8S.md, step 1). Pin a digest for production.
+images:
+  - name: registry.example.com/linkedeye
+    newName: registry.example.com/linkedeye
+    newTag: "9.0"
