@@ -34,6 +34,20 @@ class FinspotNamingTests(SimpleTestCase):
         self.assertEqual(portal_host("fs-le-isv"), "fs-le-isv.finspot.in")
         self.assertEqual(portal_host("fs-dx-le"), "fs-le-dx.finspot.in")
 
+    def test_dev_workbook_and_client_labels(self):
+        self.assertEqual(site_display_name("fs-le-dev-finspot"), "FinSpot Dev")
+        self.assertEqual(lesites_environment_for_slug("fs-le-dev-finspot"), "DEV")
+        self.assertEqual(device_environment_for_slug("fs-le-dev-finspot"), "dev")
+        self.assertEqual(portal_url("fs-le-dev-finspot"), "https://fs-le-dev.finspot.in")
+        self.assertEqual(
+            tool_host("fs-le-dev-finspot", "prometheus"),
+            "fs-le-dev1-prometheus.finspot.in",
+        )
+        self.assertEqual(
+            infer_slug_from_workbook_path("/tmp/fs-le-dev_Restore_Devices.xlsx"),
+            "fs-le-dev-finspot",
+        )
+
     def test_dx_dr_site_labels(self):
         self.assertEqual(site_display_name("fs-dx-le"), "FinSpot DX DR")
         self.assertEqual(lesites_environment_for_slug("fs-dx-le"), "DX")
