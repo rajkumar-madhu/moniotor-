@@ -1,3 +1,5 @@
+import zlib
+
 from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.test import TestCase
@@ -8,7 +10,8 @@ from network.models import Device
 
 
 def dev(name, device_type="switch", site="Mumbai", **kw):
-    kw.setdefault("mgmt_ip", "192.0.2.%d" % (abs(hash(name)) % 250 + 1))
+    # stable across runs: str hash() is randomised per process, so it could collide with the fixed addresses used by the tests
+    kw.setdefault("mgmt_ip", "192.0.2.%d" % (zlib.crc32(name.encode()) % 200 + 1))
     return Device.objects.create(name=name, device_type=device_type, site=site, **kw)
 
 
