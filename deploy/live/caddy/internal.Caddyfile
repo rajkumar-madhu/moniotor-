@@ -18,6 +18,10 @@
 import linkedeye.snippet
 
 {$LINKEDEYE_DOMAIN} {
+	# Explicit, although local_certs already picks Caddy's CA: without a tls directive in the site block the Caddyfile
+	# adapter writes no TLS connection policy for an IP-only site, Caddy adds a bare one at run time, and default_sni above
+	# is lost, so a client that sends no SNI (any URL with an IP address) gets "tlsv1 alert internal error".
+	tls internal
 	import linkedeye
 }
 

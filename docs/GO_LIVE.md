@@ -333,6 +333,7 @@ keys into the old ones (the `update.sh` rollback), and restores that fail half-w
 **In CI:** the `live-stack` job builds the image and brings the stack up with the real Caddy image in plain-HTTP mode on a dummy domain, signs in with
 curl, runs `go_live_check`, `backup.sh`, `restore.sh` and `update.sh`, and renders the `observability` profile.
 
-**Not tested anywhere yet** (you will be the first, so run the verification section): Let's Encrypt issuance and renewal for a real DNS name; Caddy's internal
-CA mode and HTTP-to-HTTPS redirect (the Caddyfiles are small and standard, but no Caddy binary ran them); the observability profile running (only
-rendered); a real SMTP server; the Kubernetes pack on a cluster; non-Linux Docker hosts; `shellcheck` on the scripts.
+**Not tested anywhere yet** (you will be the first, so run the verification section): Let's Encrypt issuance and renewal for a real DNS name (the
+https mode's own HTTP-to-HTTPS redirect included); the observability profile running (only rendered); a real SMTP server; the Kubernetes pack on a
+cluster; non-Linux Docker hosts. Caddy's internal CA mode on an IP address (TLS without SNI, and the redirect to a non-default
+`LINKEDEYE_HTTPS_PORT`) runs in CI (`Live deployment pack (compose, internal CA on an IP)`), and `shellcheck` runs on every script in CI.

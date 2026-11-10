@@ -218,6 +218,11 @@ class ComposeFileTests(unittest.TestCase):
         self.assertIn("{$LINKEDEYE_ACME_EMAIL}", https)
         self.assertNotIn("local_certs", https)
         self.assertIn("local_certs", (LIVE / "caddy" / "internal.Caddyfile").read_text())
+        # an IP-only site needs an explicit tls directive, or default_sni is lost and SNI-less clients get no certificate
+        internal = (LIVE / "caddy" / "internal.Caddyfile").read_text()
+        self.assertIn("default_sni {$LINKEDEYE_DOMAIN}", internal)
+        site = internal.split("{$LINKEDEYE_DOMAIN} {", 1)[1].split("}", 1)[0]
+        self.assertIn("tls internal", site)
         http = (LIVE / "caddy" / "http.Caddyfile").read_text()
         self.assertIn("auto_https off", http)
         self.assertIn(":80", http)
