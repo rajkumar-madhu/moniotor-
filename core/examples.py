@@ -150,9 +150,9 @@ def _count_architecture():
 
 def _count_dcim():
     from dcim.management.commands import seed_dcim as sd
-    rooms = _qs("dcim", "Room", name__in=[r["name"] for r in sd.ROOMS], description__icontains=sd.MARK)
-    racks = _qs("dcim", "Rack", room__in=rooms) if rooms is not None else None
-    return [("rooms", _n(rooms)), ("racks", _n(racks))]
+    plan = sd.removal_plan(_tenant())
+    return [("rooms", len(plan["rooms"])), ("racks", len(plan["racks"])), ("rack items", plan["items"].count()),
+            ("power feeds", plan["feeds"].count()), ("cooling units", plan["cooling"].count())]
 
 
 def _count_ipam():

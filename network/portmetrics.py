@@ -207,9 +207,16 @@ def _lab(expr, tag):
     return f'label_replace({expr},"m","{tag}","","")'
 
 
+def _rate(metric, sel):
+    """Per-second rate of one port counter as ONE series. snmp_exporter's if_mib lookups put ifAlias / ifName / ifDescr
+    on every sample, so a port renamed inside the window has an old and a new series for the same instance and ifIndex;
+    `max by` joins them into one (max, not sum: during the overlap both are the same counter)."""
+    return f"max by (instance, ifIndex) (rate({metric}{{{sel}}}[5m]))"
+
+
 def _counter(hc, plain, sel):
     """rate of the 64-bit counter, else of the 32-bit one (`or` keeps the first when both exist)."""
-    return f"rate({hc}{{{sel}}}[5m]) or rate({plain}{{{sel}}}[5m])"
+    return f"{_rate(hc, sel)} or {_rate(plain, sel)}"
 
 
 def traffic_query(sel):
@@ -226,17 +233,25 @@ def packets_query(sel):
 
 
 def errors_query(sel):
-    return " or ".join(_lab(f"rate({metric}{{{sel}}}[5m])", tag) for tag, metric in ERROR_TAGS)
+    return " or ".join(_lab(_rate(metric, sel), tag) for tag, metric in ERROR_TAGS)
 
 
 def by_tag(rows):
-    """{m tag: [(ts, value)]} from a label_replace-tagged range result (first series wins)."""
-    out = {}
+    """{m tag: [(ts, value)]} from a label_replace-tagged range result. Several series with one tag (the same port
+    counter under old and new ifAlias / ifName / ifDescr labels) are merged point by point, keeping the larger value
+    where they overlap, so a rename inside the window never drops part of the history."""
+    merged = {}
     for r in rows or []:
         tag = (r.get("metric") or {}).get("m")
-        if tag and tag not in out:
-            out[tag] = [(t, v) for t, v in r.get("values", [])]
-    return out
+        if not tag:
+            continue
+        points = merged.setdefault(tag, {})
+        for t, v in r.get("values", []):
+            if v is not None and (points.get(t) is None or v > points[t]):
+                points[t] = v
+            else:
+                points.setdefault(t, v)
+    return {tag: sorted(points.items()) for tag, points in merged.items()}
 
 
 def _range_rows(f, device, iface, kind, seconds, promql):
@@ -871,4 +886,4 @@ def explorer_query(device, iface):
     sel = selector(device, iface.if_index)
     if sel is None:
         return None
-    return ('(rate(ifHCInOctets{%s}[5m]) or rate(ifInOctets{%s}[5m])) * 8 / 1e6' % (sel, sel))
+    return f'({_counter("ifHCInOctets", "ifInOctets", sel)}) * 8 / 1e6'

@@ -53,6 +53,7 @@ MAX_DATASTORES = 300
 MAX_VMS = 5000
 MAX_DETAIL = 150
 MAX_LIST = 20000
+FANOUT_RESERVE = 15          # seconds of the run deadline kept free of the placement fan-out (for the per-VM details)
 USER_AGENT = "LinkedEye-Hypervisor/1.0"
 REJECTED_PREFIX = "vCenter rejected the account"
 HINT_PRIVATE = "A private address must be listed in LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS."
@@ -161,37 +162,93 @@ class _Conn(http.client.HTTPSConnection):
                                "was replaced on purpose, test the connection and confirm the new fingerprint.", "pin")
 
 
-class _PinnedContext(ssl.SSLContext):
-    """A TLS context for a library that opens its own connections (pyvmomi): every handshake is compared with the pinned
-    SHA-256 right after it completes, on the very connection that goes on to carry the login. No separate pre-check connection
-    is needed, so there is nothing to swap in between."""
+class AddressRefused(OSError):
+    """The socket a library opened by itself reached an address the SSRF policy refuses (a second DNS answer, another record)."""
+
+
+class _GuardedContext(ssl.SSLContext):
+    """A TLS context for a library that opens its own connections and resolves the host name again (pyvmomi).
+
+    Before the handshake, the address the socket actually reached is checked against the SSRF policy, so a rebound name or a
+    second (private, link-local, metadata) record never receives a byte. In pin mode the leaf certificate is then compared with
+    the pinned SHA-256 on the very connection that goes on to carry the login; no separate pre-check connection is needed, so
+    there is nothing to swap in between. Every socket it wraps is remembered in ``sockets`` so a run deadline can shut them
+    down (``shut()``), after which it refuses new connections."""
     pin = ""
 
-    def wrap_socket(self, sock, *args, **kwargs):
-        tls = super().wrap_socket(sock, *args, **kwargs)
+    def wrap_socket(self, sock, *args, do_handshake_on_connect=True, **kwargs):
+        sockets = self.__dict__.setdefault("sockets", [])
         try:
-            tls.do_handshake()                                    # a no-op when wrap_socket already did it
-            der = tls.getpeercert(binary_form=True)
-            seen = hashlib.sha256(der).hexdigest() if der else ""
-            if not (seen and hmac.compare_digest(seen, self.pin)):
-                raise ssl.SSLError("the certificate does not match the pinned fingerprint")
+            if self.__dict__.get("closed"):
+                raise AddressRefused("the run deadline has passed")
+            from probes import checks
+            try:
+                checks.check_address(str(sock.getpeername()[0]).split("%", 1)[0])
+            except (checks.ProbeBlocked, ValueError, IndexError, TypeError) as exc:
+                raise AddressRefused(f"the connected address is refused by the network policy ({type(exc).__name__})") from None
+            sockets.append(sock)                                  # the handshake below can be cut short by shut()
+            tls = super().wrap_socket(sock, *args, do_handshake_on_connect=False, **kwargs)
+        except BaseException:
+            sock.close()
+            raise
+        sockets.append(tls)
+        try:
+            if do_handshake_on_connect or self.pin:
+                tls.do_handshake()
+            if self.pin:
+                der = tls.getpeercert(binary_form=True)
+                seen = hashlib.sha256(der).hexdigest() if der else ""
+                if not (seen and hmac.compare_digest(seen, self.pin)):
+                    raise ssl.SSLError("the certificate does not match the pinned fingerprint")
         except BaseException:
             tls.close()
             raise
         return tls
 
+    def shut(self):
+        """Refuse new connections and shut every open one down (unblocks a pending read on a stalled server)."""
+        self.__dict__["closed"] = True
+        for sock in list(self.__dict__.get("sockets", [])):
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+
+_PinnedContext = _GuardedContext
+
+
+def shut_after(ctx, seconds):
+    """Start (and return) a daemon timer that calls ``ctx.shut()`` once ``seconds`` have passed; ``cancel()`` it when done."""
+    timer = threading.Timer(max(seconds, 0.01), ctx.shut)
+    timer.daemon = True
+    timer.start()
+    return timer
+
+
+def guarded_context(tls_mode, pin=""):
+    """The context handed to pyvmomi: ``verify`` (system trust store and host name), ``pin`` (only the certificate whose
+    SHA-256 is ``pin``; no CA or host name check: the pin is the trust) or ``skip``. Every mode re-checks the connected address."""
+    ctx = _GuardedContext(ssl.PROTOCOL_TLS_CLIENT)
+    if tls_mode not in ("pin", "skip"):                                 # verify, and any unknown mode: fail closed
+        ctx.load_default_certs(ssl.Purpose.SERVER_AUTH)               # PROTOCOL_TLS_CLIENT: CERT_REQUIRED and check_hostname
+        ctx.verify_flags = ssl.create_default_context().verify_flags  # the same chain checks as ssl.create_default_context()
+    else:
+        if tls_mode == "pin":
+            pin = normalise_fingerprint(pin)
+            if not pin:
+                raise VSphereError("No certificate fingerprint is pinned yet. Test the connection and confirm the fingerprint first.",
+                                   "pin")
+            ctx.pin = pin
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    return ctx
+
 
 def pinned_context(pin):
     """A context that accepts only the certificate whose SHA-256 is ``pin`` (no CA or host name check: the pin is the trust)."""
-    pin = normalise_fingerprint(pin)
-    if not pin:
-        raise VSphereError("No certificate fingerprint is pinned yet. Test the connection and confirm the fingerprint first.", "pin")
-    ctx = _PinnedContext(ssl.PROTOCOL_TLS_CLIENT)
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-    ctx.pin = pin
-    return ctx
+    return guarded_context("pin", pin)
 
 
 def _resolve(host, port):
@@ -403,30 +460,54 @@ def collect_inventory(client, detail_order=(), max_detail=MAX_DETAIL):
     api = parsers.clean_text((version or {}).get("version") if isinstance(version, dict) else "", 40)
 
     # the same id listed twice (a buggy or hostile answer) is kept once: a duplicate would break the unique rows we store
-    hosts = list({h["moref"]: h for h in (parsers.parse_host(r) for r in client.get_list("/api/vcenter/host")) if h}.values())[:MAX_HOSTS]
+    hosts = list({h["moref"]: h for h in (parsers.parse_host(r) for r in client.get_list("/api/vcenter/host")) if h}.values())
+    hosts_capped, hosts = len(hosts) > MAX_HOSTS, hosts[:MAX_HOSTS]      # past the cap, the per-host lists cannot cover every VM
     clusters = list({c["moref"]: c for c in (parsers.parse_cluster(r) for r in client.get_list("/api/vcenter/cluster", optional=True))
                      if c}.values())[:MAX_CLUSTERS]
+    # Placement costs one request per datastore, cluster and host. On a large or slow estate that fan-out can outlast the run
+    # deadline: it stops FANOUT_RESERVE seconds before the end (what was not read keeps its earlier value) and starts at a
+    # different point every few minutes, so successive passes cover the whole estate.
+    cut = []
+
+    def time_left():
+        if client.remaining() < FANOUT_RESERVE:
+            cut.append(True)
+        return not cut
+
     datastores, seen_ds = [], set()
     for raw in client.get_list("/api/vcenter/datastore")[:MAX_DATASTORES]:
         ref = parsers.moref(raw.get("datastore")) if isinstance(raw, dict) else ""
         if ref in seen_ds:
             continue
-        extra = client.get(f"/api/vcenter/datastore/{ref}", optional=True) if ref else None
+        extra = client.get(f"/api/vcenter/datastore/{ref}", optional=True) if ref and time_left() else None
         ds = parsers.parse_datastore(raw, extra)
         if ds:
             seen_ds.add(ref)
             datastores.append(ds)
 
-    vms = {}
-    for row in client.get_list("/api/vcenter/vm"):
+    # vSphere 7/8 answer the unfiltered VM list with an error (unable_to_allocate_resource) when more than 4000 VMs match; it is
+    # never silently truncated. Then the VMs are read per host and per cluster instead.
+    vms, full_list = {}, True
+    try:
+        rows = client.get_list("/api/vcenter/vm")
+    except VSphereError as exc:
+        if exc.kind != "http" or not exc.status or exc.status < 400 or not (hosts or clusters):
+            raise
+        rows, full_list = [], False
+        warnings.append(f"vCenter refused the full VM list (HTTP {exc.status}; it does so above 4000 VMs), so VMs are read per host "
+                        "and cluster.")
+    for row in rows:
         vm = parsers.parse_vm_summary(row)
         if vm:
             vms[vm["moref"]] = vm
-    if len(vms) >= 1000:
-        warnings.append("vCenter lists at most 1000 VMs per request; the per-host lists below fill the gaps.")
+    lists_ok = []
 
     def add_from(filter_name, ref, key, many=False):
-        for row in client.get_list("/api/vcenter/vm", {filter_name: ref}, optional=True):
+        data = client.get("/api/vcenter/vm", {filter_name: ref}, optional=True)
+        if not isinstance(data, list):
+            lists_ok.append(False)
+            return
+        for row in data[:MAX_LIST]:
             vm = parsers.parse_vm_summary(row)
             if not vm:
                 continue
@@ -438,23 +519,44 @@ def collect_inventory(client, detail_order=(), max_detail=MAX_DETAIL):
             else:
                 cur[key] = ref
 
+    def rotated(items):
+        if not items:
+            return items
+        start = int(time.time() // 300) % len(items)
+        return items[start:] + items[:start]
+
     by_host = {h["moref"]: h for h in hosts}
-    for c in clusters:
+    for c in rotated(clusters):
+        if not time_left():
+            break
         for row in client.get_list("/api/vcenter/host", {"clusters": c["moref"]}, optional=True):
             h = parsers.parse_host(row)
             if h and h["moref"] in by_host:
                 by_host[h["moref"]]["cluster_moref"], by_host[h["moref"]]["cluster_name"] = c["moref"], c["name"]
         add_from("clusters", c["moref"], "cluster_moref")
-    for h in hosts:
+    for h in rotated(hosts):
+        if not time_left():
+            break
         add_from("hosts", h["moref"], "host_moref")
-    for d in datastores:
+    ds_rank = {d["moref"]: i for i, d in enumerate(datastores)}
+    for d in rotated(datastores):
+        if not time_left():
+            break
         add_from("datastores", d["moref"], "datastore_morefs", many=True)
+    for vm in vms.values():
+        if len(vm.get("datastore_morefs", ())) > 1:
+            vm["datastore_morefs"].sort(key=lambda r: ds_rank.get(r, 0))
+    if cut:
+        warnings.append("The run deadline came before the placement of every host, cluster and datastore was read; the rest keeps "
+                        "its earlier placement and is read on later passes.")
+    # without the full list, the per-host lists are the VM list: complete only when every one of them was read
+    vms_complete = full_list or (not cut and not hosts_capped and not any(ok is False for ok in lists_ok))
     if len(vms) > MAX_VMS:
         warnings.append(f"Only the first {MAX_VMS} of {len(vms)} VMs are kept.")
         vms = dict(list(vms.items())[:MAX_VMS])
 
     order = list(detail_order(list(vms.values())) if callable(detail_order) else detail_order)[:max_detail]
-    details, partial = {}, False
+    details, partial = {}, bool(cut) or not vms_complete
     for ref in order:
         if ref not in vms:
             continue
@@ -476,4 +578,5 @@ def collect_inventory(client, detail_order=(), max_detail=MAX_DETAIL):
     if len(details) < len([r for r in order if r in vms]):
         partial = True
     return {"api": api, "hosts": hosts, "clusters": clusters, "datastores": datastores, "vms": list(vms.values()),
-            "details": details, "partial": partial, "warnings": warnings, "requests": client.requests}
+            "details": details, "partial": partial, "warnings": warnings, "requests": client.requests,
+            "vms_complete": vms_complete, "placement_partial": bool(cut)}

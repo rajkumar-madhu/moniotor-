@@ -28,6 +28,9 @@ HA protection per VM beyond the cluster flag, uptime (the page uses Prometheus f
 pyvmomi" on the source. It reads snapshots (with size), creation date, notes and recent events using property reads and
 `EventManager.QueryEvents` only; a test lists the allowed calls and fails on any task or write method. The package is imported lazily
 and never required: without it the tabs say "not reported" and what to install. Per run it reads at most 200 VMs, oldest first.
+Every socket read has a 15 s timeout and the whole provider run (login, reads, logout) a 60 s deadline: a watchdog shuts its
+connections down when the deadline passes and the VMs not read yet come first on the next run, so a stalled vCenter cannot hold
+the job scheduler.
 
 ## The read-only guarantee
 
@@ -42,7 +45,9 @@ and never required: without it the tabs say "not reported" and what to install. 
 
 * **SSRF**: the host goes through `probes.checks.resolve_allowed`. vCenter is normally private, so list its range in
   `LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS`. The connection goes to the address that passed the check; the original name is used for SNI and
-  certificate verification (no second lookup). Metadata and link-local addresses are always refused.
+  certificate verification (no second lookup). pyvmomi resolves the name itself, so for it the address each socket actually reached
+  is checked against the same policy before the TLS handshake: a rebound name or a second (private) record never receives a byte.
+  Metadata and link-local addresses are always refused.
 * **TLS**, per source: *verify* (system trust store, default), *pin* (SHA-256 of the leaf certificate, trust on first use: "Test
   connection" shows the fingerprint, you compare it with vCenter and confirm; until then **nothing, not even the password, is sent**;
   a different certificate later is refused before any request) or *skip* (labelled unsafe). Changing host or port clears the pin.
@@ -52,7 +57,8 @@ and never required: without it the tabs say "not reported" and what to install. 
   failed login). The vault fails closed: without a key nothing is stored.
 * **Limits**: 1 MB per answer, a 90 s run deadline enforced by a watchdog (a server that trickles bytes cannot stretch it), no redirects,
   at most 5000 VMs, 500 hosts, 300 datastores, 150 per-VM detail reads per pass (most overdue first, so a large estate is covered over
-  several passes), disks, NICs and addresses per VM capped.
+  several passes), disks, NICs and addresses per VM capped. vCenter 7/8 refuse the full VM list when more than 4000 VMs match; the
+  sync then reads the VMs per host and per cluster (and marks none missing unless every one of those lists was read).
 * **Untrusted data**: names, notes, guest host names and messages are length-capped, stripped of control and formatting characters,
   escaped on output, and never used as a URL, host or path. The "Open in vCenter" link is built from the configured host and a moref
   that matches `[A-Za-z0-9-]{1,40}`.
@@ -132,12 +138,18 @@ follows. Hosts, datastores, VM records, snapshots, events and requests have no s
   written from it (`tests/fake_vcenter.py`). Field names, optional fields and error statuses of a real vCenter 7.0 / 8.0 may differ in
   ways the fake cannot show; unknown fields are ignored and missing ones are shown as "not reported", never as OK.
 * The pyvmomi provider was tested only against stand-in `pyVim` / `pyVmomi` modules (the package is optional and not installed in CI's
-  main jobs). In `pin` mode every handshake pyvmomi makes is compared with the pinned fingerprint before anything is sent on it, so a swapped
-  or rebound server never receives the login; pyvmomi still resolves the host name again after the SSRF check (the REST client does not),
-  and `skip` mode is unverified by definition.
+  main jobs). Every connection pyvmomi opens is checked against the SSRF policy by the address it reached, and in `pin` mode its
+  certificate is compared with the pinned fingerprint before anything is sent on it, so a swapped or rebound server never receives the
+  login; `skip` mode is unverified by definition. One gap in the provider's deadline: pyvmomi's first request (the API version probe)
+  opens its TCP connection with no timeout of its own and before the watchdog can see the socket, so a vCenter that stops answering
+  connection attempts (dropped SYNs) between the REST pass and the pyvmomi login holds that run for the kernel's connect timeout
+  (about two minutes on Linux) instead of 60 s. A stall after the connection is accepted ends at the deadline.
 * The "Open in vCenter" URL (`/ui/app/vm;nav=v/urn:vmomi:VirtualMachine:<moref>/summary`) is the documented deep-link shape without the
   vCenter instance UUID; some vCenter builds may land on the inventory home instead of the VM.
 * vCenter's REST VM list has no host or datastore, so placement costs one extra list per host, cluster and datastore (bounded above).
+  On a large or slow vCenter that fan-out stops 15 s before the run deadline instead of failing the run: what it did not reach keeps
+  its earlier placement, the pass is reported as partial, and the fan-out starts at another point every 5 minutes so later passes
+  cover the rest.
 * Guest data, tools state and IPs exist only for powered-on VMs with VMware Tools running. Processes, services and logs of the guest are
   not read from vCenter (they stay Prometheus / node_exporter driven, or "not connected").
 * The guest's host name and IP addresses come from VMware Tools, which the guest's own administrator controls: a guest can claim another

@@ -13,7 +13,7 @@ and a reminder of the manual step, nothing more.
 """
 from django.conf import settings
 from django.db import models
-from django.db.models.signals import post_delete
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
@@ -261,3 +261,17 @@ def drop_login_with_endpoint(sender, instance, **kwargs):
     if instance.credential_id:
         from django.apps import apps
         apps.get_model("onboarding", "Credential").objects.filter(pk=instance.credential_id, tenant_key=instance.tenant_key).delete()
+
+
+@receiver(post_save, sender="network.Device")
+def login_follows_device_site(sender, instance, raw=False, update_fields=None, **kwargs):
+    """The vault row holding a server's BMC login is kept on the server's site when the server moves to another site: the old
+    site's admins must lose it in the credential vault, the new site's admins get it. One UPDATE, and only when the save may
+    have changed the site."""
+    if raw or (update_fields is not None and "site" not in update_fields):
+        return
+    from django.apps import apps
+    site = instance.site or ""
+    creds = BmcEndpoint.objects.filter(device_id=instance.pk, credential_id__isnull=False).values("credential_id")
+    apps.get_model("onboarding", "Credential").objects.filter(
+        pk__in=creds, tenant_key=instance.tenant_key).exclude(site=site).update(site=site)

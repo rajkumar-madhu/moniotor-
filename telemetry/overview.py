@@ -14,7 +14,9 @@ Safety rules (each one has a test in tests_overview.py)
 * The time range comes from an allow-list (15m / 1h / 6h / 24h / 7d) or a bounded "last N minutes/hours/days"
   custom value; the step is computed server-side.
 * Series per chart are bounded (``MAX_SERIES`` plus one "Other" series) and so is the number of nodes in a
-  matcher (``MAX_MATCH`` / ``MAX_NODES``).
+  matcher (``MAX_MATCH`` / ``MAX_NODES``). A listed matcher is long (about 45 bytes per instance once escaped and
+  URL-encoded, repeated up to four times per query), so ``core.prometheus`` sends any query over 4 KB encoded as a
+  form POST rather than a GET URL that a proxy in front of Prometheus would refuse with HTTP 414.
 * **Call budget.** A cold view issues at most ``MAX_QUERIES`` Prometheus requests, whatever the number of
   hosts: one metric probe (cached 5 minutes) plus one range query per chart series group (dimension view, 22),
   or one per chart (by node / site / environment / client view, 15), plus one per chart when "compare to previous
@@ -46,7 +48,7 @@ CACHE_SECONDS = hosts_svc.CACHE_SECONDS      # chart payloads: same freshness as
 PROBE_SECONDS = 300                          # which metrics exist barely changes
 MAX_QUERIES = 45                             # documented call budget for one cold view (see module docstring)
 MAX_SERIES = 10                              # series drawn per chart in the per-node / grouped views, then "Other"
-MAX_MATCH = 500                              # instances in one regex matcher (the URL stays well under 16 KB)
+MAX_MATCH = 500                              # instances in one regex matcher (queries reach ~90 KB: core.prometheus POSTs them)
 MAX_NODES = 200                              # nodes drawn individually (per-instance result sets are large)
 POINTS, BAR_POINTS, NODE_POINTS = 120, 60, 60
 EXPLORE_MAX = 1800                           # longer queries are not offered to the Metrics Explorer link

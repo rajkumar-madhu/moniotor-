@@ -336,6 +336,11 @@ legend numbers with `textContent` only. The endpoint answers 429 with `Retry-Aft
 | Optics (DOM) | `entSensorValue` or `entPhySensorValue` whose `entPhysicalName` is the port name or starts with it plus a space; type from `entSensorType` / `entPhySensorType` (dBm, celsius, amperes, voltsDC); `entSensorScale` / `entSensorPrecision` labels are applied when present; thresholds from `entSensorThresholdValue` | `entity_sensor` (`ENTITY-SENSOR-MIB` or Cisco `CISCO-ENTITY-SENSOR-MIB`) with the `entPhysicalName` lookup. Readings outside the physical range for their kind are dropped |
 | PoE | `pethPsePortAdminEnable`, `pethPsePortDetectionStatus`, `pethPsePortPowerClassifications`, `cpeExtPsePortPwrConsumption` (mW), all selected by an `ifIndex` label | `poe` and an exporter lookup that puts `ifIndex` on the series (the PoE MIB's own index is a group/port pair; add other vendors' draw series to `portmetrics.POE_POWER_METRICS`) |
 
+The traffic, packet and error graphs take each counter's rate as `max by (instance, ifIndex)`, and the page merges any
+series that still share a graph line. The `if_mib` lookups put `ifAlias`, `ifName` and `ifDescr` on every counter, so a
+port whose description or name changes inside the window has an old and a new series; both halves of the history are
+drawn as one line, and the overlap is not counted twice.
+
 ### Prometheus load, caching and safety
 
 * Every query is built from the device's validated instance label and the integer ifIndex of a stored interface; the only

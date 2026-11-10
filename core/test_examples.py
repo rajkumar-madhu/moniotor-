@@ -553,3 +553,56 @@ class GoLiveExampleCheckTests(TestCase):
     def test_a_warning_never_fails_the_report(self):
         call_command("seed_examples", stdout=io.StringIO())
         self.assertIn("example_data", golive.check_keys())
+
+
+class DcimRealRecordsInExampleRoomsTests(TestCase):
+    """EX-1: an operator's own rack, rack item, feed or cooling unit inside a seeded DCIM room survives the removal (and is
+    not counted as example data); the example records around it go."""
+
+    def setUp(self):
+        from dcim.models import CoolingUnit, PowerFeed, Rack, RackItem, Room
+        call_command("seed_dcim", stdout=io.StringIO())
+        self.M = (Room, Rack, RackItem, PowerFeed, CoolingUnit)
+        hall = Room.objects.get(name="Example – Data Hall A")
+        comms = Room.objects.get(name="Example – Comms Room")
+        self.prod = Rack.objects.create(room=hall, name="PROD-R99", notes="real production rack")
+        self.prod_item = RackItem.objects.create(rack=self.prod, name="prod-db-01", kind="server", u_position=10, u_height=2)
+        self.prod_feed = PowerFeed.objects.create(rack=self.prod, name="Real PDU", capacity_kw=5.0)
+        a01 = Rack.objects.get(room=hall, name="A01")
+        self.web = RackItem.objects.create(rack=a01, name="prod-web-07", kind="server", u_position=35, u_height=1, notes="real")
+        a02 = Rack.objects.get(room=hall, name="A02")
+        self.a02_feed = PowerFeed.objects.create(rack=a02, name="Real PDU-C", capacity_kw=3.0, notes="ours")
+        self.crac = CoolingUnit.objects.create(room=comms, name="Real CRAC", capacity_kw=10.0)
+
+    def dcim_counts(self):
+        area = next(a for a in examples.AREAS if a.key == "dcim")
+        return dict(area.counts())
+
+    def test_dry_run_counts_only_what_would_go(self):
+        # 4 example racks: A01 holds a real item, A02 a real feed, so only A03 and C01 would go; no room can go
+        counts = self.dcim_counts()
+        self.assertEqual((counts["rooms"], counts["racks"]), (0, 2))
+        self.assertEqual(counts["rack items"], 19)          # the seed's items (also those of the kept racks), never ours
+        self.assertEqual((counts["power feeds"], counts["cooling units"]), (5, 3))
+
+    def test_removal_keeps_real_records_and_their_containers(self):
+        Room, Rack, RackItem, PowerFeed, CoolingUnit = self.M
+        call_command("remove_examples", "--only", "dcim", "--yes", stdout=io.StringIO())
+        for obj in (self.prod, self.prod_item, self.prod_feed, self.web, self.a02_feed, self.crac):
+            self.assertTrue(type(obj).objects.filter(pk=obj.pk).exists(), obj)
+        # the racks holding real records stay (without their example contents); the purely example racks go
+        self.assertEqual(sorted(Rack.objects.values_list("name", flat=True)), ["A01", "A02", "PROD-R99"])
+        self.assertFalse(RackItem.objects.filter(notes__icontains="[example]").exists())
+        self.assertFalse(PowerFeed.objects.filter(notes__icontains="[example]").exists())
+        self.assertFalse(CoolingUnit.objects.filter(notes__icontains="[example]").exists())
+        self.assertEqual(Room.objects.count(), 2)                     # both rooms still hold real records
+        self.assertEqual(sum(self.dcim_counts().values()), 0)
+
+    def test_a_room_left_with_only_example_records_goes(self):
+        Room, Rack, RackItem, PowerFeed, CoolingUnit = self.M
+        CoolingUnit.objects.filter(pk=self.crac.pk).delete()
+        counts = self.dcim_counts()
+        self.assertEqual((counts["rooms"], counts["racks"]), (1, 2))
+        call_command("seed_dcim", "--remove", stdout=io.StringIO())
+        self.assertEqual(list(Room.objects.values_list("name", flat=True)), ["Example – Data Hall A"])
+        self.assertFalse(Rack.objects.filter(name="C01").exists())

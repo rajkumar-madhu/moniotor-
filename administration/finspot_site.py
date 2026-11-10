@@ -63,7 +63,15 @@ def ensure_finspot_site(
 
         devices_renamed = 0
         if sync_device_sites and legacy and legacy != name:
-            devices_renamed = Device.objects.filter(tenant_key=tenant_key, site=legacy).update(site=name)
+            moved = list(Device.objects.filter(tenant_key=tenant_key, site=legacy).values_list("pk", flat=True))
+            devices_renamed = Device.objects.filter(pk__in=moved).update(site=name)
+            # a bulk update skips hardware's post_save handler: move the BMC logins of these servers with them
+            from django.apps import apps
+            if moved and apps.is_installed("hardware"):
+                creds = apps.get_model("hardware", "BmcEndpoint").objects.filter(
+                    device_id__in=moved, credential_id__isnull=False).values("credential_id")
+                apps.get_model("onboarding", "Credential").objects.filter(
+                    pk__in=creds, tenant_key=tenant_key).exclude(site=name).update(site=name)
 
     return site, created, devices_renamed
 

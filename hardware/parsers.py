@@ -264,7 +264,8 @@ def parse_power(doc):
             "firmware": text(p.get("FirmwareVersion"), 40), "capacity_w": cap,
             "input_v": num(p.get("LineInputVoltage"), 0, 1000), "input_w": num(p.get("PowerInputWatts"), 0, 1e6),
             "type": text(p.get("PowerSupplyType"), 20),
-            "load_pct": round(100 * out_w / cap, 1) if out_w is not None and cap else None}))
+            # a capacity under 1 W is not a real PSU rating (a subnormal one would even make the load infinite)
+            "load_pct": round(100 * out_w / cap, 1) if out_w is not None and cap is not None and cap >= 1 else None}))
     for i, v in enumerate(as_list(get(doc, "Voltages"), 128)):
         status, health, state, absent = status_of(v.get("Status"))
         if absent:
@@ -295,7 +296,7 @@ def parse_intrusion(chassis):
         return None
     low = sensor.lower()
     status = OK if low == "normal" else WARNING if low in ("hardwareintrusion", "tamperingdetected") else UNKNOWN
-    return Comp("intrusion", "intrusion", "Chassis intrusion", None, "", None, None, None, None, status, sensor, "", {})
+    return Comp("intrusion", "intrusion", "Chassis intrusion", None, "", None, None, None, None, status, sensor[:24], "", {})
 
 
 def parse_processors(docs):

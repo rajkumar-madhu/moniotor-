@@ -177,6 +177,39 @@ jobs:
         if: always()
         run: docker compose -f deploy/live/docker-compose.live.yml down -v || true
 
+  live-stack-internal:
+    # deploy/live in internal mode (HTTPS from Caddy's own CA) on an IP address, with HTTPS published on a non-default port:
+    # exercises default_sni (no SNI is sent for an IP) and the explicit HTTP->HTTPS redirect that keeps the published port.
+    name: Live deployment pack (compose, internal CA on an IP)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      LINKEDEYE_ADMIN_PASSWORD: ci-only-Password-2026-xyz
+      LINKEDEYE_LOGIN_OTP: "false"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Prepare .env (internal mode on 127.0.0.1, HTTPS published on 8443)
+        run: |
+          ./deploy/live/bootstrap.sh --domain 127.0.0.1 --mode internal --admin-email ci@example.org --prepare-only --yes
+          sed -i 's/^LINKEDEYE_HTTPS_PORT=.*/LINKEDEYE_HTTPS_PORT=8443/' deploy/live/.env
+          grep -q '^LINKEDEYE_HTTPS_PORT=8443$' deploy/live/.env
+      - name: bootstrap.sh (build, migrate, start, first administrator, go_live_check)
+        run: ./deploy/live/bootstrap.sh --yes
+      - name: HTTPS on an IP address without SNI, and the redirect keeps the published port
+        run: |
+          curl -fsSk https://127.0.0.1:8443/healthz | grep -q '"status": "ok"'
+          test "$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:8443/accounts/login/)" = 200
+          loc="$(curl -s -o /dev/null -w '%{redirect_url}' http://127.0.0.1/accounts/login/)"
+          echo "redirect: $loc"
+          test "$loc" = "https://127.0.0.1:8443/accounts/login/"
+          ./deploy/live/healthcheck.sh
+      - name: Logs
+        if: failure()
+        run: docker compose -f deploy/live/docker-compose.live.yml logs --tail=200 || true
+      - name: Clean up
+        if: always()
+        run: docker compose -f deploy/live/docker-compose.live.yml down -v || true
+
   docker:
     name: Docker image (${{ matrix.name }})
     runs-on: ubuntu-latest

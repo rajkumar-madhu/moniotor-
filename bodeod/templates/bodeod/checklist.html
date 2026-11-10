@@ -23,7 +23,7 @@
       <div class="panel-h"><span class="bod-code">{{ s.mode.code }}</span><h2>{{ s.mode.name }}</h2>{% if not s.mode.enabled %}<span class="chip mute">Disabled</span>{% endif %}
         <div class="right">{% if can_admin and not s.can_edit %}<span class="chip mute" title="You are not an administrator of {{ s.mode.site }}">read-only</span>{% endif %}{% if s.can_edit %}<a class="btn sm" href="?mode_edit={{ s.mode.pk }}#mode-form">{% icon "settings" 14 %}Mode settings</a>
           <a class="btn sm ghost-primary" href="?mode={{ s.mode.code }}&amp;new=1#item-form">{% icon "plus" 14 %}Item</a>{% endif %}</div></div>
-      <div class="bod-modeline">{% include "bodeod/_live_mode.html" with mode=s.mode sum=s.live_sum run=None can=s.can_operate %}</div>
+      <div class="bod-modeline">{% include "bodeod/_live_mode.html" with mode=s.mode sum=s.live_sum run=s.run can=s.can_operate %}</div>
       <dl class="bod-modeinfo">
         <div><dt>Window</dt><dd>{{ s.mode.window_label }}</dd></div>
         <div><dt>Auto-run</dt><dd>{% if s.mode.auto_run_time %}{{ s.mode.auto_run_time|time:"H:i" }} IST on trading days{% else %}Manual only{% endif %}</dd></div>

@@ -214,8 +214,10 @@ there is no reload loop.
   minute, 429 with `Retry-After`), `Cache-Control: no-store`. The number of queries depends on the number of modes, never of items.
 * **Re-check** `POST /bod-eod/api/recheck/` (`bodeod:api_recheck`; form fields `mode`, optional `run`, optional repeated `item`
   keys `i<checklist item id>` / `r<run row id>`): operator on the mode's site (a global mode needs the role on every site), CSRF
-  (`X-CSRFToken`), audited (`recheck`), 12 per user per minute, one re-check per mode at a time (cache lock, so with several
-  gunicorn workers the lock is per process). It calls `services.refresh_references` (so `probes.checks` and its SSRF policy) on a
+  (`X-CSRFToken`), audited (`recheck`), 12 per user per minute, one re-check per mode at a time (a `core.SchedulerLease` row shared by
+  every gunicorn worker and freed only by its owner; its 90 s lifetime starts when the job starts). The 12-per-minute re-check
+  budget is counted from the audit log, so it is shared by all workers too; the 120-per-minute poll limit is a per-worker cache
+  counter. It calls `services.refresh_references` (so `probes.checks` and its SSRF policy) on a
   worker thread and waits at most `live.RECHECK_WAIT` (6 s): the answer is `state` = `done | partial | failed | skipped`, or
   `running` / `busy` with HTTP 202 when the probes are still going (they finish in the background and the page keeps polling).
   Manual rows are never refreshed. The run itself is never edited: a live failure changes what the page shows, sign-off stays manual,

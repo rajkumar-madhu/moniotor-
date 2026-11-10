@@ -3,7 +3,8 @@
 LinkedEye on the FinSpot **dev** cluster is deployed with the base manifests under
 `deploy/kubernetes/` plus the overlay `deploy/kubernetes/overlays/finspot-dev/`. That overlay
 sets the **FinSpot DX DR** portal host (`fs-le-dx.finspot.in`, Lesites slug `fs-dx-le`) and probe
-private-CIDR allowlists for lab networks (`10.10.0.0/16`, `10.20.0.0/16`, `172.16.0.0/16`).
+private-CIDR allowlists for lab networks (`10.10.0.0/16`, `10.20.0.0/16`). Never list `172.16.0.0/16`: it holds the cluster API
+server (172.16.0.70) and the node network, and the probes must not reach them.
 
 ## Kubeconfig (do not commit credentials)
 
@@ -49,7 +50,18 @@ Run the migrate Job to completion before expecting web/probes to be healthy.
 For the full console stack on port 8014, you can add the same probe allowlist to `.env`:
 
 ```bash
-LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS=10.10.0.0/16,10.20.0.0/16,172.16.0.0/16
+LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS=10.10.0.0/16,10.20.0.0/16
 ```
 
-Use `deploy/compose.console.env` for publish port and CSRF origins; see DEPLOYMENT.md (Docker Compose).
+It runs beside the main stack as its own Compose project (own database volume). `deploy/compose.console.env` holds its
+publish port, host names, CSRF origins and cookie names; `docker-compose.console.yml` passes them to the web container (a
+second `--env-file` alone only fills in `${...}` in the compose files, it never reaches the containers):
+
+```bash
+docker compose -p linkedeye-console --env-file .env --env-file deploy/compose.console.env \
+  -f docker-compose.yml -f docker-compose.console.yml up -d db web probes
+```
+
+Open it on `http://localhost:8014` or `http://127.0.0.1:8014`. It uses its own cookie names, so signing in to it does not
+sign you out of the main console on port 8000 (browsers share cookies between ports of one host). See DEPLOYMENT.md
+(Docker Compose) for the rest.

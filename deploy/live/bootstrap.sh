@@ -84,6 +84,7 @@ else
   ok "using the existing .env (mode 600)"
 fi
 
+prev_domain="$(get_env LINKEDEYE_DOMAIN)"          # before --domain replaces it: was this a localhost trial?
 [ -z "$DOMAIN_ARG" ]      || set_env LINKEDEYE_DOMAIN "$DOMAIN_ARG"
 [ -z "$MODE_ARG" ]        || set_env LINKEDEYE_MODE "$MODE_ARG"
 [ -z "$EMAIL_ARG" ]       || set_env LINKEDEYE_ACME_EMAIL "$EMAIL_ARG"
@@ -163,8 +164,18 @@ else
 fi
 set_env LINKEDEYE_CSRF_TRUSTED_ORIGINS "$origin"
 # A localhost trial is published on the loopback interface only: on café Wi-Fi nobody else can reach a password-only console.
+# Only the 127.0.0.1 this script wrote for such a trial is undone (when the domain moves away from localhost); a 127.0.0.1
+# the operator chose for another name (SSH tunnel, a front proxy on this host) is kept: the ports are never widened silently.
 if is_loopback_host "$domain"; then set_env LINKEDEYE_BIND_ADDRESS 127.0.0.1
-elif [ "$(get_env LINKEDEYE_BIND_ADDRESS)" = 127.0.0.1 ]; then set_env LINKEDEYE_BIND_ADDRESS ""; fi
+elif [ "$(get_env LINKEDEYE_BIND_ADDRESS)" = 127.0.0.1 ]; then
+  if [ -n "$prev_domain" ] && is_loopback_host "$prev_domain"; then
+    set_env LINKEDEYE_BIND_ADDRESS ""
+    warn "The domain moved from $prev_domain to $domain: LINKEDEYE_BIND_ADDRESS=127.0.0.1 (set for the localhost trial) is cleared,"
+    warn "so ports $http_port and $https_port are now published on every interface. Set LINKEDEYE_BIND_ADDRESS in $ENV_FILE to limit that."
+  else
+    note "Ports are published on 127.0.0.1 only (LINKEDEYE_BIND_ADDRESS in $ENV_FILE): other machines cannot reach $origin."
+  fi
+fi
 ok "mode $mode, address $origin"
 
 # observability wiring
@@ -179,14 +190,27 @@ fi
 otp="$(get_env LINKEDEYE_LOGIN_OTP | tr '[:upper:]' '[:lower:]')"
 smtp_host="$(get_env LINKEDEYE_EMAIL_HOST)"
 case "$otp" in ""|1|true|yes) otp_on=1 ;; *) otp_on=0 ;; esac
-if [ "$otp_on" -eq 1 ] && { [ -z "$smtp_host" ] || [ "$smtp_host" = localhost ]; }; then
-  if [ "$mode" = http ]; then
+is_real_smtp_host() { case "$1" in ""|localhost|127.0.0.1|::1) return 1 ;; *) return 0 ;; esac; }
+# SMTP saved on Administration > Integrations lives in the database, not in .env: ask the console when it is already running.
+# (values_for_form never returns the password; only the host name is printed.)
+integrations_smtp_host() {
+  [ "$(service_state web)" = healthy ] || return 0
+  dc exec -T web python manage.py shell -c 'from administration import integration_config as ic; print("smtp-host=" + str(ic.values_for_form("email").get("email_host") or "").strip())' \
+    2>/dev/null | tr -d '\r' | sed -n 's/^smtp-host=//p' | tail -n 1 || true
+}
+if [ "$otp_on" -eq 1 ] && ! is_real_smtp_host "$smtp_host"; then
+  app_smtp_host="$(integrations_smtp_host)"
+  if is_real_smtp_host "$app_smtp_host"; then
+    ok "SMTP for the sign-in code: $app_smtp_host (set on Administration > Integrations)"
+  elif [ "$mode" = http ] && [ -z "$otp" ]; then
     set_env LINKEDEYE_LOGIN_OTP false
     warn "No SMTP server configured: the e-mail sign-in code is switched OFF (LINKEDEYE_LOGIN_OTP=false). Password only is acceptable"
     warn "on localhost or a trusted network. Set LINKEDEYE_EMAIL_HOST and LINKEDEYE_LOGIN_OTP=true before exposing the console."
   else
-    die "Sign-in needs an e-mail code and no SMTP server is configured, so nobody could log in. Set LINKEDEYE_EMAIL_HOST (and port, user, password) in $ENV_FILE,
-     or consciously accept password-only sign-in with LINKEDEYE_LOGIN_OTP=false there, then run this script again."
+    # https/internal, or LINKEDEYE_LOGIN_OTP=true chosen explicitly: never downgraded to password only behind the operator's back
+    die "Sign-in needs an e-mail code and no SMTP server is configured, so nobody could log in. Set LINKEDEYE_EMAIL_HOST (and port, user, password) in $ENV_FILE
+     (or on Administration > Integrations while the console runs), or consciously accept password-only sign-in with LINKEDEYE_LOGIN_OTP=false
+     in $ENV_FILE, then run this script again."
   fi
 fi
 [ "$otp_on" -eq 1 ] || [ "$mode" = http ] || warn "Sign-in is password only (LINKEDEYE_LOGIN_OTP=false) on a ${mode} deployment."

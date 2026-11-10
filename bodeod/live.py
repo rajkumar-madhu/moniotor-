@@ -10,11 +10,14 @@ view). A live failure only ever changes what the page shows; it never signs anyt
 """
 import logging
 import threading
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
+from datetime import timedelta
 
 from django.core.cache import cache
-from django.db import connections
+from django.db import DatabaseError, IntegrityError, connections, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from . import services
@@ -24,7 +27,7 @@ log = logging.getLogger("linkedeye.bodeod")
 
 INTERVAL = 20                 # seconds between polls the page is told to use (the script clamps it to 15-30)
 RECHECK_WAIT = 6.0            # seconds a re-check request waits for the probes before answering "still running"
-RECHECK_LOCK_TTL = 90         # a re-check that never reports back frees its mode after this many seconds
+RECHECK_LOCK_TTL = 90         # a re-check that never reports back frees its mode this many seconds after its job started
 LIVE_LIMIT, LIVE_WINDOW = 120, 60        # polls per user per minute (a tab polls 3-4 times a minute)
 RECHECK_LIMIT, RECHECK_WINDOW = 12, 60   # re-check requests per user per minute
 
@@ -180,8 +183,11 @@ def mode_payload(mode, run=None, now=None, entries=None):
 
 
 # ------------------------------------------------------------------ rate limiting and the re-check lock
+# The default cache (no CACHES setting) is a LocMemCache, private to each gunicorn worker. The re-check lock and the
+# re-check budget therefore live in the database, which every worker shares; only the poll budget (a read-only GET) is a
+# per-worker cache counter.
 def hit(key, window):
-    """Fixed-window counter; a broken cache never blocks the page (returns 0)."""
+    """Fixed-window counter in this worker's cache; a broken cache never blocks the page (returns 0)."""
     try:
         if cache.add(key, 1, window):
             return 1
@@ -199,29 +205,82 @@ def limited(user, scope, limit, window):
     return hit(f"bodeod:rl:{scope}:{user.pk}", window) > limit
 
 
+def recheck_limited(user, now=None):
+    """True when `user` already made RECHECK_LIMIT re-check requests in the last RECHECK_WINDOW seconds. Counted from the
+    audit log (every answered re-check request writes one row), so the budget is the same whichever worker answers."""
+    from core.models import AuditEvent
+    now = now or timezone.now()
+    try:
+        n = AuditEvent.objects.filter(actor_id=user.pk, action="recheck", object_type="bodeod.mode",
+                                      occurred_at__gt=now - timedelta(seconds=RECHECK_WINDOW)).count()
+    except DatabaseError:
+        log.warning("bodeod: re-check budget unavailable", exc_info=True)
+        return False
+    return n >= RECHECK_LIMIT
+
+
 def _lock_key(mode):
     return f"bodeod:recheck:{mode.pk}"
 
 
+def _leases():
+    from core.models import SchedulerLease
+    return SchedulerLease.objects
+
+
 def is_rechecking(mode):
     try:
-        return cache.get(_lock_key(mode)) is not None
-    except Exception:  # noqa: BLE001
+        return _leases().filter(name=_lock_key(mode), expires_at__gt=timezone.now()).exclude(owner="").exists()
+    except DatabaseError:
         return False
 
 
 def _acquire(mode):
+    """Take the mode's re-check lock (a core.SchedulerLease row, shared by every worker). Returns the owner token, or
+    None when another re-check holds an unexpired lock. A broken lock table never blocks the operator."""
+    token = uuid.uuid4().hex
+    now = timezone.now()
+    expires = now + timedelta(seconds=RECHECK_LOCK_TTL)
+    name = _lock_key(mode)
     try:
-        return cache.add(_lock_key(mode), int(timezone.now().timestamp()), RECHECK_LOCK_TTL)
-    except Exception:  # noqa: BLE001
-        return True
+        with transaction.atomic():
+            taken = _leases().filter(name=name).filter(Q(expires_at__lte=now) | Q(owner="")).update(
+                owner=token, acquired_at=now, expires_at=expires)
+            if taken:
+                return token
+            if _leases().filter(name=name).exists():
+                return None
+        try:
+            with transaction.atomic():
+                _leases().create(name=name, owner=token, acquired_at=now, expires_at=expires)
+            return token
+        except IntegrityError:
+            return None                                   # another worker created it a moment ago
+    except DatabaseError:
+        log.warning("bodeod: re-check lock unavailable", exc_info=True)
+        return token
 
 
-def _release(mode):
+def _renew(mode, token):
+    """Restart the lock's lifetime when the job actually starts (it may have waited in the executor queue). Only the
+    owner's own lock is touched."""
+    if not token:
+        return
     try:
-        cache.delete(_lock_key(mode))
-    except Exception:  # noqa: BLE001
-        pass
+        _leases().filter(name=_lock_key(mode), owner=token).update(
+            expires_at=timezone.now() + timedelta(seconds=RECHECK_LOCK_TTL))
+    except DatabaseError:
+        log.warning("bodeod: could not renew the re-check lock", exc_info=True)
+
+
+def _release(mode, token):
+    """Free the lock only if `token` still owns it: a job that outlived its lock never frees a later re-check's lock."""
+    if not token:
+        return
+    try:
+        _leases().filter(name=_lock_key(mode), owner=token).update(owner="", expires_at=timezone.now())
+    except DatabaseError:
+        log.warning("bodeod: could not release the re-check lock", exc_info=True)
 
 
 # ------------------------------------------------------------------ re-check
@@ -249,9 +308,11 @@ def get_executor():
         return _executor
 
 
-def _job(mode, refs):
-    """Runs on a worker thread: re-run the referenced checks once. Never raises; always frees the mode's lock."""
+def _job(mode, refs, token=None):
+    """Runs on a worker thread: re-run the referenced checks once. Never raises; always frees the mode's lock (if it
+    still holds it)."""
     try:
+        _renew(mode, token)
         resolver = services.Resolver(refs, sites=services.ref_sites(mode.site))
         outcome = services.refresh_references(refs, resolver)
         return {"ran": outcome.ran, "failed": sorted(outcome.failed)}
@@ -259,7 +320,7 @@ def _job(mode, refs):
         log.exception("bodeod: re-check of %s failed", mode.code)
         return {"ran": 0, "failed": ["error"]}
     finally:
-        _release(mode)
+        _release(mode, token)
 
 
 def pick_refs(mode, keys=None, run=None):
@@ -287,12 +348,13 @@ def recheck(mode, refs, wait=None):
     wait = RECHECK_WAIT if wait is None else wait
     if not refs:
         return "skipped", {"ran": 0, "failed": []}
-    if not _acquire(mode):
+    token = _acquire(mode)
+    if not token:
         return "busy", {"ran": 0, "failed": []}
     try:
-        fut = get_executor().submit(_job, mode, refs)
+        fut = get_executor().submit(_job, mode, refs, token)
     except Exception:  # noqa: BLE001
-        _release(mode)
+        _release(mode, token)
         log.exception("bodeod: could not start the re-check of %s", mode.code)
         return "failed", {"ran": 0, "failed": ["error"]}
     try:

@@ -419,6 +419,12 @@ def poll_due(now=None, workers=None):
         except Exception:                                           # noqa: BLE001 - one endpoint never stops the others
             log.exception("hardware: could not store the poll of endpoint %s", ep.pk)
             bad += 1
+            try:                                                    # say so on the endpoint (and back off), not only in the log
+                ep.refresh_from_db()
+                apply_failure(ep, redfish.ProtocolError("The BMC's answer could not be stored (a value it reported is out of "
+                                                        "range). See the server log."), timezone.now())
+            except Exception:                                       # noqa: BLE001
+                log.exception("hardware: could not record the failed store of endpoint %s", ep.pk)
     return f"{ok} polled, {bad} failed"
 
 

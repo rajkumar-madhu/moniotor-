@@ -496,10 +496,17 @@ Run the dump on a schedule (host cron or a Kubernetes CronJob), copy it off the 
 
 ```bash
 docker compose stop web probes
-docker compose exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner' < linkedeye-2026-11-01-0200.dump
+# empty the schema first: pg_restore --clean drops only what is in the dump, so tables a newer release added (with foreign
+# keys to the old ones) would make it fail
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"'
+docker compose exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --single-transaction --exit-on-error' < linkedeye-2026-11-01-0200.dump
 docker compose run --rm migrate          # brings an older dump up to the running release
 docker compose start web probes
 ```
+
+If `pg_restore` fails, it is rolled back and the database is left empty (the dump is untouched): fix the cause and run the
+`pg_restore` line and the two after it again.
+The live pack's `deploy/live/restore.sh` does both steps in one transaction.
 
 On Kubernetes scale `linkedeye-web` and `linkedeye-probes` to 0, restore with `pg_restore` the same way,
 re-run the migration Job, then scale back (web 2, probes **1**).

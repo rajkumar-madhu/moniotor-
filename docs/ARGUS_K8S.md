@@ -15,9 +15,10 @@ The target is the **FinSpot dev cluster**, the same one the `finspot-dev` overla
 Its admin kubeconfig is issued on the bastion `fs-dev-cp-ps` (API server on the private address `172.16.0.70:8443`, so it is only
 reachable from inside that network). Keep the kubeconfig off git and run every `kubectl` command below from the bastion or a machine
 that can reach it. This overlay uses the same namespace (`fs-linkedeye`) as `finspot-dev`; the public host name differs (`argus.monitoring.wecrew.in`
-instead of `fs-le-dx.finspot.in`). Unlike `finspot-dev` it does **not** pre-list any private probe range (see step 2): the dev
-overlay's `/16` ranges include the cluster's own API-server address, and every listed address can be reached by anyone who may
-configure a probe. The two overlays must not be applied to the same cluster at once: they patch the same objects.
+instead of `fs-le-dx.finspot.in`). Unlike `finspot-dev` (which lists its two lab `/16`s) it does **not** pre-list any private probe
+range (see step 2): every listed address can be reached by anyone who may configure a probe, so the list is yours to make as narrow
+as possible, and the cluster's own API-server and node network (`172.16.0.0/16`) must stay out of it in both overlays. The two
+overlays must not be applied to the same cluster at once: they patch the same objects.
 
 ## Prerequisites
 - `kubectl` with access to the cluster (admin on one namespace is enough: `fs-linkedeye`), Kubernetes 1.27+.
@@ -73,7 +74,7 @@ kubectl -n fs-linkedeye exec -it deploy/linkedeye-web -- python manage.py create
 
 ## 5. Verify
 ```bash
-curl -I https://argus.monitoring.wecrew.in/healthz/          # 200 and a valid certificate
+curl -I https://argus.monitoring.wecrew.in/healthz           # 200 and a valid certificate (no trailing slash: /healthz/ is a 404)
 kubectl -n fs-linkedeye exec deploy/linkedeye-web -- python manage.py go_live_check   # if your image has it (see GO_LIVE.md)
 kubectl -n fs-linkedeye logs deploy/linkedeye-probes --tail=50 # the scheduler heartbeat
 ```

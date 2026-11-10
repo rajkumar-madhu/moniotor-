@@ -54,7 +54,7 @@ class ArgusOverlayTests(unittest.TestCase):
 
     def test_no_private_probe_range_is_pre_listed(self):
         # Every listed range can be reached by whoever may configure a probe: the operator lists narrow subnets deliberately.
-        # (The finspot-dev overlay lists /16 ranges that include the cluster API-server address; this one must not copy them.)
+        # (The finspot-dev overlay pre-lists its lab /16s; this one must not copy them. Neither may contain the API server: test_verify_fixes.)
         value = docs(OVERLAY / "configmap-patch.yaml")[0]["data"]["LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS"]
         self.assertEqual(value, "")
 

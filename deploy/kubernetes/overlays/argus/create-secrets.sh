@@ -17,11 +17,15 @@ fi
 gen() { python3 -c "import secrets; print(secrets.token_urlsafe($1))"; }
 fernet() { python3 -c "import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"; }
 DB_PASSWORD="${DB_PASSWORD:-$(gen 24)}"
-kubectl -n "$NS" create secret generic linkedeye-secrets \
-  --from-literal=LINKEDEYE_SECRET_KEY="$(gen 50)" \
-  --from-literal=LINKEDEYE_DB_PASSWORD="$DB_PASSWORD" \
-  --from-literal=LINKEDEYE_ALERTMANAGER_WEBHOOK_TOKEN="$(gen 32)" \
-  --from-literal=LINKEDEYE_CREDENTIAL_KEY="$(fernet)" >/dev/null
+case "$DB_PASSWORD" in *$'\n'*|*$'\r'*) echo "DB_PASSWORD must be a single line" >&2; exit 1 ;; esac
+# The values reach kubectl on its standard input (printf is a shell builtin), never on a command line: another user of the
+# bastion could read kubectl's arguments from ps or /proc while it runs, and audit tools log them.
+{
+  printf 'LINKEDEYE_SECRET_KEY=%s\n' "$(gen 50)"
+  printf 'LINKEDEYE_DB_PASSWORD=%s\n' "$DB_PASSWORD"
+  printf 'LINKEDEYE_ALERTMANAGER_WEBHOOK_TOKEN=%s\n' "$(gen 32)"
+  printf 'LINKEDEYE_CREDENTIAL_KEY=%s\n' "$(fernet)"
+} | kubectl -n "$NS" create secret generic linkedeye-secrets --from-env-file=/dev/stdin >/dev/null
 echo "Created linkedeye-secrets in $NS (SECRET_KEY, DB_PASSWORD, ALERTMANAGER_WEBHOOK_TOKEN, CREDENTIAL_KEY)."
 echo "Back up LINKEDEYE_CREDENTIAL_KEY: without it stored server/BMC/vCenter passwords cannot be decrypted:"
 echo "  kubectl -n $NS get secret linkedeye-secrets -o jsonpath='{.data.LINKEDEYE_CREDENTIAL_KEY}' | base64 -d"
