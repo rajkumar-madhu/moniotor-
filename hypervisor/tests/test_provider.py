@@ -80,6 +80,13 @@ class Pure(SimpleTestCase):
 class FakePyvmomi(SimpleTestCase):
     """Drive PyvmomiProvider.fetch with stand-in pyVim / pyVmomi modules (the real package is optional and not installed in CI)."""
 
+    def setUp(self):
+        # the provider's bounded pre-flight connect would reach 127.0.0.1:443, where nothing listens in a test: stand it in,
+        # so these tests exercise the login and fetch code they are about (the pre-flight has its own tests in test_verify_fixes)
+        patcher = mock.patch.object(pyvmomi_provider.socket, "create_connection", return_value=mock.MagicMock())
+        self.preflight = patcher.start()
+        self.addCleanup(patcher.stop)
+
     def modules(self, vm_obj, events):
         vim = types.ModuleType("pyVmomi.vim")
         vim.VirtualMachine = lambda ref, stub: vm_obj
@@ -132,3 +139,4 @@ class FakePyvmomi(SimpleTestCase):
             with self.assertRaises(ProviderError) as cm:
                 pyvmomi_provider.PyvmomiProvider("vc.example.test", 443, "user1", "Sup3r-Secret", "skip")
         self.assertNotIn("Sup3r-Secret", str(cm.exception))
+        self.assertIn("could not log in", str(cm.exception))      # the failure came from SmartConnect, not the pre-flight
