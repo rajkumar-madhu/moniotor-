@@ -46,6 +46,12 @@ def _csv(filename, header, rows):
     return resp
 
 
+def _pk(value):
+    """A primary key from a request parameter, or None. ASCII digits only (str.isdigit() is also true for "²", which int()
+    refuses) and at most 18 of them: a longer string is past CPython's int() digit limit or outside a 64-bit column."""
+    return int(value) if isinstance(value, str) and 0 < len(value) <= 18 and value.isascii() and value.isdigit() else None
+
+
 def _per_page(request, default=20):
     try:
         return max(5, min(100, int(request.GET.get("per", default))))
@@ -257,8 +263,13 @@ def datastores(request):
     per_host = {(r["source_id"], r["host_moref"]): r["n"] for r in
                 services.vms_for(request.user).filter(missing_since__isnull=True).exclude(host_moref="")
                 .order_by().values("source_id", "host_moref").annotate(n=Count("id"))}
-    hosts = [{"h": h, "vms": per_host.get((h.source_id, h.moref), 0)}
-             for h in services.hosts_for(request.user).order_by("source__name", "name")]
+    host_list = list(services.hosts_for(request.user).order_by("source__name", "name"))
+    # a global source's host can be linked to a physical server of any site: name it only when this user may see it
+    from network.services import devices_for
+    linked = {h.device_id for h in host_list if h.device_id}
+    seen = set(devices_for(request.user, request).filter(pk__in=linked).values_list("pk", flat=True)) if linked else set()
+    hosts = [{"h": h, "vms": per_host.get((h.source_id, h.moref), 0), "device": h.device if h.device_id in seen else None}
+             for h in host_list]
     sources_n = services.sources_for(request.user).count()
     return render(request, "hypervisor/datastores.html", {
         "rows": rows, "hosts": hosts, "sources_n": sources_n, "can_admin": can(request.user, "admin"),
@@ -303,12 +314,13 @@ def unmatched(request):
     if q:
         qs = qs.filter(Q(name__icontains=q) | Q(guest_hostname__icontains=q) | Q(bios_uuid__icontains=q))
     src = request.GET.get("source", "")
-    if src.isascii() and src.isdigit():                 # str.isdigit() is also true for "²", which int() refuses
-        qs = qs.filter(source_id=int(src))
+    if _pk(src) is not None:
+        qs = qs.filter(source_id=_pk(src))
     page = Paginator(qs.order_by("match_state", "name"), _per_page(request)).get_page(request.GET.get("page"))
-    from network.models import Device
+    from network.services import devices_for
     cand_ids = {c for vm in page for c in (vm.match_candidates or []) if isinstance(c, int)}
-    cands = {d.pk: d for d in Device.objects.filter(tenant_key=services.tenant(), pk__in=cand_ids)} if cand_ids else {}
+    # a global source matches against devices of every site: show only the candidates this user may see
+    cands = {d.pk: d for d in devices_for(request.user, request).filter(pk__in=cand_ids)} if cand_ids else {}
     q_dict = request.GET.copy()
     q_dict.pop("page", None)
     for vm in page:
@@ -351,8 +363,8 @@ def match_link(request, pk):
     vm = _vm_or_404(request, pk)
     _need_resolve(request, vm)
     dev_id = request.POST.get("device", "")
-    dev = (devices_for(request.user, request).filter(pk=int(dev_id), device_type="virtual_machine").first()
-           if dev_id.isascii() and dev_id.isdigit() else None)
+    dev = (devices_for(request.user, request).filter(pk=_pk(dev_id), device_type="virtual_machine").first()
+           if _pk(dev_id) is not None else None)
     if dev is None:
         messages.error(request, "Choose one of the virtual-machine devices you can see.")
     elif not can_on(request.user, "operate", dev.site):

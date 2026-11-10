@@ -68,15 +68,32 @@ def _auth_header():
     return value
 
 
+MAX_GET_QUERY = 4096                 # longer query strings go as a form POST (see _get)
+POST_PATHS = ("/api/v1/query", "/api/v1/query_range")
+
+
 def _get(path, params=None):
+    """Call a read-only API endpoint and return its ``data``.
+
+    Parameters go in the URL, except that a query/query_range whose encoded parameters exceed ``MAX_GET_QUERY``
+    bytes is sent as a form-encoded POST (the Prometheus HTTP API accepts both). PromQL that lists many instances
+    (the Fleet Overview's site-scoped matcher) runs to tens of KB, and a reverse proxy in front of Prometheus
+    (nginx keeps the request line within 8 KB by default) would refuse it with HTTP 414 as a GET."""
     from administration import integration_config as ic
 
     if not configured():
         raise PrometheusError("Prometheus is not connected (set LINKEDEYE_PROMETHEUS_URL).")
     url = ic.prometheus_url().rstrip("/") + path
+    data = None
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
     if params:
-        url += "?" + urllib.parse.urlencode(params, doseq=True)
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
+        encoded = urllib.parse.urlencode(params, doseq=True)
+        if len(encoded) > MAX_GET_QUERY and path in POST_PATHS:
+            data = encoded.encode("ascii")
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+        else:
+            url += "?" + encoded
+    request = urllib.request.Request(url, data=data, headers=headers)
     header = _auth_header()
     if header:
         request.add_unredirected_header("Authorization", header)

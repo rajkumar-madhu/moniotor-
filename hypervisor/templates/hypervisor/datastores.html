@@ -29,7 +29,7 @@
     <thead><tr><th>Host</th><th>vCenter</th><th>Cluster</th><th>State</th><th class="num">VMs</th><th>Physical server</th></tr></thead>
     <tbody>{% for h in hosts %}<tr{% if h.h.missing_since %} class="off"{% endif %}><td><b>{{ h.h.name }}</b></td><td>{{ h.h.source.name }}</td><td>{{ h.h.cluster_name|default:"–" }}</td>
       <td><span class="chip {% if h.h.connection_state == 'CONNECTED' %}ok{% elif h.h.connection_state %}crit{% else %}mute{% endif %}">{{ h.h.connection_state|default:"–"|lower|capfirst }}</span></td><td class="num">{{ h.vms }}</td>
-      <td>{% if h.h.device %}<a href="{% url 'network:detail' h.h.device_id %}">{{ h.h.device.name }}</a>{% elif h.h.match_state == "ambiguous" %}<span class="chip warn" title="{{ h.h.match_reason }}">ambiguous</span>{% else %}<span class="t-mute" title="{{ h.h.match_reason }}">not matched</span>{% endif %}</td></tr>{% endfor %}</tbody>
+      <td>{% if h.device %}<a href="{% url 'network:detail' h.device.pk %}">{{ h.device.name }}</a>{% elif h.h.device_id %}<span class="t-mute">linked (another site)</span>{% elif h.h.match_state == "ambiguous" %}<span class="chip warn" title="{{ h.h.match_reason }}">ambiguous</span>{% else %}<span class="t-mute" title="{{ h.h.match_reason }}">not matched</span>{% endif %}</td></tr>{% endfor %}</tbody>
   </table></div>
 </section>
 {% endif %}

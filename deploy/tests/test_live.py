@@ -53,9 +53,10 @@ case "$1" in
         case "$args" in
           *pg_dump*) if [ "${STUB_DUMP_EMPTY:-0}" = 1 ]; then :; else printf 'PGDMP-stub-dump-%s' "$RANDOM"; fi ;;
           *"pg_restore --list"*) cat > /dev/null; exit "${STUB_LIST_RC:-0}" ;;
-          *"pg_restore -U"*) cat > "$STUB_DIR/restored.dump"; exit "${STUB_RESTORE_RC:-0}" ;;
+          *"pg_restore --no-owner"*) cat > "$STUB_DIR/restored.dump"; exit "${STUB_RESTORE_RC:-0}" ;;
           *"postgres --version"*) echo "postgres (PostgreSQL) 16.0" ;;
           *"createsuperuser"*) echo created >> "$STUB_DIR/admin-created" ;;
+          *"integration_config"*) echo "smtp-host=${STUB_SMTP_HOST:-}" ;;
           *"manage.py shell"*) echo "${STUB_SHELL_OUT:-0 0}" ;;
           *) : ;;
         esac
@@ -217,6 +218,11 @@ class ComposeFileTests(unittest.TestCase):
         self.assertIn("{$LINKEDEYE_ACME_EMAIL}", https)
         self.assertNotIn("local_certs", https)
         self.assertIn("local_certs", (LIVE / "caddy" / "internal.Caddyfile").read_text())
+        # an IP-only site needs an explicit tls directive, or default_sni is lost and SNI-less clients get no certificate
+        internal = (LIVE / "caddy" / "internal.Caddyfile").read_text()
+        self.assertIn("default_sni {$LINKEDEYE_DOMAIN}", internal)
+        site = internal.split("{$LINKEDEYE_DOMAIN} {", 1)[1].split("}", 1)[0]
+        self.assertIn("tls internal", site)
         http = (LIVE / "caddy" / "http.Caddyfile").read_text()
         self.assertIn("auto_https off", http)
         self.assertIn(":80", http)
@@ -823,8 +829,8 @@ class RestoreTests(LiveCase):
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertTrue((self.stub / "restored.dump").read_bytes().startswith(b"PGDMP"))
         calls = "\n".join(self.calls())
-        self.assertLess(calls.index(" stop web worker caddy"), calls.index("pg_restore -U"))
-        self.assertLess(calls.index("pg_restore -U"), calls.rindex(" up -d"))                 # migrations and start come after
+        self.assertLess(calls.index(" stop web worker caddy"), calls.index("pg_restore --no-owner"))
+        self.assertLess(calls.index("pg_restore --no-owner"), calls.rindex(" up -d"))         # migrations and start come after
 
     def test_a_damaged_archive_is_refused_before_anything_is_touched(self):
         work = self.tmp / "work"
@@ -859,11 +865,16 @@ class RestoreTests(LiveCase):
         self.assertIn("pg_restore failed", proc.stderr)
 
     def test_pg_restore_is_one_transaction(self):
-        # without --single-transaction a failure half-way leaves the database with its old tables dropped and no new ones
+        # a failure half-way must not leave the database with its old tables dropped and no new ones: the schema is emptied and
+        # refilled in ONE transaction that only commits when pg_restore read the whole dump (test_restore_postgres runs it for real)
         self.assertEqual(self.run_script("restore.sh", str(self.archive), "--yes", "--no-safety-backup").returncode, 0)
-        [call] = [c for c in self.calls() if "pg_restore -U" in c]
-        self.assertIn("--single-transaction", call)
-        self.assertIn("--clean --if-exists", call)
+        call = "\n".join(self.calls())
+        call = call[call.index("exec -T db sh -c"):]
+        self.assertLess(call.index("BEGIN;"), call.index("DROP SCHEMA IF EXISTS public CASCADE"))
+        self.assertLess(call.index("DROP SCHEMA IF EXISTS public CASCADE"), call.index("pg_restore --no-owner"))
+        self.assertIn("then printf 'COMMIT;", call)
+        self.assertIn("ON_ERROR_STOP=1", call)
+        self.assertNotIn("--clean", call)                  # --clean drops only what is in the dump: newer tables would block it
 
     def test_a_failed_restore_says_the_database_was_rolled_back(self):
         proc = self.run_script("restore.sh", str(self.archive), "--yes", "--no-safety-backup", env={"STUB_RESTORE_RC": "1"})

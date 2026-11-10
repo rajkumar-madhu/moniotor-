@@ -60,7 +60,7 @@ registry in `core/examples.py` knows all of them: what each area counts, and how
 | `hypervisor` | `seed_hypervisor` | the synthetic vCenter source (`[example]` description) and its VM device |
 | `hardware` | `seed_hardware` | the example server (and its BMC readings) |
 | `architecture` | `seed_architecture`, the page's loader | devices tagged `arch-example`, the example racks |
-| `dcim` | `seed_dcim` | example rooms (description `[example]`) and their racks, items, feeds, cooling units |
+| `dcim` | `seed_dcim` | in the example rooms (description `[example]`): the seed's racks, items, feeds and cooling units that still carry `[example]` in their notes. A rack that holds an item or feed of yours, and a room that still holds a rack or cooling unit of yours, are kept (only their example contents go); your own records there are never touched |
 | `ipam` | `seed_ipam` | the exact seed VLANs, subnets, addresses (seed description) and zones |
 | `apm` | `seed_apm` | the example source and all of its data |
 | `automation` | `seed_automation` | runbooks, rules, templates created by `seed_automation` with the seed names |

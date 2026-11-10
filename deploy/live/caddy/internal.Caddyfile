@@ -2,6 +2,10 @@
 # until you trust the CA: docs/GO_LIVE.md, "VM without a domain"). No internet access needed.
 {
 	local_certs
+	# Browsers and curl send no SNI when the URL is an IP address. Caddy then picks the certificate by the address the
+	# connection arrived on, which behind Docker's port publishing is the container's bridge address, not LINKEDEYE_DOMAIN:
+	# without a default the handshake fails ("no certificate available for '172.x.x.x'").
+	default_sni {$LINKEDEYE_DOMAIN}
 	servers {
 		timeouts {
 			# slow-loris: a client that dribbles request headers is cut off; idle keep-alive connections are recycled
@@ -14,5 +18,16 @@
 import linkedeye.snippet
 
 {$LINKEDEYE_DOMAIN} {
+	# Explicit, although local_certs already picks Caddy's CA: without a tls directive in the site block the Caddyfile
+	# adapter writes no TLS connection policy for an IP-only site, Caddy adds a bare one at run time, and default_sni above
+	# is lost, so a client that sends no SNI (any URL with an IP address) gets "tlsv1 alert internal error".
+	tls internal
 	import linkedeye
+}
+
+# HTTP -> HTTPS, written out instead of Caddy's automatic redirect: Caddy listens on 443 inside the container and would
+# redirect to https://host/ (port 443) even when LINKEDEYE_HTTPS_PORT publishes it on another host port (the documented
+# answer to "port 443 is taken"), sending users to whatever else owns 443.
+http://{$LINKEDEYE_DOMAIN} {
+	redir https://{host}:{$LINKEDEYE_HTTPS_PORT:443}{uri} 308
 }

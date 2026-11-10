@@ -39,7 +39,7 @@ in LinkedEye, and a person carries it out in the BMC.
 
 | Mode | Meaning |
 |---|---|
-| `pin` (default, recommended) | the SHA-256 of the BMC's leaf certificate must equal the fingerprint you confirmed (trust on first use with a confirm step, like SSH host-key pinning). Compared after the handshake and **before any request is sent**. Changing the host or port clears the pin. A replaced certificate is refused until an admin pins the new one. |
+| `pin` (default, recommended) | the SHA-256 of the BMC's leaf certificate must equal the fingerprint you confirmed (trust on first use with a confirm step, like SSH host-key pinning). Compared after the handshake and **before any request is sent**, on every connection the poll opens (a reconnect included). Changing the host or port clears the pin. A replaced certificate is refused until an admin pins the new one. |
 | `verify` | the certificate must chain to the server's CA bundle and match the host name. |
 | `skip` | not verified. Needs an explicit confirmation, is labelled "unsafe" in the lists and on the tab. |
 
@@ -66,7 +66,9 @@ Plain HTTP exists only as an explicit, labelled override (the login would travel
   to be typed again, so nobody can aim the (write-only) login at a server of their own. Deleting the endpoint, or the server
   device it belongs to, deletes the vault row too.
 * Everything a BMC sends (names, messages, serials) is length-capped, stripped of control and bidi characters, stored as text
-  and escaped on output. The CSV defuses formula cells.
+  and escaped on output. The CSV defuses formula cells. Numbers are kept finite and in range (a PSU load is computed only from a
+  capacity of at least 1 W). A poll whose answer still cannot be stored is recorded on the endpoint as a failed poll with that
+  reason (back-off and the unreachable alert apply), not only in the server log.
 
 ## Data model
 
@@ -77,7 +79,10 @@ sensor, PSU, fan, drive, DIMM, CPU, NIC, battery), `HwReading` (time series of t
 
 **Site scoping.** An endpoint has no site of its own: it belongs to a device, and the device's site decides who may see or manage
 it (`core.access`, tested for every page and JSON endpoint; another site's server is a 404). For that reason the app has no
-entry in `administration.services.SITE_NAME_FIELDS`: a site rename follows through the device. The vault row's site is kept equal to the device's site.
+entry in `administration.services.SITE_NAME_FIELDS`: a site rename follows through the device. The vault row's site is kept equal to the device's site:
+saving the server device on another site (its page, an import, any `save()`) moves the BMC login's vault row with it, so the old site's
+admins no longer see it under stored credentials (a `post_save` handler on `network.Device`; a bulk `QuerySet.update()` of device
+sites bypasses it).
 
 ## Settings
 

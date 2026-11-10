@@ -209,7 +209,7 @@ def apply_inventory(source, inv, prov, provider_error, now):
     datastores_by_ref = {d["moref"]: d for d in inv["datastores"]}
     hosts_by_ref = {h["moref"]: h for h in inv["hosts"]}
 
-    host_devices = _apply_hosts(source, inv["hosts"], now)
+    host_devices = _apply_hosts(source, inv["hosts"], now, keep_cluster=inv.get("placement_partial", False))
     pending += _apply_datastores(source, inv["datastores"], now)
     cluster_cache = {}
 
@@ -257,7 +257,7 @@ def apply_inventory(source, inv, prov, provider_error, now):
 
     # VMs that vanished
     listed = {s["moref"] for s in inv["vms"]}
-    if len(listed) < vsphere.MAX_VMS:
+    if len(listed) < vsphere.MAX_VMS and inv.get("vms_complete", True):      # an incomplete list proves nothing vanished
         source.vms.filter(missing_since__isnull=True).exclude(moref__in=listed).update(missing_since=now)
 
     _apply_matching(source, existing, host_devices, now)
@@ -323,14 +323,15 @@ def _add_event(vm, key, ts, severity, kind, message, origin="sync"):
 
 
 # ----------------------------------------------------------------------------- hosts, datastores
-def _apply_hosts(source, hosts, now):
+def _apply_hosts(source, hosts, now, keep_cluster=False):
     existing = {h.moref: h for h in source.hosts.all()}
     index = _device_index(source, "physical_server")
     rows = {}
     for h in hosts:
         row = existing.get(h["moref"]) or HvHost(tenant_key=source.tenant_key, source=source, moref=h["moref"])
         row.name, row.connection_state, row.power_state = h["name"], h["connection_state"], h["power_state"]
-        row.cluster_name, row.cluster_moref = h.get("cluster_name", ""), h.get("cluster_moref", "")
+        if "cluster_moref" in h or not keep_cluster:      # a fan-out cut short by the deadline keeps the earlier cluster
+            row.cluster_name, row.cluster_moref = h.get("cluster_name", ""), h.get("cluster_moref", "")
         row.seen_at, row.missing_since = now, None
         rows[h["moref"]] = row
     results = matching.resolve_claims({r: matching.match_host({"name": rows[r].name}, index) for r in rows})

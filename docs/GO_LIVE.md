@@ -124,6 +124,8 @@ the private CA by themselves in this mode. If users type a name instead of the I
 `bootstrap.sh` accepts `--mode http` only for localhost, private addresses (10/8, 172.16/12, 192.168/16, 100.64/10 for Tailscale, link-local), IPv6
 local addresses and names such as `box`, `*.lan`, `*.local`, `*.internal`, `*.test`; for anything that looks public it stops and asks for `--allow-plain-http`.
 For a `localhost` domain the ports are published on `127.0.0.1` only (`LINKEDEYE_BIND_ADDRESS`), so nobody else on the same Wi-Fi can reach it.
+`bootstrap.sh --domain <another name>` clears that `127.0.0.1` again (with a warning); a `127.0.0.1` you set yourself for any other name (an SSH
+tunnel, a proxy on the same host) is kept on every re-run.
 In this mode session cookies are not `Secure` (`LINKEDEYE_SECURE_COOKIES=false`), HSTS is off, and if no SMTP server is set the e-mail code is switched
 off with a warning. **Passwords and cookies cross the network in clear text.** Do not use this mode across the internet. `go_live_check` keeps
 reporting this as WARN, on purpose, until you move to HTTPS.
@@ -220,8 +222,9 @@ The archive holds the database password and the credential key in clear text: ke
 server-side encryption and restricted access).
 
 Test a restore on a scratch server at least once a quarter. **Restore:** `./deploy/live/restore.sh deploy/live/backups/linkedeye-….tar` (asks you to type
-`RESTORE`; takes a safety backup first; migrates an older dump to the running release). The database is replaced in **one transaction**: if `pg_restore` fails half-way (a dump from a newer PostgreSQL, a damaged
-file) it is rolled back and the database is exactly as before; web, worker and caddy stay stopped until you start them. `--restore-env` brings back the archived `.env` but
+`RESTORE`; takes a safety backup first; migrates an older dump to the running release). The database is replaced in **one transaction**: the
+`public` schema is emptied (so tables a newer release added, and their foreign keys, cannot block an older dump) and the dump restored into it; if
+`pg_restore` fails half-way (a dump from a newer PostgreSQL, a damaged file) everything is rolled back, the emptying included, and the database is exactly as before; web, worker and caddy stay stopped until you start them. `--restore-env` brings back the archived `.env` but
 keeps this server's database login, because the PostgreSQL role lives in the database volume and not in the dump. **Disaster recovery on a new server:** install Docker, clone the
 repository, copy the archive over, run `./deploy/live/restore.sh linkedeye-….tar --yes`; with no `.env` present it uses the archived one, which
 initialises the new database with the same password and brings back the credential key. DNS must point at the new server before Caddy can obtain a
@@ -295,7 +298,7 @@ Other apps add checks without editing `administration/golive.py`: a module `goli
 | Symptom | Cause and fix |
 |---|---|
 | `bootstrap.sh`: "Let's Encrypt does not issue certificates for IP addresses" | Use `--mode internal` (an IP or an internal name) or `--mode http`. |
-| `bootstrap.sh`: "no SMTP server is configured, so nobody could log in" | Set `LINKEDEYE_EMAIL_HOST` (and port, user, password) in `deploy/live/.env`, or choose password-only with `LINKEDEYE_LOGIN_OTP=false` on a trusted network, then re-run. |
+| `bootstrap.sh`: "no SMTP server is configured, so nobody could log in" | Set `LINKEDEYE_EMAIL_HOST` (and port, user, password) in `deploy/live/.env` (SMTP saved on *Administration > Integrations* counts too while the console runs), or choose password-only with `LINKEDEYE_LOGIN_OTP=false` on a trusted network, then re-run. In mode `http` a blank `LINKEDEYE_LOGIN_OTP` is switched to `false` instead, but an explicit `true` is never downgraded. |
 | Browser: certificate error on `https://…` right after the first start | Caddy is still obtaining the certificate (a few seconds). If it persists: `docker compose -f deploy/live/docker-compose.live.yml logs caddy`; usual causes are DNS not yet pointing at this host, port 80 blocked, or Let's Encrypt rate limits (use `--mode internal` for testing). |
 | `400 Bad Request` | The `Host` is not in `LINKEDEYE_ALLOWED_HOSTS`. Fix `LINKEDEYE_DOMAIN` and re-run `bootstrap.sh`. |
 | `403 CSRF verification failed` on the sign-in form | `LINKEDEYE_CSRF_TRUSTED_ORIGINS` must be the exact origin the browser uses, including a non-default port. Re-run `bootstrap.sh` after fixing `LINKEDEYE_DOMAIN` / the port. |
@@ -309,7 +312,7 @@ Other apps add checks without editing `administration/golive.py`: a module `goli
 | Checks on private addresses all fail with "refused" | The range is not in `LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS`. |
 | `docker compose` complains about a missing variable | You ran compose without `deploy/live/.env`. Run `bootstrap.sh`, or `docker compose -f deploy/live/docker-compose.live.yml --env-file deploy/live/.env …`. |
 | Disk filling up | Logs are rotated; check `docker system df` and `deploy/live/backups/`. Lower `LINKEDEYE_BACKUP_KEEP_DAYS`, copy archives off-host. |
-| Port 80 or 443 already in use | Stop the other web server, or set `LINKEDEYE_HTTP_PORT` / `LINKEDEYE_HTTPS_PORT` (then Let's Encrypt cannot validate: use `internal` or `http`). |
+| Port 80 or 443 already in use | Stop the other web server, or set `LINKEDEYE_HTTP_PORT` / `LINKEDEYE_HTTPS_PORT` (then Let's Encrypt cannot validate: use `internal` or `http`). In `internal` mode the HTTP-to-HTTPS redirect keeps `LINKEDEYE_HTTPS_PORT`, and `healthcheck.sh` checks it. |
 
 ## What is tested, and what is not
 
@@ -323,12 +326,14 @@ every `go_live_check` rule, the command, `--url`, and the System health card, in
 could not be pulled in that environment) bringing up PostgreSQL, migrate, web and worker; creating the administrator; `go_live_check`; `healthcheck.sh`;
 `backup.sh` and `restore.sh` (including restoring onto an empty volume without a `.env`); `update.sh`; backup retention.
 
-**Exercised against a real PostgreSQL 16 server** (stub `docker` forwarding `pg_dump` / `pg_restore` to it): backup, restore of a changed database, and a restore that fails half-way
-(rolled back, data intact).
+**Tested against a real PostgreSQL server** whenever its binaries are installed (`deploy/tests/test_restore_postgres.py`: a private throw-away cluster,
+stub `docker` forwarding `pg_dump` / `pg_restore` / `psql` to it): backup, restoring an older dump onto a newer schema whose new tables have foreign
+keys into the old ones (the `update.sh` rollback), and restores that fail half-way (rolled back, data intact).
 
 **In CI:** the `live-stack` job builds the image and brings the stack up with the real Caddy image in plain-HTTP mode on a dummy domain, signs in with
 curl, runs `go_live_check`, `backup.sh`, `restore.sh` and `update.sh`, and renders the `observability` profile.
 
-**Not tested anywhere yet** (you will be the first, so run the verification section): Let's Encrypt issuance and renewal for a real DNS name; Caddy's internal
-CA mode and HTTP-to-HTTPS redirect (the Caddyfiles are small and standard, but no Caddy binary ran them); the observability profile running (only
-rendered); a real SMTP server; the Kubernetes pack on a cluster; non-Linux Docker hosts; `shellcheck` on the scripts.
+**Not tested anywhere yet** (you will be the first, so run the verification section): Let's Encrypt issuance and renewal for a real DNS name (the
+https mode's own HTTP-to-HTTPS redirect included); the observability profile running (only rendered); a real SMTP server; the Kubernetes pack on a
+cluster; non-Linux Docker hosts. Caddy's internal CA mode on an IP address (TLS without SNI, and the redirect to a non-default
+`LINKEDEYE_HTTPS_PORT`) runs in CI (`Live deployment pack (compose, internal CA on an IP)`), and `shellcheck` runs on every script in CI.

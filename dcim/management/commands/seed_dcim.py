@@ -4,6 +4,7 @@ from django.apps import apps
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand
+from django.db import transaction
 
 from dcim.models import EXAMPLE_MARK, CoolingUnit, PowerFeed, Rack, RackItem, Room
 
@@ -61,19 +62,47 @@ COOLING = [
 ]
 
 
+def removal_plan(tenant):
+    """What `--remove` deletes, and what core.examples counts (the same predicate). Only records carrying the mark go: the
+    marked items and feeds of the seed's racks, the marked cooling units of the seed's rooms, a seed rack once nothing
+    unmarked (an operator's item or feed) is in it, and a seed room once no rack and no unmarked cooling unit is left in it.
+    An operator's own rack, item, feed or cooling unit inside an example room is never touched, and keeps its container."""
+    names = [r["name"] for r in ROOMS]
+    rooms = list(Room.objects.filter(tenant_key=tenant, name__in=names, description__icontains=MARK))
+    racks = list(Rack.objects.filter(room__in=rooms, name__in=[r[1] for r in RACKS], notes__icontains=MARK))
+    keep = set(RackItem.objects.filter(rack__in=racks).exclude(notes__icontains=MARK).values_list("rack_id", flat=True))
+    keep |= set(PowerFeed.objects.filter(rack__in=racks).exclude(notes__icontains=MARK).values_list("rack_id", flat=True))
+    gone = [r for r in racks if r.pk not in keep]
+    gone_pks = [r.pk for r in gone]
+    rooms_gone = [room for room in rooms
+                  if not Rack.objects.filter(room=room).exclude(pk__in=gone_pks).exists()
+                  and not CoolingUnit.objects.filter(room=room).exclude(notes__icontains=MARK).exists()]
+    return {
+        "rooms": rooms_gone,
+        "racks": gone,
+        "items": RackItem.objects.filter(rack__in=racks, notes__icontains=MARK),
+        "feeds": PowerFeed.objects.filter(rack__in=racks, notes__icontains=MARK),
+        "cooling": CoolingUnit.objects.filter(room__in=rooms, notes__icontains=MARK),
+    }
+
+
 class Command(BaseCommand):
     help = "Create example DCIM rooms, racks, items, feeds and cooling units marked [example] (idempotent)."
 
     def add_arguments(self, parser):
-        parser.add_argument("--remove", action="store_true", help="Delete the example records.")
+        parser.add_argument("--remove", action="store_true",
+                            help="Delete the example records (an operator's own records in the example rooms are kept).")
 
     def handle(self, *args, remove=False, **opts):
         tenant = settings.LINKEDEYE_TENANT
-        names = [r["name"] for r in ROOMS]
         if remove:
-            rooms = Room.objects.filter(tenant_key=tenant, name__in=names, description__icontains=MARK)
-            Rack.objects.filter(room__in=rooms).delete()
-            n, _ = rooms.delete()
+            plan = removal_plan(tenant)
+            n = 0
+            with transaction.atomic():
+                for qs in (plan["items"], plan["feeds"], plan["cooling"]):
+                    n += qs.delete()[0]
+                for obj in plan["racks"] + plan["rooms"]:
+                    n += obj.delete()[0]
             self.stdout.write(self.style.SUCCESS(f"Removed example DCIM records ({n} row(s))."))
             return
         Site = apps.get_model("core", "Site")

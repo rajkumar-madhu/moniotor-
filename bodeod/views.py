@@ -297,7 +297,8 @@ def api_live(request):
 def api_recheck(request):
     """Re-run the referenced checks of one mode (or of the named items) now, through probes.checks. Bounded: it answers
     within a few seconds, "running" when the probes are still busy, and the page keeps polling `api_live`."""
-    if live.limited(request.user, "recheck", live.RECHECK_LIMIT, live.RECHECK_WINDOW):
+    # the cache counter stops a burst on this worker at once; the audit-log count is the budget every worker shares
+    if live.limited(request.user, "recheck", live.RECHECK_LIMIT, live.RECHECK_WINDOW) or live.recheck_limited(request.user):
         return _json_error("Too many re-checks: wait a moment.", 429, Retry_After="30")
     pk = _positive(request.POST.get("mode"))
     mode = _modes(request).filter(pk=pk).first() if pk else None
@@ -591,7 +592,8 @@ def _checklist_sections(request, modes):
     for m in modes:
         items = list(m.items.all())
         rows = _live_rows(items, _mode_resolver(m, items))
-        out.append({"mode": m, "rows": rows, "live_sum": _live_summary(rows),
+        # the mode's latest run: the live script compares it with what it polls (an empty one reads as "a new run")
+        out.append({"mode": m, "rows": rows, "live_sum": _live_summary(rows), "run": services.latest_run(m),
                     "can_edit": user_can(request.user, "admin", m.site),
                     "can_operate": user_can(request.user, "operate", m.site)})
     return out

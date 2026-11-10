@@ -25,6 +25,7 @@ Safety rules, all enforced here and not left to callers:
 """
 import base64
 import hashlib
+import hmac
 import http.client
 import ipaddress
 import json
@@ -133,11 +134,14 @@ class _Watchdog:
 
 
 class _Conn(http.client.HTTPSConnection):
-    """HTTPS to a validated address, name kept for SNI and the certificate check; reports the leaf fingerprint."""
+    """HTTPS to a validated address, name kept for SNI and the certificate check; reports the leaf fingerprint.
 
-    def __init__(self, host, ip, port, timeout, context, watchdog):
+    In pin mode (``pin`` is not None) the fingerprint is compared inside ``connect`` itself, right after the handshake and
+    before anything is sent, so a connection that http.client re-opens on its own (after it closed the socket) is pinned too."""
+
+    def __init__(self, host, ip, port, timeout, context, watchdog, pin=None):
         super().__init__(host, port, timeout=timeout, context=context)
-        self._ip, self._watchdog = ip, watchdog
+        self._ip, self._watchdog, self._pin = ip, watchdog, pin
         self.fingerprint = ""
 
     def connect(self):
@@ -153,6 +157,15 @@ class _Conn(http.client.HTTPSConnection):
         self.sock = tls
         der = tls.getpeercert(binary_form=True)
         self.fingerprint = hashlib.sha256(der).hexdigest() if der else ""
+        if self._pin is not None:
+            if not self._pin:
+                self.close()
+                raise CertificateError("No certificate is pinned yet. Run Test connection and confirm the fingerprint.",
+                                       self.fingerprint)
+            if not (self.fingerprint and hmac.compare_digest(self.fingerprint, self._pin)):
+                self.close()
+                raise CertificateError("The certificate does not match the pinned fingerprint. If the BMC certificate "
+                                       "was replaced on purpose, pin the new one.", self.fingerprint)
 
 
 class _PlainConn(http.client.HTTPConnection):
@@ -266,25 +279,18 @@ class RedfishClient:
         if self.plain:
             conn = _PlainConn(self.host, self._ip, self.port, timeout, self._wd)
         else:
-            conn = _Conn(self.host, self._ip, self.port, timeout, _context(self.verify_mode), self._wd)
+            # in pin mode the fingerprint is compared in _Conn.connect, before a single request (and so a credential) is sent
+            conn = _Conn(self.host, self._ip, self.port, timeout, _context(self.verify_mode), self._wd,
+                         pin=self.pinned if self.verify_mode == "pin" else None)
         try:
             conn.connect()
         except BaseException as exc:
+            self.fingerprint = conn.fingerprint
             if self._wd.expired:
                 raise Unreachable("The poll took longer than its deadline.") from None
             raise _translate(exc, (self._user, self._pw)) from None
         if not self.plain:
             self.fingerprint = conn.fingerprint
-            if self.verify_mode == "pin":
-                # compared before a single request (and so a credential) is sent
-                if not self.pinned:
-                    conn.close()
-                    raise CertificateError("No certificate is pinned yet. Run Test connection and confirm the fingerprint.",
-                                           conn.fingerprint)
-                if conn.fingerprint != self.pinned:
-                    conn.close()
-                    raise CertificateError("The certificate does not match the pinned fingerprint. If the BMC certificate "
-                                           "was replaced on purpose, pin the new one.", conn.fingerprint)
         self._conn = conn
 
     # ------------------------------------------------------------------ the one request method
@@ -336,6 +342,9 @@ class RedfishClient:
                 if fresh or attempt:
                     raise
                 continue                                    # a kept-alive connection the BMC had closed: reconnect once
+            except BaseException:
+                self._drop()                                # never leave a half-used connection for http.client to re-open
+                raise
             if len(body) > MAX_BODY:
                 self._drop()
                 raise ProtocolError("A response was larger than 1 MB and was refused.")

@@ -6,8 +6,8 @@
 #   ./deploy/live/restore.sh ARCHIVE --yes             # do not ask
 #
 # Steps: verify the archive checksums -> take a safety backup of what is running now (unless --no-safety-backup) -> stop web
-# and worker -> pg_restore --clean -> run migrations (an older dump is brought to the running release) -> start everything ->
-# healthcheck. On a new server with no .env, the archived .env is used automatically; its database password then initialises
+# and worker -> empty the database schema and pg_restore into it, in one transaction -> run migrations (an older dump is
+# brought to the running release) -> start everything -> healthcheck. On a new server with no .env, the archived .env is used automatically; its database password then initialises
 # the new empty database volume.
 set -euo pipefail
 # shellcheck source=deploy/live/lib.sh
@@ -84,9 +84,24 @@ quiet dc up -d db || die "could not start the database."
 wait_healthy db 120 || die "the database did not become healthy."
 
 say "Restoring the database ..."
-# --single-transaction: all or nothing. Without it a failure half-way (a view that depends on a table, a dump from a newer
-# PostgreSQL) leaves the database with the old tables already dropped and the new ones missing.
-dc exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner --no-acl --single-transaction --exit-on-error' < "$work/db.dump" \
+# The schema is emptied first, not cleaned object by object (pg_restore --clean): --clean only drops what is in the dump, so
+# a table added by a newer release (for example one with a foreign key to an existing table) blocks the drop of the old
+# tables and an older dump could never be restored. DROP SCHEMA, the restore and COMMIT run in ONE transaction, and COMMIT
+# is only sent once pg_restore has read the whole dump. If it cannot (damaged, from a newer PostgreSQL), "\." ends any COPY in
+# progress and the next statement fails, so psql stops (ON_ERROR_STOP) and PostgreSQL rolls everything back, the DROP SCHEMA
+# included; the marker file makes the exit status say so whatever psql made of the cut-off input.
+restore_cmd="$(cat <<'SH'
+failed="$(mktemp)"
+{ printf 'BEGIN;\nSET client_min_messages = warning;\nDROP SCHEMA IF EXISTS public CASCADE;\nCREATE SCHEMA public;\n'
+  if pg_restore --no-owner --no-acl -f -; then printf 'COMMIT;\n'; rm -f "$failed"
+  else printf '\n\n\\.\nSELECT restore_aborted_pg_restore_failed;\n'; fi
+} | psql -X -q -o /dev/null -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+rc=$?
+if [ -e "$failed" ]; then rm -f "$failed"; exit 1; fi
+exit "$rc"
+SH
+)"
+dc exec -T db sh -c "$restore_cmd" < "$work/db.dump" \
   || die "pg_restore failed and was rolled back: the database is exactly as it was. web, worker and caddy are stopped; start them with: docker compose -f deploy/live/docker-compose.live.yml up -d"
 ok "database restored"
 

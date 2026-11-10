@@ -1,0 +1,19 @@
+# Second LinkedEye console beside the main compose stack on the same host (own Compose project, own database volume).
+# Use it together with deploy/compose.console.env:
+#
+#   docker compose -p linkedeye-console --env-file .env --env-file deploy/compose.console.env \
+#     -f docker-compose.yml -f docker-compose.console.yml up -d db web probes
+#
+# A second --env-file only fills in ${...} in the compose files; the containers read .env (env_file) plus the
+# environment: blocks. So the values that must differ from the main console are set here, from compose.console.env:
+# * its own cookie names. Browsers scope cookies by host, not port: with the default names, signing in on :8014 would
+#   sign you out of :8000 and break forms already open there (and the other way round).
+# * the host names and CSRF origins it is opened on.
+
+services:
+  web:
+    environment:
+      LINKEDEYE_ALLOWED_HOSTS: ${CONSOLE_ALLOWED_HOSTS:?set CONSOLE_ALLOWED_HOSTS (see deploy/compose.console.env)}
+      LINKEDEYE_CSRF_TRUSTED_ORIGINS: ${CONSOLE_CSRF_TRUSTED_ORIGINS:?set CONSOLE_CSRF_TRUSTED_ORIGINS (see deploy/compose.console.env)}
+      LINKEDEYE_CSRF_COOKIE_NAME: ${CONSOLE_CSRF_COOKIE_NAME:-linkedeyeconsolecsrftoken}
+      LINKEDEYE_SESSION_COOKIE_NAME: ${CONSOLE_SESSION_COOKIE_NAME:-linkedeyeconsolesessionid}

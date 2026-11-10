@@ -65,10 +65,19 @@ if [ "$mode" != http ]; then
   hdrs="$(curl "${curl_base[@]}" -D - -o /dev/null "$URL/accounts/login/" 2>/dev/null | tr -d '\r')" || hdrs=""
   if printf '%s' "$hdrs" | grep -qi '^strict-transport-security:'; then pass "HSTS header present"
   else printf '%s[warn]%s no Strict-Transport-Security header (set LINKEDEYE_HSTS_SECONDS)\n' "$C_WARN" "$C_OFF" >&2; fi
-  host="${URL#https://}"; host="${host%%/*}"; host="${host%%:*}"
-  if [ "$(get_env LINKEDEYE_HTTP_PORT 80)" = 80 ] && [ "$mode" = https ]; then
-    redirect="$(curl -sS --max-time 15 -o /dev/null -w '%{http_code} %{redirect_url}' "http://$host/" 2>/dev/null || true)"
-    case "$redirect" in 30[1278]\ https://*) pass "http://$host redirects to HTTPS" ;; *) bad "http://$host does not redirect to HTTPS (got: ${redirect:-no answer})" ;; esac
+  host="${URL#*://}"; host="${host%%/*}"; host="${host%%:*}"
+  http_port="$(get_env LINKEDEYE_HTTP_PORT 80)"; https_port="$(get_env LINKEDEYE_HTTPS_PORT 443)"
+  # mode https: only on the standard ports (Let's Encrypt needs them). Mode internal: on any ports, and the redirect must keep
+  # the published HTTPS port, or users who type http://host:PORT land on whatever else listens on 443.
+  if { [ "$http_port" = 80 ] && [ "$mode" = https ]; } || [ "$mode" = internal ]; then
+    http_url="http://$host"; [ "$http_port" = 80 ] || http_url="$http_url:$http_port"
+    redirect="$(curl -sS --max-time 15 -o /dev/null -w '%{http_code} %{redirect_url}' "$http_url/" 2>/dev/null || true)"
+    case "$redirect" in
+      30[1278]\ "https://$host:$https_port/"*) pass "$http_url redirects to HTTPS" ;;
+      30[1278]\ "https://$host/"*) if [ "$https_port" = 443 ]; then pass "$http_url redirects to HTTPS"
+                                  else bad "$http_url redirects to HTTPS without the port $https_port (got: $redirect)"; fi ;;
+      *) bad "$http_url does not redirect to https://$host (got: ${redirect:-no answer})" ;;
+    esac
   fi
 fi
 

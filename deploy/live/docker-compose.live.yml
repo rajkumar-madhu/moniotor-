@@ -141,6 +141,8 @@ services:
     environment:
       LINKEDEYE_DOMAIN: ${LINKEDEYE_DOMAIN:?set LINKEDEYE_DOMAIN in deploy/live/.env}
       LINKEDEYE_ACME_EMAIL: ${LINKEDEYE_ACME_EMAIL:-}
+      # the published HTTPS port, for the HTTP -> HTTPS redirect of mode internal (Caddy itself always listens on 443)
+      LINKEDEYE_HTTPS_PORT: ${LINKEDEYE_HTTPS_PORT:-443}
     networks: [proxy]
     # LINKEDEYE_BIND_ADDRESS: 0.0.0.0 = every interface (the default); bootstrap.sh sets 127.0.0.1 for a localhost trial
     ports:

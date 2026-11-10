@@ -126,9 +126,14 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def do_GET(self):
+    def do_POST(self):
+        # LinkedEye sends a query longer than 4 KB as a form-encoded POST (real Prometheus accepts both)
+        n = int(self.headers.get("Content-Length") or 0)
+        self.do_GET(parse_qs(self.rfile.read(n).decode("utf-8", "replace")))
+
+    def do_GET(self, form=None):
         u = urlparse(self.path)
-        p = {k: v[0] for k, v in parse_qs(u.query).items()}
+        p = {k: v[0] for k, v in {**parse_qs(u.query), **(form or {})}.items()}
         q, now = p.get("query", ""), time.time()
         if u.path == "/api/v1/query":
             res = [{"metric": m, "value": [now, str(v)]} for m, v in instant(q, now)]
