@@ -22,3 +22,5 @@ data:
   LINKEDEYE_BRAND_COPYRIGHT_LABEL: "LinkedEye.in"
   LINKEDEYE_BRAND_HEADLINE: "One view of every site, alert and ticket."
   LINKEDEYE_BRAND_LEAD: "ITSM and infrastructure monitoring for FinSpot data centres and cloud, on a Prometheus telemetry plane."
+  # Dev lab has no SMTP yet; password-only sign-in. Re-enable when EMAIL_* secrets exist.
+  LINKEDEYE_LOGIN_OTP: "false"
