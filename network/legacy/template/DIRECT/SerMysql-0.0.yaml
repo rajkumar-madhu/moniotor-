@@ -1,0 +1,114 @@
+#TEMPLATE_USED:DIRECT/SERVICES/Linux/Mysql/Mysql-0.0.j2
+### Host as Service
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: s_sw
+  _NEO4j_tech: Mysql
+  _NEO4j_icon: Mysql.png
+  _NEO4j_type: Service
+  _NEO4j_WF: {"name" : "linkedeye_linux.service_restart", "service" : "mysql", "OS" : "RHEL7" }
+
+## Service as Micro-Service
+- use: generic-5min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}:long-running-procs"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}:long-running-procs"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: s_sw
+  _NEO4j_tech: Mysql
+  _NEO4j_icon: long-running-procs.png
+  _NEO4j_type: ServiceMS
+  _NEO4j_WF: {}
+
+- use: generic-5min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}:bufferpool-hitrate"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}:bufferpool-hitrate"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: s_sw
+  _NEO4j_tech: Mysql
+  _NEO4j_icon: bufferpool-hitrate.png
+  _NEO4j_type: ServiceMS
+  _NEO4j_WF: {}
+
+- use: generic-5min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}:threads-connected"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}:threads-connected"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: s_sw
+  _NEO4j_tech: Mysql
+  _NEO4j_icon: threads-connected.png
+  _NEO4j_type: ServiceMS
+  _NEO4j_WF: {}
+
+- use: generic-5min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}:slow-queries"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}:slow-queries"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: s_sw
+  _NEO4j_tech: Mysql
+  _NEO4j_icon: slow-queries.png
+  _NEO4j_type: ServiceMS
+  _NEO4j_WF: {}
+
+- use: generic-5min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}:tmp-disk-tables"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}:tmp-disk-tables"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: s_sw
+  _NEO4j_tech: Mysql
+  _NEO4j_icon: tmp-disk-tables.png
+  _NEO4j_type: ServiceMS
+  _NEO4j_WF: {}
+
+- use: generic-5min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}:table-lock-contention"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}:table-lock-contention"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}:{{ CUSTOM_SERVICENAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: s_sw
+  _NEO4j_tech: Mysql
+  _NEO4j_icon: table-lock-contention.png
+  _NEO4j_type: ServiceMS
+  _NEO4j_WF: {}

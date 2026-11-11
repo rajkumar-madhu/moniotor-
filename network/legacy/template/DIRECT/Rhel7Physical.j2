@@ -1,0 +1,355 @@
+#TEMPLATE_USED:DIRECT/HOSTS/Linux/RHEL/7phy.j2
+## Host as Service
+define host {
+        use 			        linux-server
+        alias 			        {{ COMMON_HOSTNAME }}
+        display_name 		    {{ COMMON_HOSTNAME }}
+        address 		        {{ COMMON_IPADDRESS }}
+	    check_command		    check-host-alive
+        check_interval 		    1
+        retry_interval 		    1
+	    max_check_attempts	    5
+        check_period 		    24x7
+        host_name 		        {{ COMMON_HOSTNAME }}
+	    _NEO4j_title 		    {{ COMMON_HOSTNAME }}
+        _NEO4j_contactEmail                 {{ REUSABLE_EMAIL }}
+        _NEO4j_Automation                 {{ BOOL__REUSABLE_AUTOMATION }}
+        _NEO4j_Vault                 {{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}
+        _NEO4j_hostname	        {{ COMMON_HOSTNAME }}
+	    _NEO4j_address		    {{ COMMON_IPADDRESS }}
+        _NEO4j_nics		        {}
+        _NEO4j_volumes           {}
+        _NEO4j_sertype        RHEL7_Phy
+        _NEO4j_FrdlyName		        {{ FRNDLY_NAME }}
+	_NEO4j_application	{{ GLOBAL_APPLICATION }}
+        _NEO4j_layer        s_hw
+	    _NEO4j_tech	    Linux
+	    _NEO4j_icon		        RHEL.png
+	    _NEO4j_type         Host
+	    _NEO4j_parent           ""
+	    _NEO4j_WF			        {}
+}
+
+## Service as Micro-Service
+define service{
+        use                     	generic-1min-service
+	    host_name               	{{ COMMON_HOSTNAME }}
+        service_description     	{{ COMMON_HOSTNAME }}:SW_LoadAvg
+        check_command           	check_nrpe!check_load!15,10,5!30,25,20
+        _NEO4j_title             	{{ COMMON_HOSTNAME }}:SW_LoadAvg
+        _NEO4j_contactEmail                 {{ REUSABLE_EMAIL }}
+        _NEO4j_Automation                 {{ BOOL__REUSABLE_AUTOMATION }}
+        _NEO4j_Vault                 {{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}
+        _NEO4j_parent           	{{ COMMON_HOSTNAME }}
+        _NEO4j_address          	{{ COMMON_IPADDRESS }}
+	_NEO4j_application	{{ GLOBAL_APPLICATION }}
+        _NEO4j_layer        s_hw
+        _NEO4j_tech       	Linux
+        _NEO4j_icon             	Load.png
+        _NEO4j_type         	HostMS
+        _NEO4j_WF			        {}
+        _NEO4J_RELATIONSHIP_RQD     No
+}
+
+define service{
+        use                     	generic-1min-service
+        host_name               	{{ COMMON_HOSTNAME }}
+        service_description     	{{ COMMON_HOSTNAME }}:SW_Login
+        check_command           	check_nrpe!check_users!3!4
+        _NEO4j_title             	{{ COMMON_HOSTNAME }}:SW_Login
+        _NEO4j_contactEmail                 {{ REUSABLE_EMAIL }}
+        _NEO4j_Automation                 {{ BOOL__REUSABLE_AUTOMATION }}
+        _NEO4j_Vault                 {{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}
+        _NEO4j_parent           	{{ COMMON_HOSTNAME }}
+        _NEO4j_address          	{{ COMMON_IPADDRESS }}
+	_NEO4j_application	{{ GLOBAL_APPLICATION }}
+        _NEO4j_layer        s_hw
+        _NEO4j_tech      		Linux
+        _NEO4j_icon             	Login.png
+        _NEO4j_type         	HostMS
+        _NEO4j_WF			        {}
+        _NEO4J_RELATIONSHIP_RQD     No
+}
+
+define service{
+	    use                     	generic-5min-service
+        host_name               	{{ COMMON_HOSTNAME }}
+	    service_description     	{{ COMMON_HOSTNAME }}:Disk
+	    check_command           	check_nrpe!check_disk!20%!10%!/
+	    _NEO4j_title             	{{ COMMON_HOSTNAME }}:Disk
+        _NEO4j_contactEmail                 {{ REUSABLE_EMAIL }}
+        _NEO4j_Automation                 {{ BOOL__REUSABLE_AUTOMATION }}
+        _NEO4j_Vault                 {{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}
+	    _NEO4j_parent           	{{ COMMON_HOSTNAME }}
+        _NEO4j_address          	{{ COMMON_IPADDRESS }}
+	_NEO4j_application	{{ GLOBAL_APPLICATION }}
+        _NEO4j_layer        s_hw
+        _NEO4j_tech       	Linux
+        _NEO4j_icon             	Disk.png
+        _NEO4j_type         	HostMS
+        _NEO4j_WF			        {}
+        _NEO4J_RELATIONSHIP_RQD     No
+}
+
+define service{
+	    use                     	generic-5min-service
+        host_name               	{{ COMMON_HOSTNAME }}
+	    service_description     	{{ COMMON_HOSTNAME }}:SW_Disk
+	    check_command           	check_nrpe!check_disk!20%!10%!/
+	    _NEO4j_title             	{{ COMMON_HOSTNAME }}:SW_Disk
+        _NEO4j_contactEmail                 {{ REUSABLE_EMAIL }}
+        _NEO4j_Automation                 {{ BOOL__REUSABLE_AUTOMATION }}
+        _NEO4j_Vault                 {{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}
+	    _NEO4j_parent           	{{ COMMON_HOSTNAME }}
+        _NEO4j_address          	{{ COMMON_IPADDRESS }}
+	_NEO4j_application	{{ GLOBAL_APPLICATION }}
+        _NEO4j_layer        s_hw
+        _NEO4j_volumes           {}
+        _NEO4j_tech       	Linux
+        _NEO4j_icon             	Disk.png
+        _NEO4j_type         	HostMS
+        _NEO4j_WF			        {}
+        _NEO4J_RELATIONSHIP_RQD     No
+}
+
+define service{
+        use                     	generic-1min-service
+        host_name               	{{ COMMON_HOSTNAME }}
+        service_description     	{{ COMMON_HOSTNAME }}:Memory
+        check_command           	check_nrpe!check_mem!10!1
+	    _NEO4j_title             	{{ COMMON_HOSTNAME }}:Memory
+        _NEO4j_contactEmail                 {{ REUSABLE_EMAIL }}
+        _NEO4j_Automation                 {{ BOOL__REUSABLE_AUTOMATION }}
+        _NEO4j_Vault                 {{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}
+        _NEO4j_parent           	{{ COMMON_HOSTNAME }}
+        _NEO4j_address          	{{ COMMON_IPADDRESS }}
+	_NEO4j_application	{{ GLOBAL_APPLICATION }}
+        _NEO4j_layer        s_hw
+        _NEO4j_tech       	Linux
+        _NEO4j_icon             	Memory.png
+        _NEO4j_type         	HostMS
+        _NEO4j_WF			        {}
+        _NEO4J_RELATIONSHIP_RQD     No
+}
+
+define service{
+        use                     	generic-1min-service
+        host_name               	{{ COMMON_HOSTNAME }}
+        service_description     	{{ COMMON_HOSTNAME }}:SW_Memory
+        check_command           	check_nrpe!check_mem!10!1
+	    _NEO4j_title             	{{ COMMON_HOSTNAME }}:SW_Memory
+        _NEO4j_contactEmail                 {{ REUSABLE_EMAIL }}
+        _NEO4j_Automation                 {{ BOOL__REUSABLE_AUTOMATION }}
+        _NEO4j_Vault                 {{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}
+        _NEO4j_parent           	{{ COMMON_HOSTNAME }}
+        _NEO4j_address          	{{ COMMON_IPADDRESS }}
+	_NEO4j_application	{{ GLOBAL_APPLICATION }}
+        _NEO4j_layer        s_hw
+        _NEO4j_tech       	Linux
+        _NEO4j_icon             	Memory.png
+        _NEO4j_type         	HostMS
+        _NEO4j_WF			        {}
+        _NEO4J_RELATIONSHIP_RQD     No
+}
+
+define service{
+        use                     	generic-1min-service
+        host_name               	{{ COMMON_HOSTNAME }}
+        service_description     	{{ COMMON_HOSTNAME }}:CPU
+        check_command           	check_nrpe!check_cpu!80
+	    _NEO4j_title             	{{ COMMON_HOSTNAME }}:CPU
+        _NEO4j_contactEmail                 {{ REUSABLE_EMAIL }}
+        _NEO4j_Automation                 {{ BOOL__REUSABLE_AUTOMATION }}
+        _NEO4j_Vault                 {{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}
+        _NEO4j_parent           	{{ COMMON_HOSTNAME }}
+        _NEO4j_address          	{{ COMMON_IPADDRESS }}
+	_NEO4j_application	{{ GLOBAL_APPLICATION }}
+        _NEO4j_layer        s_hw
+        _NEO4j_tech       	Linux
+        _NEO4j_icon             	CPU.png
+        _NEO4j_type         	HostMS
+        _NEO4j_WF			        {}
+        _NEO4J_RELATIONSHIP_RQD     No
+}
+
+define service{
+        use                     	generic-1min-service
+        host_name               	{{ COMMON_HOSTNAME }}
+        service_description     	{{ COMMON_HOSTNAME }}:SW_CPU
+        check_command           	check_nrpe!check_cpu!80
+	    _NEO4j_title             	{{ COMMON_HOSTNAME }}:SW_CPU
+        _NEO4j_contactEmail                 {{ REUSABLE_EMAIL }}
+        _NEO4j_Automation                 {{ BOOL__REUSABLE_AUTOMATION }}
+        _NEO4j_Vault                 {{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}
+        _NEO4j_parent           	{{ COMMON_HOSTNAME }}
+        _NEO4j_address          	{{ COMMON_IPADDRESS }}
+	_NEO4j_application	{{ GLOBAL_APPLICATION }}
+        _NEO4j_layer        s_hw
+        _NEO4j_tech       	Linux
+        _NEO4j_icon             	CPU.png
+        _NEO4j_type         	HostMS
+        _NEO4j_WF			        {}
+        _NEO4J_RELATIONSHIP_RQD     No
+}
+
+define service{
+        use                     	generic-1day-service
+        host_name               	{{ COMMON_HOSTNAME }}
+        service_description     	{{ COMMON_HOSTNAME }}:SW_Uptime
+        check_command           	check_nrpe!check_uptime!43200!129600  # 43200 = 30days, 129600 = 90days
+	    _NEO4j_title             	{{ COMMON_HOSTNAME }}:SW_Uptime
+        _NEO4j_contactEmail                 {{ REUSABLE_EMAIL }}
+        _NEO4j_Automation                 {{ BOOL__REUSABLE_AUTOMATION }}
+        _NEO4j_Vault                 {{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}
+        _NEO4j_parent           	{{ COMMON_HOSTNAME }}
+        _NEO4j_address          	{{ COMMON_IPADDRESS }}
+	_NEO4j_application	{{ GLOBAL_APPLICATION }}
+        _NEO4j_layer        s_hw
+        _NEO4j_tech       	Linux
+        _NEO4j_icon             	Uptime.png
+        _NEO4j_type         	HostMS
+        _NEO4j_WF			        {}
+        _NEO4J_RELATIONSHIP_RQD     No
+}
+
+define service{
+        use                     	generic-1day-service
+        host_name               	{{ COMMON_HOSTNAME }}
+        service_description     	{{ COMMON_HOSTNAME }}:Info
+        check_command           	check_nrpe!linux_info!info
+        _NEO4j_title             	{{ COMMON_HOSTNAME }}:Info
+        _NEO4j_contactEmail                 {{ REUSABLE_EMAIL }}
+        _NEO4j_Automation                 {{ BOOL__REUSABLE_AUTOMATION }}
+        _NEO4j_Vault                 {{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}
+        _NEO4j_parent           	{{ COMMON_HOSTNAME }}
+        _NEO4j_address          	{{ COMMON_IPADDRESS }}
+	_NEO4j_application	{{ GLOBAL_APPLICATION }}
+        _NEO4j_layer        s_hw
+        _NEO4j_tech       	Linux
+        _NEO4j_icon            		Info.png
+        _NEO4j_type         	HostMS
+        _NEO4j_WF			        {}
+        _NEO4J_RELATIONSHIP_RQD     No
+}
+
+define service{
+        use                     	generic-5min-service
+        host_name               	{{ COMMON_HOSTNAME }}
+        service_description     	{{ COMMON_HOSTNAME }}:NIC
+        check_command           	check_nrpe
+	    _NEO4j_title             	{{ COMMON_HOSTNAME }}:NIC
+        _NEO4j_contactEmail                 {{ REUSABLE_EMAIL }}
+        _NEO4j_Automation                 {{ BOOL__REUSABLE_AUTOMATION }}
+        _NEO4j_Vault                 {{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}
+        _NEO4j_parent           	{{ COMMON_HOSTNAME }}
+        _NEO4j_address          	{{ COMMON_IPADDRESS }}
+        _NEO4j_nics		        {}
+	_NEO4j_application	{{ GLOBAL_APPLICATION }}
+        _NEO4j_layer        s_hw
+        _NEO4j_tech       	Linux
+        _NEO4j_icon             	NIC.png
+        _NEO4j_type         	HostMS
+        _NEO4j_WF			        {}
+        _NEO4J_RELATIONSHIP_RQD     No
+}
+
+define service{
+        use                     	generic-5min-service
+        host_name               	{{ COMMON_HOSTNAME }}
+        service_description     	{{ COMMON_HOSTNAME }}:SW_NIC
+        check_command           	check_nrpe
+	    _NEO4j_title             	{{ COMMON_HOSTNAME }}:SW_NIC
+        _NEO4j_contactEmail                 {{ REUSABLE_EMAIL }}
+        _NEO4j_Automation                 {{ BOOL__REUSABLE_AUTOMATION }}
+        _NEO4j_Vault                 {{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}
+        _NEO4j_parent           	{{ COMMON_HOSTNAME }}
+        _NEO4j_address          	{{ COMMON_IPADDRESS }}
+        _NEO4j_nics		        {}
+	_NEO4j_application	{{ GLOBAL_APPLICATION }}
+        _NEO4j_layer        s_hw
+        _NEO4j_tech       	Linux
+        _NEO4j_icon             	NIC.png
+        _NEO4j_type         	HostMS
+        _NEO4j_WF			        {}
+        _NEO4J_RELATIONSHIP_RQD     No
+}
+
+define service{
+        use                     	generic-5min-service
+        host_name               	{{ COMMON_HOSTNAME }}
+        service_description     	{{ COMMON_HOSTNAME }}:battery
+        check_command           	check_nrpe
+	    _NEO4j_title             	{{ COMMON_HOSTNAME }}:battery
+        _NEO4j_contactEmail                 {{ REUSABLE_EMAIL }}
+        _NEO4j_Automation                 {{ BOOL__REUSABLE_AUTOMATION }}
+        _NEO4j_Vault                 {{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}
+        _NEO4j_parent           	{{ COMMON_HOSTNAME }}
+        _NEO4j_address          	{{ COMMON_IPADDRESS }}
+	_NEO4j_application	{{ GLOBAL_APPLICATION }}
+        _NEO4j_layer        s_hw
+        _NEO4j_tech       	Linux
+        _NEO4j_icon             	battery.png
+        _NEO4j_type         	HostMS
+        _NEO4j_WF			        {}
+        _NEO4J_RELATIONSHIP_RQD     No
+}
+
+define service{
+        use                     	generic-5min-service
+        host_name               	{{ COMMON_HOSTNAME }}
+        service_description     	{{ COMMON_HOSTNAME }}:fan
+        check_command           	check_nrpe
+	    _NEO4j_title             	{{ COMMON_HOSTNAME }}:fan
+        _NEO4j_contactEmail                 {{ REUSABLE_EMAIL }}
+        _NEO4j_Automation                 {{ BOOL__REUSABLE_AUTOMATION }}
+        _NEO4j_Vault                 {{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}
+        _NEO4j_parent           	{{ COMMON_HOSTNAME }}
+        _NEO4j_address          	{{ COMMON_IPADDRESS }}
+	_NEO4j_application	{{ GLOBAL_APPLICATION }}
+        _NEO4j_layer        s_hw
+        _NEO4j_tech       	Linux
+        _NEO4j_icon             	fan.jpg
+        _NEO4j_type         	HostMS
+        _NEO4j_WF			        {}
+        _NEO4J_RELATIONSHIP_RQD     No
+}
+
+define service{
+        use                     	generic-5min-service
+        host_name               	{{ COMMON_HOSTNAME }}
+        service_description     	{{ COMMON_HOSTNAME }}:temperature
+        check_command           	check_nrpe
+	    _NEO4j_title             	{{ COMMON_HOSTNAME }}:temperature
+        _NEO4j_contactEmail                 {{ REUSABLE_EMAIL }}
+        _NEO4j_Automation                 {{ BOOL__REUSABLE_AUTOMATION }}
+        _NEO4j_Vault                 {{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}
+        _NEO4j_parent           	{{ COMMON_HOSTNAME }}
+        _NEO4j_address          	{{ COMMON_IPADDRESS }}
+	_NEO4j_application	{{ GLOBAL_APPLICATION }}
+        _NEO4j_layer        s_hw
+        _NEO4j_tech       	Linux
+        _NEO4j_icon             	temperature.png
+        _NEO4j_type         	HostMS
+        _NEO4j_WF			        {}
+        _NEO4J_RELATIONSHIP_RQD     No
+}
+
+define service{
+        use                     	generic-5min-service
+        host_name               	{{ COMMON_HOSTNAME }}
+        service_description     	{{ COMMON_HOSTNAME }}:Power-Supply
+        check_command           	check_nrpe
+	    _NEO4j_title             	{{ COMMON_HOSTNAME }}:Power-Supply
+        _NEO4j_contactEmail                 {{ REUSABLE_EMAIL }}
+        _NEO4j_Automation                 {{ BOOL__REUSABLE_AUTOMATION }}
+        _NEO4j_Vault                 {{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}
+        _NEO4j_parent           	{{ COMMON_HOSTNAME }}
+        _NEO4j_address          	{{ COMMON_IPADDRESS }}
+	_NEO4j_application	{{ GLOBAL_APPLICATION }}
+        _NEO4j_layer        s_hw
+        _NEO4j_tech       	Linux
+        _NEO4j_icon             	Power-Supply.png
+        _NEO4j_type         	HostMS
+        _NEO4j_WF			        {}
+        _NEO4J_RELATIONSHIP_RQD     No
+}
