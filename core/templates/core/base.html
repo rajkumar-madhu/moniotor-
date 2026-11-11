@@ -16,24 +16,24 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-cookie-name" content="{{ csrf_cookie_name }}">
-  <title>{% block title %}LinkedEye{% endblock %} · LinkedEye</title>
+  <title>{% block title %}{{ le_brand.product }}{% endblock %} · {{ le_brand.title_suffix }}</title>
   <link rel="icon" href="{% static 'linkedeye/img/logo-favicon.png' %}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
     href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap"
     rel="stylesheet">
-  <link rel="stylesheet" href="{% static 'linkedeye/app.css' %}?v=infra-theme-2">
+  <link rel="stylesheet" href="{% static 'linkedeye/app.css' %}?v=shell-nav-1">
   {% block page_css %}{% endblock %}
 </head>
 
 <body>
-<a class="skip-link" href="#main">Skip to content</a>
+  <a class="skip-link" href="#main">Skip to content</a>
   <div class="shell rail-open" id="shell">
     <aside class="side" id="side">
       <a class="brand" href="{% url 'dashboard' %}" style="text-decoration:none">
         <span class="logo"><img src="{% static 'linkedeye/img/logo-in.png' %}" alt=""></span>
-        <div><b>Linked<span>Eye</span></b><small>ITSM · Monitoring</small></div>
+        <div><b>Linked<span>Eye</span></b><small>{{ le_brand.shell_subtitle }}</small></div>
       </a>
       <nav class="nav" aria-label="Main">
         {% for item in nav %}
@@ -49,7 +49,7 @@
         {% endfor %}
       </nav>
       <div class="side-bottom">
-        <div class="side-foot">LinkedEye v{{ le_version }} · full-stack observability<div class="ok">System operational
+        <div class="side-foot">{% if le_brand.vendor %}{{ le_brand.vendor }} {% endif %}{{ le_brand.product }} v{{ le_version }} · full-stack observability<div class="ok">System operational
           </div>
         </div>
         {% if le_clients|length > 1 or le_client == "unassigned" %}
@@ -58,7 +58,7 @@
           <select name="client" data-autosubmit aria-label="Client">
             <option value="">All Clients</option>
             {% for c in le_clients %}
-            <option value="{{ c.pk }}"{% if c.pk|stringformat:"s" == le_client %} selected{% endif %}>{{ c.name }}
+            <option value="{{ c.pk }}" {% if c.pk|stringformat:"s" == le_client %} selected{% endif %}>{{ c.name }}
             </option>
             {% endfor %}
           </select>
@@ -70,7 +70,7 @@
           <select name="site" data-autosubmit aria-label="Site">
             <option value="">All Sites</option>
             {% for s in le_sites %}
-            <option value="{{ s }}"{% if s == le_site %} selected{% endif %}>{{ s }}</option>
+            <option value="{{ s }}" {% if s == le_site %} selected{% endif %}>{{ s }}</option>
             {% endfor %}
           </select>
           {% if le_client %}<input type="hidden" name="client" value="{{ le_client }}">{% endif %}
@@ -90,7 +90,7 @@
         </details>
       </div>
     </aside>
-  <div class="scrim" id="scrim" data-scrim hidden></div>
+    <div class="scrim" id="scrim" data-scrim hidden></div>
     <div class="main">
       <header class="top">
         <button class="icon-btn menu-btn" type="button" aria-label="Toggle menu" aria-controls="side"
@@ -99,6 +99,7 @@
             name="q" value="{{ request.GET.q|default:'' }}"
             placeholder="Search devices, domains, tickets, IPs, or runbooks…" aria-label="Search"></form>
         <div class="spacer"></div>
+        {% if le_env_badge %}<span class="env-pill" title="Scoped environment label">{{ le_env_badge }}</span>{% endif %}
         <button class="icon-btn hide-sm" type="button" data-toggle-theme aria-label="Switch theme"
           title="Switch light/dark theme"></button>
         <a class="icon-btn" href="{% url 'urlchecker:index' %}?status=down"
@@ -108,7 +109,7 @@
         <a class="icon-btn solid hide-sm" href="{% url 'coming_soon' 'help' %}" aria-label="Help">{% ficon "help" 24 %}</a>
         <a class="icon-btn hide-sm" href="{{ le_admin_url }}" aria-label="Administration">{% icon "settings" 22 %}</a>
       </header>
-      <main class="page" id="main" tabindex="-1">
+      <main class="{% block main_class %}page{% endblock %}" id="main" tabindex="-1">
         {% block crumbs %}{% endblock %}
         {% if messages %}<ul class="messages">{% for m in messages %}<li class="{{ m.tags }}">{{ m }}</li>{% endfor %}
         </ul>{% endif %}
@@ -117,7 +118,7 @@
     </div>
   </div>
   <script src="{% static 'linkedeye/charts.js' %}"></script>
-  <script src="{% static 'linkedeye/app.js' %}"></script>
+  <script src="{% static 'linkedeye/app.js' %}?v=shell-nav-1"></script>
   {% block scripts %}{% endblock %}
 </body>
 

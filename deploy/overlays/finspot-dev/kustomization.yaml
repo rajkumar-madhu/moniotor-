@@ -1,5 +1,6 @@
 # FinSpot dev cluster overlay (kubectl context from fs-dev-cp-ps bastion).
-# Schedules web, probes, migrate, and Postgres on worker fs-le-dev-finspot (172.16.0.56).
+# Schedules web, probes, migrate, and Postgres on worker fs-dev1-le
+# (172.16.0.74, fs-le-dev1.finspot.in).
 # Does not include secrets or kube credentials — see docs/FINSPOT_DEV_K8S.md.
 #
 #   kubectl apply -k deploy/overlays/finspot-dev
@@ -19,8 +20,22 @@ patches:
   - path: web-replicas.yaml
   - path: ingress-patch.yaml
   - path: serviceaccount-patch.yaml
+  # ingress-nginx on fs-dev-cs-tool1 is hostNetwork. Calico VXLAN sends
+  # that traffic from the node's tunnel address, not from the controller pod
+  # or from 172.16.0.77, so the pod selector never matches.
+  - target:
+      group: networking.k8s.io
+      version: v1
+      kind: NetworkPolicy
+      name: linkedeye-web-ingress
+    patch: |-
+      - op: add
+        path: /spec/ingress/0/from/-
+        value:
+          ipBlock:
+            cidr: 192.168.155.55/32
 
 images:
   - name: registry.example.com/linkedeye
     newName: harbor.finspot.in/linkedeye/linkedeye
-    newTag: "9.0"
+    newTag: "9.3"

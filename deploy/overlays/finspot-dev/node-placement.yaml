@@ -1,4 +1,5 @@
-# Run LinkedEye on fs-le-dev-finspot (172.16.0.56) so probes reach 172.16.0.0/16 lab targets.
+# Run LinkedEye on fs-dev1-le (172.16.0.74, fs-le-dev1.finspot.in).
+# nodeSelector uses the Kubernetes hostname label, which is fs-dev1-le.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -8,7 +9,7 @@ spec:
   template:
     spec:
       nodeSelector:
-        kubernetes.io/hostname: fs-le-dev-finspot
+        kubernetes.io/hostname: fs-dev1-le
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -19,7 +20,7 @@ spec:
   template:
     spec:
       nodeSelector:
-        kubernetes.io/hostname: fs-le-dev-finspot
+        kubernetes.io/hostname: fs-dev1-le
 ---
 apiVersion: batch/v1
 kind: Job
@@ -30,4 +31,4 @@ spec:
   template:
     spec:
       nodeSelector:
-        kubernetes.io/hostname: fs-le-dev-finspot
+        kubernetes.io/hostname: fs-dev1-le
