@@ -19,9 +19,14 @@ Kubeconfig on the laptop: copy bastion admin credentials into
 `deploy/overlays/finspot-dev/ssh-config.example` to `~/.ssh/config`, then
 `ssh -N finspot-bastion`.
 
-FinSpot **Client** row in LinkedEye (Lesites / imports): slug
-**`fs-le-dev-finspot`**, code **`finspot`** — created with
-`python manage.py ensure_finspot_site fs-le-dev-finspot` (cluster or local VPN env).
+FinSpot **Client** row in LinkedEye (Lesites / imports): code **`finspot`**,
+sites **`fs-le-dev-finspot`** (portal **https://fs-le-dev1.finspot.in/**),
+**`fs-dr-le`**, **`fs-dx-le`**. Create/update all of them and grant a user:
+
+```bash
+python manage.py ensure_finspot_site --all --grant-user admin
+# or one site: python manage.py ensure_finspot_site fs-le-dev-finspot --grant-user admin
+```
 
 ---
 

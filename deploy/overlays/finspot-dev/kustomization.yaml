@@ -38,4 +38,4 @@ patches:
 images:
   - name: registry.example.com/linkedeye
     newName: harbor.finspot.in/linkedeye/linkedeye
-    newTag: "9.3"
+    newTag: "9.4"
