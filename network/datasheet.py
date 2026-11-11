@@ -25,6 +25,7 @@ class Item:
     source_url: str = ""         # https address it came from (stored without query string); empty for an upload
     width: int = 0
     height: int = 0
+    source: str = "datasheet"    # DeviceImage.source the candidate is stored with: "datasheet", "upload" or "fetched"
 
 
 @dataclass
@@ -48,8 +49,9 @@ def _from_image(data, source_url="", name="", declared=None):
         info = inspect_image(data, declared_type=declared)
     except ImageError as e:
         raise DatasheetError(str(e)) from None
-    return FindResult([Item(data, "image address" if source_url else "uploaded picture", source_url, info.width, info.height)],
-                      [], "image", name or urlsplit(source_url).hostname or "")
+    item = Item(data, "image address" if source_url else "uploaded picture", source_url, info.width, info.height,
+                source="fetched" if source_url else "upload")
+    return FindResult([item], [], "image", name or urlsplit(source_url).hostname or "")
 
 
 def find_from_upload(data, filename=""):
@@ -93,7 +95,7 @@ def find_from_url(url, model=""):
                      "before you choose one.")
     if stats.tried > len(got):
         notes.append(f"{len(got)} of {stats.tried} pictures on the page could be used ({_stats_text(stats)}).")
-    items = [Item(d.data, d.page_image.label, d.page_image.url, d.width, d.height) for d in got]
+    items = [Item(d.data, d.page_image.label, d.page_image.url, d.width, d.height, source="fetched") for d in got]
     return FindResult(items, notes, "page", host)
 
 

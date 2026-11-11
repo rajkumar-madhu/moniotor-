@@ -725,6 +725,7 @@ class FetchWordingTests(SimpleTestCase):
         with PathNet(table):
             found = datasheet.find_from_url(f"https://{HOST}/p")
         self.assertEqual((found.kind, len(found.items)), ("page", 1))
+        self.assertEqual(found.items[0].source, "fetched", "a picture off a product page is fetched, not from a datasheet")
 
     def test_pictures_ranked_equal_put_squarer_shots_before_banner_crops(self):
         wide, square = png(1200, 300, color=(30, 30, 30)), png(500, 360, color=(90, 40, 40))
@@ -816,6 +817,7 @@ class FetchWordingTests(SimpleTestCase):
     def test_a_picture_address_is_routed_to_the_image_path(self):
         found = self.find(at(HOST, FakeResponse(200, PNG_H, GOOD)), url=f"https://{HOST}/x/photo.png")
         self.assertEqual((found.kind, found.items[0].origin, found.items[0].width, found.items[0].height), ("image", "image address", 320, 200))
+        self.assertEqual(found.items[0].source, "fetched")
 
     def test_a_pdf_address_is_routed_to_the_pdf_path(self):
         if pypdf is None:
@@ -823,7 +825,7 @@ class FetchWordingTests(SimpleTestCase):
         pdf = pdf_of([PRODUCT])
         for ctype in ("application/pdf", "application/octet-stream"):
             found = self.find(at(HOST, FakeResponse(200, {"Content-Type": ctype}, pdf)), url=f"https://{HOST}/ds.pdf")
-            self.assertEqual((found.kind, found.items[0].origin), ("pdf", "datasheet page 1"), ctype)
+            self.assertEqual((found.kind, found.items[0].origin, found.items[0].source), ("pdf", "datasheet page 1", "datasheet"), ctype)
 
     def test_only_https_addresses_are_fetched(self):
         for url in ("http://www.vendor-example.com/p", "ftp://x.example.com/", "javascript:alert(1)", "", "   ", "https://", "https://a b.example.com/",
@@ -871,8 +873,10 @@ def img_bytes(n, w=60, h=40):
 
 
 class Item:
-    def __init__(self, data, origin="datasheet page 1", source_url=""):
+    def __init__(self, data, origin="datasheet page 1", source_url="", source=None):
         self.data, self.origin, self.source_url = data, origin, source_url
+        if source is not None:          # left off, like an older caller: replace_candidates must fall back to "datasheet"
+            self.source = source
 
 
 @override_settings(LINKEDEYE_TENANT=T)
@@ -947,6 +951,43 @@ class CandidateStoreTests(TestCase):
         self.assertFalse(DeviceImage.objects.exists())
         rows = images.replace_candidates(self.operator, [Item(b"<svg/>"), Item(img_bytes(1))])
         self.assertEqual(len(rows), 1)
+
+    def test_candidates_keep_where_their_bytes_came_from(self):
+        """The device card says where a stored photo came from, and the operator is responsible for its rights, so a picture
+        the operator uploaded or one fetched from an address must not be labelled as coming from a datasheet."""
+        rows = images.replace_candidates(self.operator, [
+            Item(img_bytes(1), "datasheet page 1", "https://cdn.example.com/ds.pdf", source="datasheet"),
+            Item(img_bytes(2), "uploaded picture", source="upload"),
+            Item(img_bytes(3), "image address", "https://cdn.example.com/front.png", source="fetched"),
+            Item(img_bytes(4), "datasheet page 2"),                      # no source given: a datasheet, as before
+            Item(img_bytes(5), "og:image", source="catalog"),            # not a source the finder makes
+        ])
+        self.assertEqual([r.source for r in rows], ["datasheet", "upload", "fetched", "datasheet", "datasheet"])
+        self.assertEqual(rows[2].source_url, "https://cdn.example.com/front.png")
+        promoted = images.promote(rows[1], self.operator)
+        self.assertEqual((promoted.source, promoted.get_source_display()), ("upload", "Uploaded"))
+
+    def test_0008_relabels_photos_the_finder_stored_as_datasheet(self):
+        from importlib import import_module
+
+        from django.apps import apps
+        mig = import_module("network.migrations.0008_photo_candidate_source")
+        made = {}
+        for n, (origin, url) in enumerate([("datasheet page 3", "https://cdn.example.com/ds.pdf"), ("uploaded picture", ""),
+                                           ("image address", "https://cdn.example.com/f.png"), ("og:image", "https://v.example.com/og.png")]):
+            row = images.promote(images.replace_candidates(self.operator, [Item(img_bytes(n + 40), origin, url)])[0], self.operator)
+            made[origin] = row.pk
+        upload_row, _ = images.store_image(img_bytes(90), source="upload", user=self.operator, filename="mine.png")
+        DeviceImage.objects.filter(pk__in=made.values()).update(source="datasheet")     # as stored before the fix
+        mig.relabel(apps, None)
+        got = dict(DeviceImage.objects.filter(pk__in=made.values()).values_list("origin", "source"))
+        self.assertEqual(got, {"datasheet page 3": "datasheet", "uploaded picture": "upload", "image address": "fetched",
+                               "og:image": "fetched"})
+        self.assertEqual(DeviceImage.objects.get(pk=upload_row.pk).source, "upload")
+
+    def test_an_upload_never_carries_a_source_address(self):
+        row = images.replace_candidates(self.operator, [Item(img_bytes(1), "uploaded picture", "https://x.example.com/a.png", source="upload")])[0]
+        self.assertEqual(row.source_url, "")
 
     def test_promote_makes_a_real_photo_only_for_its_owner_within_the_hour(self):
         rows = images.replace_candidates(self.operator, [Item(img_bytes(1), "datasheet page 2", "https://cdn.example.com/a.png?token=secret")])
@@ -1045,7 +1086,19 @@ class PickerViewTests(TestCase):
     def test_a_picture_upload_becomes_one_candidate(self):
         r = self.search(self.operator, pdf_file=upload(GOOD, "front.png"))
         self.assertEqual(r.status_code, 302)
-        self.assertEqual(list(images.live_candidates(self.operator).values_list("origin", flat=True)), ["uploaded picture"])
+        self.assertEqual(list(images.live_candidates(self.operator).values_list("origin", "source", "source_url")),
+                         [("uploaded picture", "upload", "")])
+
+    def test_an_uploaded_picture_is_shown_as_uploaded_on_the_device(self):
+        op = self.operator
+        self.assertEqual(self.search(op, pdf_file=upload(GOOD, "front.png")).status_code, 302)
+        c = images.live_candidates(op).get()
+        self.assertEqual(self.pick(op, c).status_code, 302)
+        d = Device.objects.get(pk=self.d1.pk)
+        self.assertEqual(d.image.source, "upload")
+        page = self.c.get(reverse("network:detail", args=[d.pk])).content.decode()
+        self.assertIn("Stored photo (uploaded, 320×200)", page)
+        self.assertNotIn("from a datasheet", page)
 
     def test_something_that_is_not_a_pdf_or_picture_is_explained(self):
         r = self.search(self.operator, pdf_file=SimpleUploadedFile("x.pdf", b"<html>hi</html>", content_type="application/pdf"))

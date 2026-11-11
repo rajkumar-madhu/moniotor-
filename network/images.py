@@ -127,9 +127,13 @@ def _lock_candidates(tenant_key):
             cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ["le-photo-candidates:" + tenant_key])
 
 
+_CANDIDATE_SOURCES = ("datasheet", "upload", "fetched")   # the finder never makes "catalog" rows
+
+
 def replace_candidates(user, items, tenant_key=None):
     """Make `items` this user's candidates: their previous ones are discarded first. `items` are objects with `data`,
-    `origin` and `source_url`; each is validated like any photo. Returns the stored DeviceImage rows (at most the tenant
+    `origin`, `source_url` and optionally `source` (where the bytes came from: "datasheet", "upload" or "fetched"; a
+    missing or unknown value is stored as "datasheet"); each is validated like any photo. Returns the stored DeviceImage rows (at most the tenant
     cap; when the tenant is at the cap the oldest candidates of anyone are dropped to make room). Raises ImageError only
     when nothing could be stored."""
     t = tenant_key or tenant()
@@ -153,10 +157,13 @@ def replace_candidates(user, items, tenant_key=None):
                 old = list(DeviceImage.objects.filter(tenant_key=t, is_candidate=True).order_by("created_at", "pk")
                            .values_list("pk", flat=True)[:over])
                 DeviceImage.objects.filter(pk__in=old).delete()
+            source = getattr(item, "source", "") or "datasheet"
+            if source not in _CANDIDATE_SOURCES:
+                source = "datasheet"
             stored.append(DeviceImage.objects.create(
                 tenant_key=t, sha256=digest, content_type=info.content_type, width=info.width, height=info.height,
-                byte_size=len(item.data), data=bytes(item.data), source="datasheet", origin=(item.origin or "")[:80],
-                source_url=clean_source_url(getattr(item, "source_url", "") or ""), uploaded_by=user,
+                byte_size=len(item.data), data=bytes(item.data), source=source, origin=(item.origin or "")[:80],
+                source_url="" if source == "upload" else clean_source_url(getattr(item, "source_url", "") or ""), uploaded_by=user,
                 is_candidate=True, candidate_owner=user.pk))
     if not stored and last_error is not None:
         raise last_error
