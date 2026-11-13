@@ -1,9 +1,11 @@
 from django.urls import path, re_path
+from django.views.generic import RedirectView
 
 from . import image_views, photo_views, portviews, views
 
 app_name = "network"
 urlpatterns = [
+    path("network/", RedirectView.as_view(pattern_name="network:all", permanent=False)),
     path("network/switches/", views.switches, name="switches"),
     path("network/routers/", views.routers, name="routers"),
     path("network/firewalls/", views.firewalls, name="firewalls"),

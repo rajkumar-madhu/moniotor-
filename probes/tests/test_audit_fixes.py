@@ -264,16 +264,16 @@ class _HeadHandler(http.server.BaseHTTPRequestHandler):
 class HeadExpectedTextTests(TestCase):
     @classmethod
     def setUpClass(cls):
-        super().setUpClass()
+        # Bind BEFORE TestCase.setUpClass opens the class-level transaction. When setUpClass raises, unittest skips
+        # tearDownClass, so a transaction opened first would never be rolled back and every later test in the run
+        # would inherit it ("database table is locked", "SQLite schema editor cannot be used ..."). Class cleanups
+        # run even when setUpClass fails, so the server is stopped either way.
         cls.httpd = http.server.HTTPServer(("127.0.0.1", 0), _HeadHandler)
+        cls.addClassCleanup(cls.httpd.server_close)
         cls.port = cls.httpd.server_address[1]
         threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.httpd.shutdown()
-        cls.httpd.server_close()
-        super().tearDownClass()
+        cls.addClassCleanup(cls.httpd.shutdown)
+        super().setUpClass()
 
     def url(self, path):
         return f"http://127.0.0.1:{self.port}{path}"

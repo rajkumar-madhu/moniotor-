@@ -1,8 +1,13 @@
 """Map network devices to legacy Global LinkedEye assets (iframeGraphs + template/DIRECT).
 
-Panels load from ``iframeGraphs/<name>.j2`` at the repo root (uploaded from Global LinkedEye),
-with fallback to ``backend/iframeGraphs/``. Neo4j onboard templates live under
-``template/DIRECT`` or ``backend/template/DIRECT``.
+The assets live inside this app, in ``network/legacy/`` (see its README):
+
+* ``network/legacy/iframeGraphs/<name>.j2``   device front-panel SVG templates
+* ``network/legacy/template/DIRECT/*.yaml``   Neo4j onboard templates
+
+Earlier checkouts kept them at the repo root (``iframeGraphs/``, ``template/DIRECT``) or under ``backend/``. Those
+directories are a fallback for a whole directory, not per file: the first of app, repo root, ``backend/`` that exists is
+used, so while ``network/legacy/`` is present, files put in the old locations are ignored. Add new panels here.
 """
 import re
 from functools import lru_cache
@@ -10,9 +15,11 @@ from pathlib import Path
 
 from django.conf import settings
 
+LEGACY_DIR = Path(__file__).resolve().parent / "legacy"
+
 
 def _first_dir(*candidates):
-    """Prefer repo-root legacy assets, then backend/ copies."""
+    """The first candidate that exists: the app's own assets, then the old repo-root and backend/ locations."""
     for path in candidates:
         if path.is_dir():
             return path
@@ -21,12 +28,13 @@ def _first_dir(*candidates):
 
 def _iframe_dir():
     base = Path(settings.BASE_DIR)
-    return _first_dir(base / "iframeGraphs", base / "backend" / "iframeGraphs")
+    return _first_dir(LEGACY_DIR / "iframeGraphs", base / "iframeGraphs", base / "backend" / "iframeGraphs")
 
 
 def _template_direct_dir():
     base = Path(settings.BASE_DIR)
-    return _first_dir(base / "template" / "DIRECT", base / "backend" / "template" / "DIRECT")
+    return _first_dir(LEGACY_DIR / "template" / "DIRECT", base / "template" / "DIRECT",
+                      base / "backend" / "template" / "DIRECT")
 
 
 def _norm(text):

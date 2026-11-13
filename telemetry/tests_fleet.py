@@ -13,6 +13,7 @@ from core import prometheus
 from core.models import Membership, Site
 
 from . import fleet
+from . import hosts as hosts_svc
 from .models import Alert
 
 PROM = "http://prom.test:9090"
@@ -361,9 +362,10 @@ class AlertLeaderboardTests(TestCase):
         self.assertEqual(list(fleet.alerts_in_window(user, start)), [a])
         self.assertEqual(list(fleet.alerts_in_window(user, start + timedelta(seconds=1))), [])
 
-    def test_alert_window_falls_back_to_24h(self):
+    def test_alert_window_falls_back_to_the_default_range(self):
         self.assertEqual(fleet.alert_window("6h")[0], "6h")
-        self.assertEqual(fleet.alert_window("nonsense")[0], "24h")
+        self.assertEqual(fleet.alert_window("nonsense")[0], hosts_svc.DEFAULT_RANGE)
+        self.assertEqual(fleet.alert_window("nonsense")[0], "15m")
 
 
 # ============================================================================= the page
@@ -385,8 +387,8 @@ class FleetPageTests(FleetMixin, TestCase):
         alert(name="HighCPU", instance="db-01:9100", severity="warning")
         r = self.client.get(self.url)
         self.assertEqual(r.status_code, 200)
-        for text in ("Fleet", "Node status", "Hosts with the most alerts", "Top alerts", "Sites",
-                     "Never seen", "Group by", "Colour by", "HostDown", "Database"):
+        for text in ("Fleet", "Room metrics", "Node status", "Hosts with the most alerts", "Top alerts", "Sites",
+                     "Never seen", "Group by", "Colour by", "Database"):
             self.assertContains(r, text)
         counters = r.context["counters"]
         self.assertEqual(counters["hosts"], 5)           # 4 from Prometheus + 1 CMDB-only
@@ -462,7 +464,7 @@ class FleetPageTests(FleetMixin, TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.context["group"], "")
         self.assertEqual(r.context["colour"], "state")
-        self.assertEqual(r.context["range_key"], "24h")
+        self.assertEqual(r.context["range_key"], "15m")
         self.assertNotContains(r, "<script>alert(1)</script>")
         self.assertEqual(self.client.get(self.url, {"format": "csv", "group": evil, "colour": evil}).status_code, 200)
 
@@ -539,7 +541,8 @@ class FleetScopingTests(FleetMixin, TestCase):
 
     def test_one_site_user_sees_only_their_hosts_counts_and_alerts(self):
         self.start_prom()
-        r = self.client.get(self.url, {"per": 100})
+        # an explicit window: these alerts are 30 minutes old, and the default window (15m) is not what is under test
+        r = self.client.get(self.url, {"per": 100, "range": "24h"})
         instances = [h["instance"] for h in r.context["page"]]
         self.assertIn("db-01:9100", instances)
         self.assertIn("paper-01:9100", instances)
@@ -555,7 +558,7 @@ class FleetScopingTests(FleetMixin, TestCase):
         self.start_prom()
         c = Client()
         c.force_login(User.objects.create_superuser("root2", "r2@example.com", "pw"))
-        r = c.get(self.url, {"per": 100})
+        r = c.get(self.url, {"per": 100, "range": "24h"})   # explicit window: the alerts are 30 minutes old
         instances = [h["instance"] for h in r.context["page"]]
         self.assertIn("web-01:9100", instances)
         self.assertEqual({a["alertname"] for a in r.context["top_alerts"]}, {"Mine", "Theirs", "Global"})

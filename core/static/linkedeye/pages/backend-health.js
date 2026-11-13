@@ -28,9 +28,14 @@
     }
     status.textContent = data.partial ? 'Partial data' : 'Connected';
     status.classList.add('is-connected');
-    if (data.fetched_at) {
+    if (data.fetched_at && title) {
+      var envLabel = title.dataset.envLabel || title.textContent;
       var fetched = new Date(data.fetched_at);
-      title.textContent = 'Summary fetched ' + (isNaN(fetched.getTime()) ? data.fetched_at : fetched.toLocaleString());
+      var when = isNaN(fetched.getTime()) ? data.fetched_at : fetched.toLocaleString();
+      title.textContent = envLabel;
+      title.dataset.envLabel = envLabel;
+      var sub = root.querySelector('[data-summary-subtitle]');
+      if (sub) sub.textContent = 'Summary fetched ' + when;
     }
     grid.replaceChildren();
     (data.modules || []).forEach(function (module) {

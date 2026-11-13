@@ -1,29 +1,89 @@
-{% load static %}<!doctype html>
-<html lang="en" class="login-page"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in · LinkedEye</title>
-<link rel="icon" href="{% static 'linkedeye/img/logo-favicon.png' %}">
-<link rel="stylesheet" href="{% static 'linkedeye/app.css' %}?v=infra-theme-1">
-<link rel="stylesheet" href="{% static 'linkedeye/pages/login.css' %}?v=infra-theme-1"></head>
-<body><div class="login">
-  <section class="showcase">
-    <img class="wordmark" src="{% static 'linkedeye/img/name-logo.png' %}" alt="LinkedEye" width="404" height="127" fetchpriority="high" decoding="async">
-    <figure>
-      <img src="{% static 'linkedeye/img/Monitors.png' %}" alt="" width="600" height="470" loading="lazy" decoding="async">
-      <figcaption>Monitoring</figcaption>
-    </figure>
-  </section>
-  <main class="entry">
-    <form class="card" method="post">{% csrf_token %}
-      <div class="eyebrow">Sign in</div>
-      <h1>Welcome back</h1>
-      <p class="lead">Use your LinkedEye account.</p>
-      {% if form.throttle_message %}<ul class="messages"><li class="error">{{ form.throttle_message }}</li></ul>{% elif form.non_field_errors %}<ul class="messages">{% for err in form.non_field_errors %}<li class="error">{{ err }}</li>{% endfor %}</ul>{% elif form.errors %}<ul class="messages"><li class="error">Your username and password didn't match. Try again.</li></ul>{% endif %}
-      <div class="field"><label for="id_username">Username</label><input type="text" name="username" id="id_username" autocomplete="username" required autofocus></div>
-      <div class="field"><label for="id_password">Password</label><input type="password" name="password" id="id_password" autocomplete="current-password" required></div>
-      <input type="hidden" name="next" value="{{ next }}">
-      <button class="btn primary" type="submit">Sign in</button>
-      <p class="login-aux"><a href="{% url 'b2b_landing' %}">About LinkedEye</a></p>
-    </form>
-    <footer class="copyright"><b>Copyright &copy;</b> <a href="https://linkedeye.in/" target="_blank" rel="noopener"><i>LinkedEye.in</i></a> <b>2025</b></footer>
-  </main>
-</div></body></html>
+{% load static %}
+<!doctype html>
+<html lang="en" class="login-page">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · {{ le_brand.product }}</title>
+  <link rel="icon" href="{% static 'linkedeye/img/logo-favicon.png' %}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'linkedeye/app.css' %}?v=infra-theme-2">
+  <link rel="stylesheet" href="{% static 'linkedeye/pages/login.css' %}?v=argus-finspot-1">
+</head>
+
+<body>
+  <div class="login">
+    <section class="showcase" aria-label="Product">
+      <div class="showcase-brand">
+        <span class="showcase-mark"><img src="{% static 'linkedeye/img/logo-in.png' %}" alt="" width="28"
+            height="28"></span>
+        <div class="showcase-brand-text">
+          <span class="showcase-title">Linked<em>Eye</em></span>
+          <span class="showcase-suite">{{ le_brand.suite }}</span>
+        </div>
+      </div>
+      <div class="showcase-copy">
+        <p class="showcase-eyebrow">{{ le_brand.eyebrow }}</p>
+        <h1 class="showcase-headline">One view of every site, <em>alert and ticket.</em></h1>
+        <p class="showcase-lead">{{ le_brand.lead }}</p>
+        <ul class="showcase-points">
+          <li><strong>Every node in one place</strong>
+            <p>Servers, VMs, switches, clusters and probes with their collectors, live status and trend.</p>
+          </li>
+          <li><strong>Alerts become owned incidents</strong>
+            <p>Acknowledge, assign and resolve with a timeline; maintenance windows keep planned work quiet.</p>
+          </li>
+          <li><strong>Scoped and audited</strong>
+            <p>People see only their sites and change only what their role covers. Every change is recorded.</p>
+          </li>
+        </ul>
+      </div>
+      <p class="showcase-foot">ITSM · Monitoring · On-prem and hybrid</p>
+    </section>
+    <main class="entry">
+      <form class="card" method="post">{% csrf_token %}
+        <div class="eyebrow">Sign in</div>
+        <h1>Welcome back</h1>
+        <p class="lead">Use the username and password your administrator gave you.</p>
+        {% if form.throttle_message %}<ul class="messages">
+          <li class="error">{{ form.throttle_message }}</li>
+        </ul>{% elif form.non_field_errors %}<ul class="messages">{% for err in form.non_field_errors %}<li
+            class="error">{{ err }}</li>{% endfor %}</ul>{% elif form.errors %}<ul class="messages">
+          <li class="error">Your username and password didn't match. Try again.</li>
+        </ul>{% endif %}
+        <div class="field"><label for="id_username">Username</label><input type="text" name="username" id="id_username"
+            autocomplete="username" required autofocus></div>
+        <div class="field"><label for="id_password">Password</label>
+          <div class="password-wrap"><input type="password" name="password" id="id_password"
+              autocomplete="current-password" required><button type="button" class="password-toggle"
+              data-password-toggle aria-label="Show password">Show</button></div>
+        </div>
+        <input type="hidden" name="next" value="{{ next }}">
+        <button class="btn primary" type="submit">Sign in</button>
+        <p class="login-aux">New here? <a href="{% url 'b2b_landing' %}">Request access</a></p>
+      </form>
+      <footer class="copyright"><b>Copyright &copy;</b> <a href="{{ le_brand.copyright_url }}" target="_blank"
+          rel="noopener"><i>{{ le_brand.copyright_label }}</i></a></footer>
+    </main>
+  </div>
+  <script>
+    (function () {
+      var btn = document.querySelector("[data-password-toggle]");
+      var input = document.getElementById("id_password");
+      if (!btn || !input) return;
+      btn.addEventListener("click", function () {
+        var show = input.type === "password";
+        input.type = show ? "text" : "password";
+        btn.textContent = show ? "Hide" : "Show";
+        btn.setAttribute("aria-label", show ? "Hide password" : "Show password");
+      });
+    })();
+  </script>
+</body>
+
+</html>

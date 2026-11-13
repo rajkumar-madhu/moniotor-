@@ -1,0 +1,24 @@
+# Code owners are requested for review automatically (enable "Require review from Code Owners" in branch protection).
+# Today there is one owner. Replace with team handles (e.g. @org/platform, @org/security) as the team grows;
+# later rules override earlier ones, so the sensitive paths below can be reassigned independently.
+
+*                       @rajkumar-madhu
+
+# Security-critical platform code: access control, audit, SSRF policy, secrets, sign-in
+/core/access.py         @rajkumar-madhu
+/core/audit.py          @rajkumar-madhu
+/core/middleware.py     @rajkumar-madhu
+/core/secrets.py        @rajkumar-madhu
+/core/login_otp.py      @rajkumar-madhu
+/probes/checks.py       @rajkumar-madhu
+
+# Delivery: CI, image, manifests, settings validation
+/.github/               @rajkumar-madhu
+/deploy/                @rajkumar-madhu
+/Dockerfile             @rajkumar-madhu
+/docker-compose.yml     @rajkumar-madhu
+/linkedeye/settings.py  @rajkumar-madhu
+
+# Contracts other apps rely on
+/docs/MODULES.md        @rajkumar-madhu
+/SECURITY.md            @rajkumar-madhu

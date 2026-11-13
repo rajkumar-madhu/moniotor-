@@ -7,19 +7,45 @@ Shared code lives in `core/` and `probes/`. Apps talk to each other only through
 ```
 moniotor-/
 ├── manage.py
-├── requirements.txt            Django 5.2 LTS, gunicorn, whitenoise (+ requirements-postgres.txt / -mysql.txt)
+├── Makefile                    one entry point: make help · install · run · worker · test · check · up
+├── requirements.txt            Django 5.2 LTS, gunicorn, whitenoise, cryptography (credential vault), openpyxl, pypdf
+├── requirements-*.txt          optional extras: postgres, mysql, ssh, images, apm (redis), vsphere (pyvmomi)
 ├── Dockerfile, docker-compose.yml, gunicorn.conf.py   production image and stack (see docs/DEPLOYMENT.md)
-├── deploy/                     docker/ (WSGI entry, healthcheck), kubernetes/, prometheus/, alertmanager/,
-│                               compose.env.example, validate.py (checks the bundle and settings docs),
-│                               tests/ (bundle regression tests: python -m unittest discover -s deploy/tests)
 ├── .env.example                every LINKEDEYE_* setting (commented out where optional); deploy/validate.py enforces it
-├── .github/workflows/ci.yml    check · makemigrations --check · test · deploy bundle checks
+├── .editorconfig, .dockerignore, .gitignore
+├── README.md                   what the product is and how to run it
+├── CONTRIBUTING.md             set-up, pre-PR checks, review rules, commit and PR conventions
+├── SECURITY.md                 how to report a vulnerability; the guarantees the console enforces
+├── AGENTS.md                   the same conventions, condensed for coding agents
+│
+├── .github/
+│   ├── workflows/ci.yml        check · makemigrations --check · tests (Django 5.2 + 4.2, PostgreSQL) · pip-audit ·
+│   │                           deploy bundle · Docker image build and smoke test
+│   ├── dependabot.yml          weekly pip, docker, docker-compose and GitHub Actions updates
+│   ├── CODEOWNERS              review ownership, with the security-critical paths listed separately
+│   └── pull_request_template.md
+│
+├── deploy/                     docker/ (WSGI entry, healthcheck), kubernetes/ (base manifests), overlays/finspot-dev/
+│                               (Kustomize overlay, see docs/FINSPOT_DEV_K8S.md), prometheus/, alertmanager/,
+│                               compose.env.example, compose.console.env, validate.py (checks the bundle and settings
+│                               docs), tests/ (python -m unittest discover -s deploy/tests)
+│
 ├── docs/
 │   ├── STRUCTURE.md            this file
 │   ├── MODULES.md              module contract: shared APIs, UI kit, data rules, cross-module interfaces
 │   ├── INTEGRATION.md          guide for porting the apps into LinkedEyeWebProject
 │   │                           (Prometheus, Alertmanager and log ingest are configured in Administration › Integrations)
-│   └── DEPLOYMENT.md           Docker Compose, Kubernetes, settings reference, worker, backups
+│   ├── DEPLOYMENT.md           Docker Compose, Kubernetes, settings reference, worker, backups
+│   ├── FINSPOT_DEV_K8S.md      the finspot-dev Kubernetes overlay and kubeconfig handling
+│   ├── adr/                    architecture decision records (0001 scheduler and event delivery, 0002 Django 5.2 LTS)
+│   └── APM · HARDWARE · HYPERVISOR · NETWORK · ARCHITECTURE_PAGE · IMPORT · ONBOARDING · OTP_PATHS ·
+│       NOTIFICATION_TEMPLATES     one document per module or feature that needs more than a MODULES.md section
+│
+├── backend/                    LEGACY PROJECT (LinkedEyeWebProject): a separate Django project with its own Dockerfile,
+│                               settings and legacy_tests/. The console never imports or reads it, and .dockerignore keeps it
+│                               out of the console image (CI asserts it; see SECURITY.md). It keeps its own iframeGraphs/ and
+│                               template/DIRECT/, which its code reads by relative path; the console's copies are in
+│                               network/legacy/ (see the module list below)
 │
 ├── linkedeye/                  project package
 │   ├── settings.py             env-driven settings (LINKEDEYE_*), INSTALLED_APPS, security headers
@@ -35,7 +61,13 @@ moniotor-/
 │   ├── notify.py               webhook / e-mail for critical & warning events
 │   ├── jobs.py                 register(name, interval, func) · run_due()
 │   ├── prometheus.py           query / query_range / targets / alerts client
-│   ├── middleware.py           login required (except /healthz and token-auth APIs)
+│   ├── middleware.py           login required (except /healthz and token-auth APIs); active client scope
+│   ├── auth_views.py, login_otp.py   sign-in with an e-mailed one-time code (docs/OTP_PATHS.md)
+│   ├── secrets.py              credential vault (Fernet), referenced by id from other apps
+│   ├── overview.py             problems, KPIs, site matrix and market-day strip behind the dashboard
+│   ├── backend_summary.py      optional read-only bridge to the legacy dashboard API (never called in a page view)
+│   ├── client_scope.py, client_sites.py   per-client scoping of sites (?client=)
+│   ├── notify_templates.py, welcome_mail.py   notification and welcome e-mail rendering
 │   ├── nav.py                  sidebar menu → URL names (unbuilt names fall back to "coming soon")
 │   ├── context_processors.py   nav state, site selector, problem count
 │   ├── views.py                dashboard, global search, healthz, legacy sample pages
@@ -57,6 +89,8 @@ moniotor-/
 ├── servicedesk/                Service Desk                      /service-desk/…   Ticket (INC/PRB/CHG/REQ), SLA, catalog
 ├── cmdb/                       Assets & CMDB, Heatmap            /assets/… /cmdb/… /monitoring/heatmap/
 ├── network/                    Network devices & discovery       /network/…        Device, Interface, DiscoveryRun
+│   └── legacy/                 iframeGraphs/ (device front-panel .j2 + query JSON) and template/DIRECT/ (Neo4j onboard
+│                               templates) from the earlier Global LinkedEye, read by network/legacy_panels.py (see its README)
 ├── telemetry/                  Infrastructure, Nagios, Prometheus, Alerts, Metrics explorer
 │                                                                 /monitoring/…  /api/v1/alertmanager/
 ├── observe/                    Exporters, Logs & Events          /monitoring/exporters/  /logs/  /api/v1/logs/

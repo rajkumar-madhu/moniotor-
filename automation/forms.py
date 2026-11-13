@@ -26,6 +26,23 @@ def _unique(form, field, value):
 
 
 MAX_JSON_CHARS = 64 * 1024
+# Containers nested deeper than this are refused (here and in the Django admin, automation/admin.py). json.loads is no
+# guard on its own: Python 3.12's decoder parses about 10,000 levels and 3.14+ over 100,000, while pretty-printing a
+# payload (json.dumps(indent=2), on the rule pages) already fails at about 1,000 levels on 3.12.
+MAX_JSON_DEPTH = 64
+
+
+def nested_deeper_than(value, limit):
+    """True when dicts / lists nest more than `limit` levels; a scalar is 0 levels. Iterative, so it cannot hit the
+    recursion limit itself on the depths it has to refuse."""
+    stack = [(value, 1)] if isinstance(value, (dict, list)) else []
+    while stack:
+        node, depth = stack.pop()
+        if depth > limit:
+            return True
+        children = node.values() if isinstance(node, dict) else node
+        stack.extend((c, depth + 1) for c in children if isinstance(c, (dict, list)))
+    return False
 
 
 def _json_object(text, label="Value"):
@@ -34,12 +51,15 @@ def _json_object(text, label="Value"):
         return {}
     if len(text) > MAX_JSON_CHARS:
         raise forms.ValidationError(f"{label} is too large (at most {MAX_JSON_CHARS // 1024} KB).")
+    too_deep = f"{label} is not valid JSON: nested too deeply (at most {MAX_JSON_DEPTH} levels)."
     try:
         value = json.loads(text)
-    except RecursionError:  # absurdly deep nesting: the C decoder gives up with a RuntimeError, not a ValueError
-        raise forms.ValidationError(f"{label} is not valid JSON: nested too deeply.") from None
+    except RecursionError:  # deeper than the decoder follows (about 10,000 levels on 3.12): RecursionError, not ValueError
+        raise forms.ValidationError(too_deep) from None
     except ValueError as e:
         raise forms.ValidationError(f"{label} is not valid JSON: {e}") from None
+    if nested_deeper_than(value, MAX_JSON_DEPTH):
+        raise forms.ValidationError(too_deep)
     if not isinstance(value, dict):
         raise forms.ValidationError(f"{label} must be a JSON object, e.g. {{\"key\": \"value\"}}.")
     return value
@@ -124,7 +144,8 @@ class RuleForm(forms.ModelForm):
             self.fields["trigger"].initial = p.get("trigger", "")
             self.fields["webhook_url"].initial = p.get("url", "")
             if isinstance(p.get("payload"), dict) and p["payload"]:
-                self.fields["payload"].initial = json.dumps(p["payload"], indent=2)
+                # unescaped, so a payload that was accepted (measured as typed) still fits the size limit when re-saved
+                self.fields["payload"].initial = json.dumps(p["payload"], indent=2, ensure_ascii=False)
 
     def clean_name(self):
         return _unique(self, "name", self.cleaned_data["name"].strip())

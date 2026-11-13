@@ -1,0 +1,169 @@
+{% extends "core/base.html" %}{% load static le %}
+{% block title %}Command Centre{% endblock %}
+{% block main_class %}page page-command{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="{% static 'linkedeye/pages/command.css' %}">{% endblock %}
+{% block crumbs %}<nav class="crumbs"><a href="{% url 'dashboard' %}">Home</a>{% icon "chevron-right" 14 %}<span>Command Centre</span></nav>{% endblock %}
+{% block content %}
+{# Layout follows the WeCrew InfraAsset Command Centre; every number is real, site-scoped data (core/command.py). #}
+<div class="pg-command">
+
+<header class="cc-head">
+  <div class="cc-title">
+    <span class="cc-eyebrow">Platform · {% if site %}{{ site }}{% else %}scoped estate{% endif %}</span>
+    <h1>Command Centre</h1>
+    <p>Assets, compute, racks, alerts and hardware telemetry for {% if site %}{{ site }}{% else %}every site you can see{% endif %}
+      <span class="cc-sep">·</span> <time datetime="{{ now|date:'c' }}">{{ now|date:"j M Y, H:i" }}</time></p>
+  </div>
+  <dl class="cc-chips">
+    <div class="cc-chip tone-{{ health.tone|default:'mute' }}" title="Healthy monitored checks ÷ all monitored checks (URL, domain, device and TCP){% if health.total %}: {{ health.ok }} of {{ health.total }}{% endif %}">
+      <dt>Health</dt>
+      <dd class="cc-chip-value">{% if health.value is None %}–{% else %}{{ health.value }}%{% endif %}</dd>
+      <dd class="cc-chip-note">{% if health.total %}estate index · {{ health.ok }}/{{ health.total }} checks{% else %}no checks monitored{% endif %}</dd>
+    </div>
+    {% if alerts is not None %}<a class="cc-chip tone-{% if alerts.critical %}crit{% elif alerts.firing %}warn{% else %}ok{% endif %}" href="{{ urls.alerts }}">
+      <dt>Critical</dt>
+      <dd class="cc-chip-value">{{ alerts.critical }}</dd>
+      <dd class="cc-chip-note">open alerts · {{ alerts.firing }} firing</dd>
+    </a>{% endif %}
+    {% if incident_counts is not None %}<a class="cc-chip tone-{% if incident_counts.p12 %}crit{% elif incident_counts.open %}warn{% else %}ok{% endif %}" href="{{ urls.incidents }}">
+      <dt>Incidents</dt>
+      <dd class="cc-chip-value">{{ incident_counts.open }}</dd>
+      <dd class="cc-chip-note">open · {{ incident_counts.p12 }} at P1/P2</dd>
+    </a>{% endif %}
+  </dl>
+</header>
+
+<section class="panel cc-signals" aria-labelledby="cc-signals-h">
+  <div class="panel-h"><h2 id="cc-signals-h">Estate signals</h2><small>Assets · compute · Kubernetes · GPU · cooling · capacity</small></div>
+  <div class="cc-tiles">
+    {% for t in tiles %}
+    {% if t.href %}<a class="cc-tile tone-{{ t.tone }}" href="{{ t.href }}{% if site %}?site={{ site|urlencode }}{% endif %}">{% else %}<div class="cc-tile tone-{{ t.tone }}{% if t.missing %} is-missing{% endif %}">{% endif %}
+      <span class="cc-tile-top"><span class="cc-tile-icon">{% icon t.icon 16 %}</span><span class="cc-tile-label">{{ t.label }}</span></span>
+      <b class="cc-tile-value">{{ t.value }}</b>
+      <span class="cc-tile-note">{{ t.note }}</span>
+    {% if t.href %}</a>{% else %}</div>{% endif %}
+    {% endfor %}
+  </div>
+</section>
+
+<section class="grid cc-dc">
+  <div class="panel cc-power">
+    <div class="panel-h"><h2>Power vs cooling</h2><small>Rack IT load against power and thermal budgets</small></div>
+    {% if dc and dc.rack_count %}
+    <div class="cc-meters">
+      {% for m in dc.summary %}<div class="cc-meter">
+        <div class="cc-meter-top"><span>{{ m.label }}</span><b class="t-{{ m.tone }}">{{ m.value }}</b></div>
+        <span class="cc-bar" role="img" aria-label="{{ m.label }}: {{ m.value }}"><i class="fill-{{ m.tone }}" style="width:{{ m.w }}%"></i></span>
+        <small>{{ m.note }}</small>
+      </div>{% endfor %}
+    </div>
+    {% if dc.has_chart %}
+    <div class="legend cc-legend"><span><i class="cc-key k-load"></i>IT load</span><span><i class="cc-key k-power"></i>Power budget</span><span><i class="cc-key k-cool"></i>Cooling budget</span></div>
+    <div class="chart" data-chart="bars" data-src="cc-power" style="height:200px"></div>
+    {% endif %}
+    <p class="cc-foot">Cooling headroom <b class="t-{{ dc.headroom_tone }}">{{ dc.headroom_label }}</b>. Load comes from power feeds (live or manual); racks without feeds use their items' typical draw.</p>
+    {% else %}
+    <div class="cc-empty">{% icon "zap" 26 %}<p>No racks in service{% if site %} at {{ site }}{% endif %}. Add rooms, racks, power feeds and cooling units under <a href="{{ urls.dcim }}">Data Centre</a> and this fills in.</p></div>
+    {% endif %}
+  </div>
+
+  <div class="panel cc-util">
+    <div class="panel-h"><h2>Power / cooling / space utilisation</h2>{% if dc and dc.rack_count %}<div class="right"><a class="view-all" href="{{ urls.racks }}{% if site %}?site={{ site|urlencode }}{% endif %}">All racks {% icon "arrow-right" 14 %}</a></div>{% endif %}</div>
+    {% if dc and dc.racks %}
+    <div class="table-wrap dense"><table>
+      <thead><tr><th>Rack</th><th>Power</th><th>Cooling</th><th>Space</th><th class="num">Load</th></tr></thead>
+      <tbody>{% for r in dc.racks %}
+        <tr>
+          <td><a href="{% url 'dcim:rack_detail' r.pk %}">{{ r.name }}</a><div class="t-mute small">{% if r.room_obj %}{{ r.room_obj.name }} · {% endif %}{{ r.site }}</div></td>
+          <td><div class="cc-cell"><span class="cc-bar sm"><i class="fill-{{ r.power_tone }}" style="width:{{ r.power_w }}%"></i></span><span class="num">{% if r.power_pct is None %}–{% else %}{{ r.power_pct|floatformat:0 }}%{% endif %}</span></div></td>
+          <td><div class="cc-cell"><span class="cc-bar sm"><i class="fill-{{ r.cooling_tone }}" style="width:{{ r.cooling_w }}%"></i></span><span class="num">{% if r.cooling_pct is None %}–{% else %}{{ r.cooling_pct|floatformat:0 }}%{% endif %}</span></div></td>
+          <td><div class="cc-cell"><span class="cc-bar sm"><i class="fill-{{ r.space_tone }}" style="width:{{ r.space_w }}%"></i></span><span class="num">{{ r.u_used }}/{{ r.u_height }} U</span></div></td>
+          <td class="num" title="{{ r.load_source|default:'no data' }}">{{ r.load_label }}{% if r.load_source == "estimated" %}<span class="t-mute"> est.</span>{% endif %}</td>
+        </tr>{% endfor %}</tbody>
+    </table></div>
+    <p class="cc-foot">Worst first. Power and cooling are load against the rack's budgets; space counts every occupied U on either face.</p>
+    {% else %}
+    <div class="cc-empty">{% icon "server" 26 %}<p>No racks recorded yet.</p></div>
+    {% endif %}
+  </div>
+</section>
+
+<section class="grid g-2 cc-lists">
+  <div class="panel">
+    <div class="panel-h"><h2>Active incidents</h2>{% if incidents %}<div class="right"><a class="view-all" href="{{ urls.incidents }}">All incidents {% icon "arrow-right" 14 %}</a></div>{% endif %}</div>
+    {% if incidents is None %}<div class="cc-empty">{% icon "alert" 26 %}<p>Service Desk is not installed.</p></div>
+    {% else %}
+    <div class="table-wrap dense borderless"><table><tbody>
+      {% for i in incidents %}<tr>
+        <td class="cc-pri"><span class="chip {% if i.priority == 'P1' or i.priority == 'P2' %}crit{% elif i.priority == 'P3' %}warn{% else %}mute{% endif %}">{{ i.priority }}</span></td>
+        <td class="wrap"><a href="{{ i.get_absolute_url }}">{{ i.number }}</a> {{ i.title|truncatechars:70 }}<div class="t-mute small">{{ i.get_status_display }}{% if i.site %} · {{ i.site }}{% endif %}{% if i.assignee %} · {{ i.assignee }}{% endif %}</div></td>
+        <td class="num t-mute small">{{ i.opened_at|ago }}</td>
+      </tr>{% empty %}<tr><td class="empty">No open incidents.</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% endif %}
+  </div>
+  <div class="panel">
+    <div class="panel-h"><h2>Critical alerts</h2><small>Firing in Alertmanager · critical first</small>{% if firing %}<div class="right"><a class="view-all" href="{{ urls.alerts }}">All alerts {% icon "arrow-right" 14 %}</a></div>{% endif %}</div>
+    {% if firing is None %}<div class="cc-empty">{% icon "bell" 26 %}<p>Telemetry is not installed.</p></div>
+    {% else %}
+    <div class="table-wrap dense borderless"><table><tbody>
+      {% for a in firing %}<tr>
+        <td class="ev-sev">{% badge a.severity %}</td>
+        <td class="wrap"><a href="{% url 'telemetry:alert_detail' a.pk %}">{{ a.alertname }}</a><div class="t-mute small">{{ a.summary|default:a.instance|truncatechars:80 }}{% if a.site %} · {{ a.site }}{% endif %}</div></td>
+        <td class="num t-mute small">{{ a.starts_at|ago }}</td>
+      </tr>{% empty %}<tr><td class="empty">No alerts firing.</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% endif %}
+  </div>
+</section>
+
+<section class="panel cc-live" aria-labelledby="cc-live-h">
+  <div class="panel-h">
+    <h2 id="cc-live-h">Live telemetry</h2><small>Hall power, cooling and hardware sensors</small>
+    <div class="right">{% if telemetry.fresh %}<span class="cc-live-badge"><i></i>LIVE</span>{% else %}<span class="chip mute">Last readings</span>{% endif %}</div>
+  </div>
+  {% if telemetry.tiles %}
+  <div class="cc-tiles cc-tiles-live">
+    {% for t in telemetry.tiles %}<div class="cc-tile tone-{{ t.tone }}">
+      <span class="cc-tile-top"><span class="cc-tile-label">{{ t.label }}</span></span>
+      <b class="cc-tile-value">{{ t.value }}</b>
+      <span class="cc-tile-note">{{ t.note }}</span>
+    </div>{% endfor %}
+    <div class="cc-tile tone-mute is-missing">
+      <span class="cc-tile-top"><span class="cc-tile-label">GPU util / temp</span></span>
+      <b class="cc-tile-value">–</b>
+      <span class="cc-tile-note">Not connected · no DCGM source</span>
+    </div>
+  </div>
+  {% endif %}
+  {% if telemetry.chart %}
+  <div class="cc-chart">
+    <div class="cc-chart-h"><b>Hardware temperature</b><span class="t-mute small">BMC sensors · hourly, last 24 h</span>
+      <span class="legend cc-legend"><span><i class="cc-key k-avg"></i>Average</span><span><i class="cc-key k-hot"></i>Hottest sensor</span></span></div>
+    <div class="chart" data-chart="line" data-src="cc-temp" style="height:180px"></div>
+  </div>
+  {% endif %}
+  <div class="grid g-2 cc-live-grid">
+    <div class="cc-sub">
+      <h3>Active monitors</h3><p class="t-mute small">Threshold checks on the latest readings and checks</p>
+      <ul class="cc-monitors">{% for m in monitors %}
+        <li class="tone-{{ m.tone }}">
+          <span class="cc-dot"></span>
+          <div><b>{% if m.href %}<a href="{{ m.href }}">{{ m.name }}</a>{% else %}{{ m.name }}{% endif %}</b><span class="t-mute small">{{ m.detail }}</span></div>
+          <span class="cc-mon-state">{{ m.state }}{% if m.value != "–" and m.value %} · {{ m.value }}{% endif %}</span>
+        </li>{% empty %}<li class="empty">No monitors available.</li>{% endfor %}</ul>
+    </div>
+    <div class="cc-sub">
+      <h3>Live event stream</h3><p class="t-mute small">Probes, Alertmanager, BMC, DCIM and Service Desk events</p>
+      <ul class="cc-stream">{% for e in stream %}
+        <li>{% badge e.severity e.get_severity_display %}<div><b>{{ e.title|truncatechars:90 }}</b><span class="t-mute small">{{ e.source }} · {{ e.occurred_at|ago }}{% if e.site %} · {{ e.site }}{% endif %}</span></div></li>
+        {% empty %}<li class="empty">No events recorded yet.</li>{% endfor %}</ul>
+      {% if stream and urls.events %}<a class="view-all" href="{{ urls.events }}">All events {% icon "arrow-right" 14 %}</a>{% endif %}
+    </div>
+  </div>
+</section>
+
+{% if dc and dc.has_chart %}{{ dc.chart|json_script:"cc-power" }}{% endif %}
+{% if telemetry.chart %}{{ telemetry.chart|json_script:"cc-temp" }}{% endif %}
+</div>
+{% endblock %}

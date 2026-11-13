@@ -26,6 +26,25 @@ class B2BLandingTests(TestCase):
         self.assertContains(r, "Sign out")
         self.assertNotContains(r, ">Sign in</a>")
 
+    @override_settings(
+        LINKEDEYE_LOGIN_OTP=False,
+        LINKEDEYE_BRAND_VENDOR="Argus",
+        LINKEDEYE_BRAND_PRODUCT="LinkedEye",
+        LINKEDEYE_BRAND_SUITE="argus.itsm",
+    )
+    def test_argus_brand_on_login_and_landing(self):
+        login = self.client.get(reverse("login"))
+        self.assertEqual(login.status_code, 200)
+        self.assertContains(login, "Argus LinkedEye")
+        self.assertContains(login, "argus.itsm")
+        self.assertNotContains(login, "WeCrew")
+        self.assertNotContains(login, "wecrew")
+        welcome = self.client.get("/welcome/")
+        self.assertEqual(welcome.status_code, 200)
+        self.assertContains(welcome, "argus.itsm")
+        self.assertNotContains(welcome, "WeCrew")
+        self.assertNotContains(welcome, "wecrew")
+
 
 class AccessTests(TestCase):
     def setUp(self):
@@ -144,8 +163,9 @@ class OverviewTests(TestCase):
         self.assertContains(resp, "core-sw-01")
         self.assertContains(resp, "Oracle (db.example.com:1521)")
         self.assertNotContains(resp, "dr-fw-01")
-        self.assertContains(resp, 'class="ov-health-card"')
+        self.assertNotContains(resp, 'class="ov-health-card"')
         self.assertContains(resp, 'class="legacy-heatmap-card"')
+        self.assertContains(resp, "Fleet overview")
         self.assertContains(resp, '<th>Devices</th>')  # site matrix column for the device kind
 
     def test_recent_events_render_in_one_wrapping_cell(self):

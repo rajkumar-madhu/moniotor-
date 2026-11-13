@@ -467,8 +467,9 @@ def colour_legend(key):
 
 # ----------------------------------------------------------------------------- alerts
 def alert_window(range_key):
-    """``(range_key, label, seconds, start)`` for the alert panels. Unknown keys fall back to 24h."""
-    key = range_key if range_key in RANGES else "24h"
+    """``(range_key, label, seconds, start)`` for the alert panels. Unknown keys fall back to 15m."""
+    default = hosts_svc.DEFAULT_RANGE
+    key = range_key if range_key in RANGES else default
     label, seconds = RANGES[key]
     return key, label, seconds, timezone.now() - timedelta(seconds=seconds)
 
@@ -737,3 +738,54 @@ def alert_bar(split):
     return bar_segments([("critical", "Critical", split["critical"], pal.CRIT),
                          ("warning", "Warning", split["warning"], pal.AMBER),
                          ("other", "Other", split["other"], pal.BLUE)], total=split["total"] or None)
+
+
+def dashboard_card(user, site=""):
+    """Compact fleet snapshot for the operations dashboard (no duplicate grids)."""
+    try:
+        from django.urls import reverse
+        from django.utils.http import urlencode
+
+        from core import prometheus
+
+        q = {"range": hosts_svc.DEFAULT_RANGE}
+        if site:
+            q["site"] = site
+        href = f"{reverse('telemetry:fleet')}?{urlencode(q)}"
+    except Exception:  # pragma: no cover
+        href = "/monitoring/fleet/"
+    out = {
+        "configured": prometheus.configured(),
+        "href": href,
+        "hosts_total": 0,
+        "live": 0,
+        "down": 0,
+        "stale": 0,
+        "alerts_firing": 0,
+        "targets_up": 0,
+        "targets_total": 0,
+        "series": None,
+    }
+    if not out["configured"]:
+        return out
+    data = host_states(use_cache=True, with_prometheus=True)
+    hosts = scope_hosts(user, data["hosts"])
+    if site:
+        hosts = [h for h in hosts if (h.get("site") or "") == site]
+    targets, _ = all_targets(use_cache=True)
+    targets = scope_targets(user, targets)
+    series, _ = series_count()
+    firing = list(firing_alerts(user, site=site))
+    cnt = counters(hosts, targets, series, len(firing))
+    states = cnt["states"]
+    out.update({
+        "hosts_total": len(hosts),
+        "live": states.get(LIVE, 0),
+        "down": states.get(DOWN, 0),
+        "stale": states.get(STALE, 0),
+        "alerts_firing": cnt["alerts_firing"],
+        "targets_up": cnt["targets_up"],
+        "targets_total": cnt["targets"],
+        "series": cnt["series"],
+    })
+    return out

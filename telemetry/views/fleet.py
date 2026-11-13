@@ -65,7 +65,8 @@ def fleet(request):
     if site:
         hosts = [h for h in hosts if (h.get("site") or "") == site]
 
-    range_key, range_label, _seconds, start = svc.alert_window(request.GET.get("range", "24h"))
+    range_key, range_label, range_seconds, start = svc.alert_window(
+        request.GET.get("range", hosts_svc.DEFAULT_RANGE))
     window_alerts = list(svc.alerts_in_window(request.user, start, site=site))
     firing = list(svc.firing_alerts(request.user, site=site))
     svc.attach_alert_counts(hosts, svc.firing_by_instance(firing))
@@ -136,5 +137,6 @@ def fleet(request):
         "q_table": query_without_page(request, "refresh", "format", "state", "env", "job", "q"),
         "scoped": visible_sites(request.user) is not None,
         "thresholds": hosts_svc.thresholds(), "cache_seconds": svc.CACHE_SECONDS,
+        "room": hosts_svc.room_charts(range_key, use_cache=not refresh),
     })
     return render(request, "telemetry/fleet.html", ctx)

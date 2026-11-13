@@ -2,38 +2,21 @@
 
 ## Project Structure & Module Organization
 
-LinkedEye is a Django project. `linkedeye/` contains settings and root URL wiring; `core/` provides shared access, audit, events, jobs, and UI; `probes/` owns network checks and the worker. Product areas live in apps such as `servicedesk/`, `cmdb/`, `telemetry/`, and `reports/`. Apps own their models, migrations, views, templates, assets, and tests. Deployment assets are in `deploy/`; maps and contracts are in `docs/`.
-
 Follow `docs/MODULES.md` for app boundaries and shared APIs. Keep cross-app imports lazy and use the documented service interfaces. Scope site data through `core.access`, audit mutations, and route network probes through `probes.checks`.
 
 ## Build, Test, and Development Commands
 
-Set up a virtual environment with `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`. Add the database-specific requirements file as needed. Set `LINKEDEYE_DEBUG=true` locally.
+Set `LINKEDEYE_DEBUG=true` locally.
 
 - `.venv/bin/python manage.py migrate` applies schema changes; use `bootstrap_sites` for initial site setup.
 - After migrate, create a sign-in user (there is **no** default username/password in the tree):
   - Interactive: `.venv/bin/python manage.py createsuperuser`
   - Non-interactive (scripts/CI): `DJANGO_SUPERUSER_PASSWORD='your-secure-password' LINKEDEYE_DEBUG=true .venv/bin/python manage.py createsuperuser --noinput --username admin --email admin@example.com`
   Grant site access under Administration → Users if pages are empty or permission-denied.
-- `.venv/bin/python manage.py runserver` starts the web app.
 
 ### Docker Compose (full stack)
 
-The repo root already has **`docker-compose.yml`** (PostgreSQL, migrate, web, probes). Copy and fill **`deploy/compose.env.example`** → `.env` (at least `LINKEDEYE_SECRET_KEY` and `LINKEDEYE_DB_PASSWORD`), then:
-
-```bash
-docker compose build && docker compose up -d
-docker compose exec web python manage.py createsuperuser
-```
-
-Or a non-interactive superuser in the `web` container:
-
-```bash
-docker compose exec -e DJANGO_SUPERUSER_PASSWORD='your-secure-password' web \
-  python manage.py createsuperuser --noinput --username admin --email admin@example.com
-```
-
-Details: **`docs/DEPLOYMENT.md`**.
+Full stack: see **`docs/DEPLOYMENT.md`** (copy `deploy/compose.env.example` to `.env` and set at least `LINKEDEYE_SECRET_KEY` and `LINKEDEYE_DB_PASSWORD` first).
 - Import Lesites FinSpot **Devices** sheet into network inventory: `manage.py import_lesites_devices_xlsx /path/to/file.xlsx --site-code fs-dr-le --environment dr` (use `--dry-run` first). App containers are read-only; mount the workbook on a one-off run, e.g. `docker-compose run --rm --no-deps -v /path/file.xlsx:/tmp/file.xlsx:ro web python manage.py import_lesites_devices_xlsx /tmp/file.xlsx …`.
 - `.venv/bin/python manage.py run_probes` starts the background probe and jobs worker; `--once` runs one pass.
 - `LINKEDEYE_DEBUG=true .venv/bin/python manage.py test` runs Django tests.
@@ -42,11 +25,7 @@ Details: **`docs/DEPLOYMENT.md`**.
 
 ## Coding Style & Naming Conventions
 
-Use 4-space indentation and Django naming: `snake_case` for functions, variables, and modules; `CapWords` for classes. Keep templates under `<app>/templates/<app>/` and CSS under `<app>/static/<app>/`, scoped to `.pg-<app>`. No formatter or linter is configured; follow neighboring code.
-
-## Testing Guidelines
-
-Tests use Django's built-in runner in app `tests.py` or `test_*.py`; deployment regression tests use `unittest`. Add tests for behavior, permission, or integration changes. Run relevant tests and the full suite before submitting; check migrations when models change.
+Keep templates under `<app>/templates/<app>/` and CSS under `<app>/static/<app>/`, scoped to `.pg-<app>`. No formatter or linter is configured; follow neighboring code.
 
 ## Commit & Pull Request Guidelines
 

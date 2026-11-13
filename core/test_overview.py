@@ -115,7 +115,8 @@ class OverviewTests(TestCase):
         self.assertContains(r, "Trading hours until 15:30 IST.")
         self.assertContains(r, 'class="ov-strip"')
         self.assertContains(r, "Mumbai (NSE)")
-        self.assertContains(r, "1 down")
+        self.assertContains(r, "1/2")
+        self.assertContains(r, "Problem queue")
 
     def test_dashboard_hides_other_sites_from_scoped_viewer(self):
         self.client.force_login(self.mum_viewer)

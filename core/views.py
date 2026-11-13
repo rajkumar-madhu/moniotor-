@@ -22,12 +22,17 @@ def b2b_landing(request):
 
 def dashboard(request):
     from . import overview
+    from .backend_summary import dashboard_env_badge, legacy_configured
+
     user = request.user
     t = settings.LINKEDEYE_TENANT
     urls = scope_by_site(UrlCheck.objects.filter(tenant_key=t, enabled=True), user)
     request.le_site_names = names = overview.site_names(user)   # reused by the context processor
     site = request.GET.get("site", "")
     matrix = overview.site_matrix(user, site, names=names, client_param=active_client(request))
+    from telemetry import fleet as fleet_svc
+
+    fleet_card = fleet_svc.dashboard_card(user, site)
     return render(request, "core/dashboard.html", {
         "problems": overview.problems(user, limit=50),
         "events": overview.recent_events(user, limit=10),
@@ -36,6 +41,9 @@ def dashboard(request):
         "matrix": matrix,
         "md": overview.market_day(user),
         "heatmap_url": overview._url("cmdb:heatmap") or overview._url("heatmap"),
+        "legacy_backend_configured": legacy_configured(),
+        "dashboard_env_badge": dashboard_env_badge(site),
+        "fleet_card": fleet_card,
     })
 
 

@@ -1,0 +1,29 @@
+{% load le telemetry_tags %}
+<section class="panel dash-fleet" aria-labelledby="dash-fleet-title">
+  <div class="panel-h">
+    <div>
+      <span class="ov-eyebrow">INFRASTRUCTURE</span>
+      <h2 id="dash-fleet-title">Fleet overview</h2>
+    </div>
+    <div class="right"><a class="btn primary sm" href="{{ fleet_card.href }}">Open fleet {% icon "arrow-right" 14 %}</a>
+    </div>
+  </div>
+  {% if not fleet_card.configured %}
+  <p class="empty">Connect Prometheus under <a href="{{ le_admin_url }}">Administration</a> to see live hosts, targets
+    and room metrics on the fleet page.</p>
+  {% else %}
+  <div class="dash-fleet-stats">
+    <div class="dash-fleet-stat"><b>{{ fleet_card.hosts_total }}</b><span>hosts</span></div>
+    <div class="dash-fleet-stat ok"><b>{{ fleet_card.live }}</b><span>live</span></div>
+    <div class="dash-fleet-stat{% if fleet_card.down %} crit{% endif %}"><b>{{ fleet_card.down }}</b><span>down</span>
+    </div>
+    {% if fleet_card.stale %}<div class="dash-fleet-stat warn"><b>{{ fleet_card.stale }}</b><span>stale</span></div>{% endif %}
+    <div class="dash-fleet-stat"><b>{{ fleet_card.targets_up }}</b><span>targets up</span><small>of {{ fleet_card.targets_total }}</small></div>
+    {% if fleet_card.alerts_firing %}<div class="dash-fleet-stat crit"><b>{{ fleet_card.alerts_firing }}</b><span>alerts
+        firing</span></div>{% endif %}
+  </div>
+  <p class="fl-note">Netdata-style room view: CPU, memory and network charts for the fleet are on <a
+      href="{{ fleet_card.href }}">Fleet</a>{% if fleet_card.series %} · {{ fleet_card.series|hnum }} series in
+    Prometheus{% endif %}.</p>
+  {% endif %}
+</section>

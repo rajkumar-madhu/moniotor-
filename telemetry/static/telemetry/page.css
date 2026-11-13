@@ -251,6 +251,11 @@
 }
 
 /* ---------- fleet home: Netdata-style room overview (telemetry/fleet.html) ---------- */
+.pg-fleet .fl-room { margin-bottom: 14px; }
+.pg-fleet .fl-room-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.pg-fleet .fl-room-chart h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.pg-fleet .fl-room-canvas { height: 140px; }
+@media (max-width: 960px) { .pg-fleet .fl-room-strip { grid-template-columns: minmax(0, 1fr); } }
 .pg-fleet .tile.s-teal { background: var(--info-bg); color: var(--teal); }
 .pg-fleet .fl-panel { display: flex; flex-direction: column; gap: 14px; }
 .pg-fleet .fl-total { display: flex; align-items: baseline; gap: 8px; }

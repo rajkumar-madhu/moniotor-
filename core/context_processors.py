@@ -5,6 +5,26 @@ from django.utils.text import slugify
 from .nav import NAV
 
 
+def _brand():
+    vendor = (getattr(settings, "LINKEDEYE_BRAND_VENDOR", None) or "").strip()
+    product = (getattr(settings, "LINKEDEYE_BRAND_PRODUCT", None) or "LinkedEye").strip() or "LinkedEye"
+    suite = (getattr(settings, "LINKEDEYE_BRAND_SUITE", None) or "linkedeye.in").strip() or "linkedeye.in"
+    eyebrow = f"{vendor} {product}".strip() if vendor else product
+    title_suffix = f"{product} · {vendor}" if vendor else product
+    return {
+        "vendor": vendor,
+        "product": product,
+        "suite": suite,
+        "eyebrow": eyebrow,
+        "title_suffix": title_suffix,
+        "copyright_url": (getattr(settings, "LINKEDEYE_BRAND_COPYRIGHT_URL", None) or "https://linkedeye.in/").strip(),
+        "copyright_label": (getattr(settings, "LINKEDEYE_BRAND_COPYRIGHT_LABEL", None) or "LinkedEye.in").strip(),
+        "headline": (getattr(settings, "LINKEDEYE_BRAND_HEADLINE", None) or "").strip(),
+        "lead": (getattr(settings, "LINKEDEYE_BRAND_LEAD", None) or "").strip(),
+        "shell_subtitle": suite,
+    }
+
+
 def _resolve(item, path):
     if item.get("url"):
         try:
@@ -17,8 +37,13 @@ def _resolve(item, path):
 
 
 def shell(request):
+    brand = _brand()
     if not getattr(request, "user", None) or not request.user.is_authenticated:
-        return {"le_version": settings.LINKEDEYE_VERSION, "csrf_cookie_name": settings.CSRF_COOKIE_NAME}
+        return {
+            "le_version": settings.LINKEDEYE_VERSION,
+            "csrf_cookie_name": settings.CSRF_COOKIE_NAME,
+            "le_brand": brand,
+        }
     nav = []
     for item in NAV:
         entry = _resolve(item, request.path)
@@ -32,6 +57,7 @@ def shell(request):
     for entry in nav:
         entry["open"] = entry["active"] or any(c["active"] for c in entry["children"])
     from . import overview
+    from .backend_summary import dashboard_env_badge
     from .access import role_for
     from .client_scope import active_client, narrow_site_names
     from .client_sites import clients_for_user
@@ -51,9 +77,11 @@ def shell(request):
                 le_client_name = c.name
                 break
     return {"nav": nav, "le_version": settings.LINKEDEYE_VERSION, "csrf_cookie_name": settings.CSRF_COOKIE_NAME,
+            "le_brand": brand,
             "le_problem_count": overview.problem_count(request.user),
             "le_sites": sites,
             "le_site": request.GET.get("site", ""),
+            "le_env_badge": dashboard_env_badge(request.GET.get("site", "")),
             "le_client": client,
             "le_client_name": le_client_name,
             "le_clients": le_clients,
