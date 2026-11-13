@@ -16,6 +16,11 @@ class BackendSummaryTests(TestCase):
         self.user = User.objects.create_user("viewer")
         Membership.objects.create(user=self.user, site=self.visible, role="viewer")
 
+    def test_dashboard_env_badge(self):
+        self.assertEqual(backend_summary.dashboard_env_badge(""), "ALL SITES")
+        self.assertEqual(backend_summary.dashboard_env_badge("FinSpot Dev"), "DEV")
+        self.assertEqual(backend_summary.dashboard_env_badge("DR Site"), "DR")
+
     def test_modules_normalize_status_counts_and_ring_stops(self):
         modules = backend_summary._modules({
             "hardware": {"CRITICAL": 2, "WARNING": 1, "OK": 5, "UNKNOWN": 2},

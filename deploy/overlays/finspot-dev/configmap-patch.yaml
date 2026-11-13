@@ -1,0 +1,27 @@
+# FinSpot Dev (Lesites slug fs-le-dev-finspot) — portal host per administration/finspot_naming.py.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: linkedeye-config
+  namespace: fs-linkedeye
+data:
+  LINKEDEYE_ALLOWED_HOSTS: "fs-le-dev1.finspot.in,fs-le-dev.finspot.in,linkedeye-web,linkedeye-web.fs-linkedeye.svc,linkedeye-web.fs-linkedeye.svc.cluster.local"
+  LINKEDEYE_CSRF_TRUSTED_ORIGINS: "https://fs-le-dev1.finspot.in,https://fs-le-dev.finspot.in"
+  LINKEDEYE_PROMETHEUS_URL: "https://fs-le-dev1-prometheus.finspot.in"
+  # Peer address of hostNetwork ingress-nginx (Calico VXLAN on fs-dev-cs-tool1).
+  LINKEDEYE_TRUSTED_PROXIES: "192.168.155.55/32"
+  # NSE/BSE lab + FinSpot dev API network (SSRF allowlist for probes).
+  LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS: "10.10.0.0/16,10.20.0.0/16,172.16.0.0/16"
+  # Gle-style dashboard rings (Hardware / Software / Applications); token in linkedeye-secrets.
+  LINKEDEYE_BACKEND_SUMMARY_URL: "https://gle.finspot.in/dashboard/api/summary"
+  # Argus FinSpot product chrome (login / landing / shell). Do not set a third-party vendor name.
+  LINKEDEYE_BRAND_VENDOR: "Argus"
+  LINKEDEYE_BRAND_PRODUCT: "LinkedEye"
+  LINKEDEYE_BRAND_SUITE: "argus.itsm"
+  LINKEDEYE_BRAND_COPYRIGHT_URL: "https://linkedeye.in/"
+  LINKEDEYE_BRAND_COPYRIGHT_LABEL: "LinkedEye.in"
+  LINKEDEYE_BRAND_HEADLINE: "One view of every site, alert and ticket."
+  LINKEDEYE_BRAND_LEAD: "ITSM and infrastructure monitoring for FinSpot data centres and cloud, on a Prometheus telemetry plane."
+  # Dev lab has no SMTP yet; password-only sign-in. Re-enable when EMAIL_* secrets exist.
+  LINKEDEYE_LOGIN_OTP: "false"
+  LINKEDEYE_PROMETHEUS_TIMEOUT: "30"

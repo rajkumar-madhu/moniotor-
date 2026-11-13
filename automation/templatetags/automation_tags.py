@@ -41,6 +41,8 @@ def linebreaks_escaped(text):
 def pretty_json(value):
     try:
         return json.dumps(value, indent=2, sort_keys=True, default=str, ensure_ascii=False)
+    except RecursionError:  # deeper than the encoder follows (about 1,000 levels on Python 3.12): show a note, not a 500
+        return "(nested too deeply to display)"
     except (TypeError, ValueError):
         return str(value)
 

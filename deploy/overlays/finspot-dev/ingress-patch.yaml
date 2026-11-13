@@ -1,0 +1,67 @@
+# Portal https://fs-le-dev1.finspot.in/ (worker fs-le-dev1 / 172.16.0.74; ingress LB 172.16.0.77).
+# Copy finspot-wildcard-tls from another namespace before apply (see docs/FINSPOT_DEV_K8S.md).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: linkedeye
+  namespace: fs-linkedeye
+spec:
+  tls:
+    - hosts:
+        - fs-le-dev1.finspot.in
+        - fs-le-dev.finspot.in
+      secretName: finspot-wildcard-tls
+  rules:
+    - host: fs-le-dev1.finspot.in
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: linkedeye-web
+                port:
+                  name: http
+    - host: fs-le-dev.finspot.in
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: linkedeye-web
+                port:
+                  name: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: linkedeye-datasheet-upload
+  namespace: fs-linkedeye
+spec:
+  tls:
+    - hosts:
+        - fs-le-dev1.finspot.in
+        - fs-le-dev.finspot.in
+      secretName: finspot-wildcard-tls
+  rules:
+    - host: fs-le-dev1.finspot.in
+      http:
+        paths:
+          - path: /network/photos/find/
+            pathType: Exact
+            backend:
+              service:
+                name: linkedeye-web
+                port:
+                  name: http
+    - host: fs-le-dev.finspot.in
+      http:
+        paths:
+          - path: /network/photos/find/
+            pathType: Exact
+            backend:
+              service:
+                name: linkedeye-web
+                port:
+                  name: http

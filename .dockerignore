@@ -35,10 +35,9 @@ Dockerfile
 
 # The legacy Global LinkedEye project (backend/: Read.me, SECRETS_AUDIT.md, vault keys, Keycloak / Vault compose files,
 # entrypoint.py) and the written docs are not used by the console and must not reach every registry that holds the image.
-# Kept on purpose: iframeGraphs/ (device front panels) and backend/template/DIRECT (onboarding templates), both read by
-# network/legacy_panels.py.
+# The two assets the console reads from that project (device front panels and onboarding templates) live in
+# network/legacy/, inside the app, so nothing under backend/ is needed and none of it is kept.
 backend/*
-!backend/template
 docs
 *.md
 

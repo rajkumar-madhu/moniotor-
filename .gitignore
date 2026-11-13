@@ -4,6 +4,9 @@ __pycache__/
 *.pyc
 db.sqlite3
 .env
+deploy/finspot-platform.env
+deploy/overlays/finspot-dev/finspot-access.env
+deploy/overlays/finspot-dev/.env.finspot-dev.local
 staticfiles/
 # Local kubeconfig copies (never commit cluster credentials)
 **/kubeconfig.local.yaml

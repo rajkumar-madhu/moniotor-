@@ -30,7 +30,8 @@ class ClientScopeTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "FS DR")
         self.assertNotContains(r, "Legacy Site")
-        self.assertContains(r, "Devices: 0 healthy, 0 down, 1 degraded")
+        # the site matrix cell for the one in-scope device; count=1 proves the other client's device is not counted
+        self.assertContains(r, "0 healthy / 1 monitored", count=1)
 
     def test_client_query_sets_session_and_filters_network(self):
         from django.urls import reverse
@@ -54,7 +55,8 @@ class ClientScopeTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "FS DR")
         self.assertNotContains(r, "Legacy Site")
-        self.assertContains(r, "Devices: 0 healthy, 0 down, 1 degraded")
+        # the site matrix cell for the one in-scope device; count=1 proves the other client's device is not counted
+        self.assertContains(r, "0 healthy / 1 monitored", count=1)
 
     def test_device_detail_clears_client_when_site_outside_filter(self):
         from django.urls import reverse

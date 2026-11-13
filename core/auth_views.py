@@ -14,6 +14,7 @@ from administration.forms import ThrottledAuthenticationForm
 
 from .audit import _ip
 
+from .auth_redirect import post_login_path, post_login_redirect
 from .login_otp import login_otp_required, send_login_otp_email, verify_otp_code
 
 User = get_user_model()
@@ -31,6 +32,11 @@ class OTPLoginView(LoginView):
     authentication_form = ThrottledAuthenticationForm
     template_name = "registration/login.html"
 
+    def get_success_url(self):
+        field = self.redirect_field_name
+        explicit = self.request.GET.get(field) or self.request.POST.get(field) or ""
+        return post_login_redirect(self.request.user, explicit)
+
     def form_valid(self, form):
         if not login_otp_required():
             return super().form_valid(form)
@@ -42,7 +48,8 @@ class OTPLoginView(LoginView):
         if err:
             messages.info(self.request, err)
         self.request.session[SESSION_USER] = user.pk
-        self.request.session[SESSION_NEXT] = self.get_redirect_url()
+        nxt = self.request.GET.get("next") or self.request.POST.get("next") or ""
+        self.request.session[SESSION_NEXT] = nxt or post_login_path(user)
         return HttpResponseRedirect(reverse("verify_otp"))
 
 
@@ -85,7 +92,7 @@ def verify_otp(request):
             ok, reason = verify_otp_code(user.pk, code, ip=_ip(request))
             if ok:
                 auth_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-                dest = request.session.pop(SESSION_NEXT, None) or reverse("dashboard")
+                dest = post_login_redirect(user, request.session.pop(SESSION_NEXT, None))
                 request.session.pop(SESSION_USER, None)
                 return redirect(dest)
             error = OTP_ERRORS.get(reason, OTP_ERRORS["expired"])

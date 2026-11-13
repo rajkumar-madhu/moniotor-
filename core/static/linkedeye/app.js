@@ -57,9 +57,12 @@
     try {
       const saved = localStorage.getItem(RAIL_KEY);
       if (saved === '0') pinned = false;
-      if (saved === '1') pinned = true;
+      else if (saved === '1') pinned = true;
+      else pinned = true;
     } catch (_) { /* ignore */ }
     pinRail(pinned);
+  } else if (shell) {
+    pinRail(false);
   }
   // hamburger: pin the icon rail open on desktop, slide it in on phones (with a scrim behind it)
   const scrim = document.getElementById('scrim');

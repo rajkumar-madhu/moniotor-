@@ -22,7 +22,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-cookie-name" content="{{ csrf_cookie_name }}">
-  <title>{% block title %}LinkedEye{% endblock %} · LinkedEye</title>
+  <title>{% block title %}{{ le_brand.product }}{% endblock %} · {{ le_brand.title_suffix }}</title>
   <link rel="icon" href="{% static 'linkedeye/img/logo-favicon.png' %}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -75,7 +75,7 @@
       <div class="side-bottom">
         <div class="side-foot">
           {% if le_problem_count %}<a class="ok is-warn" href="{% url 'dashboard' %}#attention">{{ le_problem_count }} need{{ le_problem_count|pluralize:"s," }} attention</a>{% else %}<div class="ok">All operational</div>{% endif %}
-          <span class="ver">LinkedEye v{{ le_version }}</span>
+          <span class="ver">{% if le_brand.vendor %}{{ le_brand.vendor }} {% endif %}{{ le_brand.product }} v{{ le_version }}</span>
         </div>
         {% if le_clients|length > 1 or le_client == "unassigned" %}
         <form class="site-pick" method="get" action="{{ request.path }}">

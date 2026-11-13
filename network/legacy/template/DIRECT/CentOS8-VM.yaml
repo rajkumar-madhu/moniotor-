@@ -1,0 +1,170 @@
+#TEMPLATE_USED: DIRECT/HOSTS/Linux/CentOS/8vm.j2
+## Host as Service
+- use: linux-server
+  alias: "{{ COMMON_HOSTNAME }}"
+  display_name: "{{ COMMON_HOSTNAME }}"
+  address: "{{ COMMON_IPADDRESS }}"
+  check_interval: 1
+  retry_interval: 1
+  max_check_attempts: 5
+  check_period: 24x7
+  host_name: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_hostname: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_nics: {}
+  _NEO4j_volumes: {}
+  _NEO4j_sertype: CentOS8_VM
+  _NEO4j_FrdlyName: "{{ FRNDLY_NAME }}"
+  _NEO4j_PhysicalIp: "{{ PHYSICAL_IP }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: s_hw
+  _NEO4j_servertype: virtualmachine
+  _NEO4j_tech: Linux
+  _NEO4j_icon: CentOS.png
+  _NEO4j_type: Host
+  _NEO4j_parent: ""
+  _NEO4j_WF: {}
+
+## Service as Micro-Service
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:SW_LoadAvg"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:SW_LoadAvg"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: s_hw
+  _NEO4j_tech: Linux
+  _NEO4j_icon: Load.png
+  _NEO4j_type: ServiceMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:SW_Login"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:SW_Login"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: s_hw
+  _NEO4j_tech: Linux
+  _NEO4j_icon: Login.png
+  _NEO4j_type: ServiceMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-5min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:SW_Disk"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:SW_Disk"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: s_hw
+  _NEO4j_volumes: {}
+  _NEO4j_tech: Linux
+  _NEO4j_icon: Disk.png
+  _NEO4j_type: ServiceMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:SW_Memory"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:SW_Memory"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: s_hw
+  _NEO4j_tech: Linux
+  _NEO4j_icon: Memory.png
+  _NEO4j_type: ServiceMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:SW_CPU"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:SW_CPU"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: s_hw
+  _NEO4j_tech: Linux
+  _NEO4j_icon: CPU.png
+  _NEO4j_type: ServiceMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1day-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:SW_Uptime"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:SW_Uptime"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: s_hw
+  _NEO4j_tech: Linux
+  _NEO4j_icon: Uptime.png
+  _NEO4j_type: ServiceMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-1day-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:Info"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:Info"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_layer: s_hw
+  _NEO4j_tech: Linux
+  _NEO4j_icon: Info.png
+  _NEO4j_type: ServiceMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No
+
+- use: generic-5min-service
+  host_name: "{{ COMMON_HOSTNAME }}"
+  service_description: "{{ COMMON_HOSTNAME }}:SW_NIC"
+  _NEO4j_title: "{{ COMMON_HOSTNAME }}:SW_NIC"
+  _NEO4j_contactEmail: "{{ REUSABLE_EMAIL }}"
+  _NEO4j_Automation: "{{ BOOL__REUSABLE_AUTOMATION }}"
+  _NEO4j_Vault: "{{ REUSABLE_AUTOMATION__REUSABLE_VAULT }}"
+  _NEO4j_parent: "{{ COMMON_HOSTNAME }}"
+  _NEO4j_address: "{{ COMMON_IPADDRESS }}"
+  _NEO4j_nics: {}
+  _NEO4j_application: "{{ GLOBAL_APPLICATION }}"
+  _NEO4j_PhysicalNICLink: "{{ PHYSICAL_IP }}:SW_NIC"
+  _NEO4j_layer: s_hw
+  _NEO4j_tech: Linux
+  _NEO4j_icon: NIC.png
+  _NEO4j_type: ServiceMS
+  _NEO4j_WF: {}
+  _NEO4J_RELATIONSHIP_RQD: No

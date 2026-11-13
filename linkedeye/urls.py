@@ -4,6 +4,7 @@ from django.urls import include, path
 
 from core import views as core
 from core.auth_views import OTPLoginView, resend_otp, verify_otp
+from core.command import command_centre
 from domainmonitor.urls import api_urlpatterns as domain_api
 
 admin.site.site_header = "LinkedEye administration"
@@ -13,6 +14,7 @@ urlpatterns = [
     path("welcome/", core.b2b_landing, name="b2b_landing"),
     path("", core.dashboard, name="dashboard"),
     path("dashboard/data/", core.dashboard_data, name="dashboard_data"),
+    path("command/", command_centre, name="command"),
     path("search/", core.search, name="search"),
     path("healthz", core.healthz, name="healthz"),
     path("api/backend-summary/", core.backend_summary_api, name="backend_summary_api"),

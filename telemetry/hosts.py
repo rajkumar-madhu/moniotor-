@@ -47,8 +47,9 @@ HEALTH_ORDER = {"down": 0, "critical": 1, "warning": 2, "unknown": 3, "healthy":
 HEALTH_LABEL = {"down": "Down", "critical": "Critical", "warning": "Warning", "unknown": "No data", "healthy": "Healthy"}
 HEALTH_TONE = {"down": "crit", "critical": "crit", "warning": "warn", "unknown": "mute", "healthy": "ok"}
 
-RANGES = {"1h": ("Last 1 hour", 3600), "6h": ("Last 6 hours", 6 * 3600),
+RANGES = {"15m": ("Last 15 minutes", 900), "1h": ("Last 1 hour", 3600), "6h": ("Last 6 hours", 6 * 3600),
           "24h": ("Last 24 hours", 86400), "7d": ("Last 7 days", 7 * 86400)}
+DEFAULT_RANGE = "15m"
 
 
 def thresholds():
@@ -428,6 +429,69 @@ def align(series_list, seconds):
 
 def step_for(seconds, points=240):
     return max(15, int(math.ceil(seconds / points)))
+
+
+def _room_net_chart(res, seconds):
+    rx_rows, tx_rows = res.get("rx") or [], res.get("tx") or []
+    rx = rx_rows[0]["values"] if rx_rows else []
+    tx = tx_rows[0]["values"] if tx_rows else []
+    data = align([("Receive", pal.TEAL, rx), ("Transmit", pal.CORAL, tx)], seconds)
+    data["unit"] = "B/s"
+    return data
+
+
+ROOM_RANGE_QUERIES = {
+    "cpu": f'avg(100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{{mode="idle",{NODE_JOB}}}[5m]))))',
+    "memory": (
+        f"avg(100 * (1 - (node_memory_MemAvailable_bytes{{{NODE_JOB}}}"
+        f" / node_memory_MemTotal_bytes{{{NODE_JOB}}})))"
+    ),
+    "rx": f"avg(sum by (instance) (rate(node_network_receive_bytes_total{{{NET_FILTER},{NODE_JOB}}}[5m])))",
+    "tx": f"avg(sum by (instance) (rate(node_network_transmit_bytes_total{{{NET_FILTER},{NODE_JOB}}}[5m])))",
+}
+
+
+def room_charts(range_key=None, use_cache=True):
+    """Netdata-style room metrics: fleet-average CPU, memory and network for the selected window."""
+    range_key = range_key if range_key in RANGES else DEFAULT_RANGE
+    label, seconds = RANGES[range_key]
+    cache_key = f"telemetry:room-charts:v1:{range_key}"
+    if use_cache:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+    step = step_for(seconds)
+    try:
+        res = {k: promapi.query_range(q, seconds, step) for k, q in ROOM_RANGE_QUERIES.items()}
+    except Exception as exc:
+        from core.prometheus import PrometheusError
+        err = str(exc) if isinstance(exc, PrometheusError) else "Room metrics are unavailable."
+        return {"error": err, "range": range_key, "range_label": label, "charts": []}
+
+    def one(name, key, color, unit, y_max=None):
+        rows = res.get(key) or []
+        vals = rows[0]["values"] if rows else []
+        data = align([(name, color, vals)], seconds)
+        data["unit"] = unit
+        if y_max is not None:
+            data["yMax"] = y_max
+        if data.get("series"):
+            data["series"][0]["area"] = True
+        return data
+
+    charts = [
+        {"id": "fl-room-cpu", "title": "Fleet CPU", "kind": "area", "data": one("Avg CPU", "cpu", pal.BLUE, "%", 100)},
+        {"id": "fl-room-memory", "title": "Fleet memory", "kind": "area",
+         "data": one("Avg memory", "memory", pal.PURPLE, "%", 100)},
+        {"id": "fl-room-net", "title": "Fleet network", "kind": "area", "data": _room_net_chart(res, seconds)},
+    ]
+    for c in charts:
+        for s in c["data"].get("series", []):
+            s["area"] = True
+    out = {"error": "", "range": range_key, "range_label": label, "charts": charts}
+    cache.set(cache_key, out, CACHE_SECONDS)
+    return out
 
 
 def host_charts(instance, range_key):

@@ -1,0 +1,13 @@
+# Append to ~/.ssh/config (chmod 600). Password only needed once for ssh-copy-id.
+#
+#   ssh-copy-id -i ~/.ssh/id_ed25519.pub finadmin@172.16.0.71
+#
+Host finspot-bastion
+  HostName 172.16.0.71
+  User finadmin
+  IdentityFile ~/.ssh/id_ed25519
+  LocalForward 18443 172.16.0.70:8443
+  ServerAliveInterval 60
+  ServerAliveCountMax 3
+
+# Then: ssh -N finspot-bastion    (tunnel only, no password after key is installed)

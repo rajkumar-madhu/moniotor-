@@ -162,14 +162,18 @@ class DockerignoreTests(unittest.TestCase):
 
     def test_assets_the_console_reads_stay_in(self):
         lines = self.lines()
-        # network/legacy_panels.py reads iframeGraphs/ and falls back to backend/template/DIRECT
-        self.assertNotIn("iframeGraphs", lines)
-        self.assertIn("!backend/template", lines)
-        self.assertLess(lines.index("backend/*"), lines.index("!backend/template"))
+        # network/legacy_panels.py reads network/legacy/ (front panels and onboarding templates), inside the app: no
+        # ignore rule may match it, and nothing under backend/ is kept any more
+        self.assertNotIn("!backend/template", lines)
+        self.assertFalse([ln for ln in lines if "iframeGraphs" in ln or ln.startswith(("network", "!network"))], lines)
+        self.assertTrue((ROOT / "network" / "legacy" / "iframeGraphs").is_dir())
+        self.assertTrue((ROOT / "network" / "legacy" / "template" / "DIRECT").is_dir())
 
     def test_ci_asserts_the_image_has_no_legacy_tree(self):
         ci = read(".github/workflows/ci.yml")
         self.assertIn("/app/backend/SECRETS_AUDIT.md", ci)
+        self.assertIn("/app/network/legacy/iframeGraphs", ci)
+        self.assertIn("/app/network/legacy/template/DIRECT", ci)
 
 
 # ------------------------------------------------------------------ deploy-docs-11

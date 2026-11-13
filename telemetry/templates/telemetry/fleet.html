@@ -57,6 +57,25 @@
   </div>
 </section>
 
+{% if room.charts %}
+<section class="panel fl-room" aria-labelledby="fl-room-title">
+  <div class="panel-h">
+    <div><h2 id="fl-room-title">Room metrics</h2><p class="fl-note">Fleet averages · {{ room.range_label|lower }} (Netdata-style)</p></div>
+    <div class="right"><a class="hm-explore" href="{% url 'telemetry:explorer' %}">Metrics Explorer {% icon "arrow-right" 14 %}</a></div>
+  </div>
+  {% if room.error %}<p class="tm-note warn">{{ room.error }}</p>{% endif %}
+  <div class="fl-room-strip">
+    {% for c in room.charts %}
+    <div class="fl-room-chart">
+      <h3>{{ c.title }}</h3>
+      <div class="chart tm-chart fl-room-canvas" data-chart="{{ c.kind }}" data-src="{{ c.id }}" data-sync="fleet-room"></div>
+      {{ c.data|json_script:c.id }}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
 <div class="panel">
   <div class="panel-h"><h2>Node status</h2>
     <div class="right">

@@ -217,3 +217,79 @@ class DeepJsonPayloadTests(ViewTestBase):
         r = self.login(self.admin).post(reverse("automation:stackstorm_trigger"), {"trigger": "x", "payload": big})
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "too large")
+
+    def test_a_deep_object_is_refused_on_every_python(self):
+        # 200 levels parse on every interpreter (3.12's decoder stops near 10,000 levels, 3.14+ beyond 100,000), so only
+        # the explicit depth limit can refuse this
+        deep = '{"a":' * 200 + "1" + "}" * 200
+        d = {"name": "r", "enabled": "on", "min_severity": "warning", "site": "", "cooldown_minutes": "0",
+             "action": "stackstorm", "trigger": "x", "payload": deep}
+        r = self.login(self.admin).post(reverse("automation:rule_create"), d)
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "nested too deeply")
+        self.assertFalse(Rule.objects.exists())
+
+
+class JsonDepthLimitTests(TestCase):
+    def nested(self, levels):
+        """A JSON object exactly `levels` objects deep."""
+        return '{"a":' * (levels - 1) + '{"leaf": 1}' + "}" * (levels - 1)
+
+    def test_the_limit_itself_is_accepted_and_one_more_is_not(self):
+        from django import forms as django_forms
+
+        from .forms import MAX_JSON_DEPTH, _json_object
+        self.assertEqual(json.loads(self.nested(MAX_JSON_DEPTH)).keys(), {"a"})
+        self.assertIsInstance(_json_object(self.nested(MAX_JSON_DEPTH)), dict)
+        with self.assertRaisesMessage(django_forms.ValidationError, "nested too deeply"):
+            _json_object(self.nested(MAX_JSON_DEPTH + 1))
+
+    def test_depth_counts_lists_and_objects_alike(self):
+        from .forms import nested_deeper_than
+        self.assertFalse(nested_deeper_than({"k": [1, 2, {"x": []}]}, 4))   # dict > list > dict > list = 4 levels
+        self.assertTrue(nested_deeper_than({"k": [1, 2, {"x": []}]}, 3))
+        self.assertFalse(nested_deeper_than({}, 1))
+        self.assertFalse(nested_deeper_than({"wide": list(range(10000))}, 2))   # width is not depth
+        for scalar in (5, "text", None, True, 1.5):                              # a scalar is 0 levels, never an error
+            self.assertFalse(nested_deeper_than(scalar, 0))
+
+    def test_the_django_admin_applies_the_same_payload_limits(self):
+        # the admin edits action_params as raw JSON; before RuleAdminForm it stored any depth, and the rule pages then
+        # failed to pretty-print the payload (Python 3.12 gives up near 1,000 levels)
+        from django.contrib import admin as django_admin
+        from django.test import RequestFactory
+
+        from .forms import MAX_JSON_DEPTH
+
+        request = RequestFactory().get("/admin/automation/rule/add/")
+        request.user = User.objects.create_superuser("adm", "adm@example.com", "pw")
+        form_class = django_admin.site._registry[Rule].get_form(request)
+
+        def errors_for(payload):
+            form = form_class(data={"action_params": json.dumps({"trigger": "x", "payload": payload})})
+            form.is_valid()
+            return form.errors.get("action_params", [])
+
+        deep = {}
+        node = deep
+        for _ in range(MAX_JSON_DEPTH):          # payload one level deeper than the limit
+            node["a"] = {}
+            node = node["a"]
+        self.assertIn(f"nested too deeply (at most {MAX_JSON_DEPTH} levels)", " ".join(errors_for(deep)))
+        self.assertIn("too large", " ".join(errors_for({"k": "x" * (65 * 1024)})))
+        self.assertEqual(errors_for({"k": {"nested": [1, 2]}}), [])
+        # size is measured as typed, like the console: 20,000 Devanagari characters fit (escaped they would be 120,000)
+        self.assertEqual(errors_for({"note": "न" * 20000}), [])
+
+    def test_a_non_ascii_payload_the_console_accepted_can_be_edited_and_saved_again(self):
+        from .forms import MAX_JSON_CHARS, RuleForm
+        rule = make_rule(action_params={"trigger": "x", "payload": {"note": "न" * 20000}})
+        initial = RuleForm(instance=rule).fields["payload"].initial
+        self.assertIn("न", initial)                     # shown as typed, not as न escapes
+        self.assertLess(len(initial), MAX_JSON_CHARS)        # so re-saving it unchanged is not "too large"
+
+    def test_a_payload_too_deep_to_print_shows_a_note_instead_of_failing_the_page(self):
+        from .templatetags.automation_tags import pretty_json
+        with mock.patch("automation.templatetags.automation_tags.json.dumps", side_effect=RecursionError):
+            self.assertEqual(pretty_json({"a": 1}), "(nested too deeply to display)")
+        self.assertIn('"a": 1', pretty_json({"a": 1}))

@@ -1,0 +1,25 @@
+# https://editorconfig.org
+# Derived from the tree as it is: LF everywhere, no trailing whitespace in Python, 4 spaces for Python,
+# 2 for CSS / YAML / JSON. HTML templates and JS mix 2 and 4, so no size is forced there (follow the file).
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{css,yml,yaml,json}]
+indent_size = 2
+
+[*.{html,js}]
+indent_size = unset
+
+# Markdown uses trailing double spaces for hard line breaks in places
+[*.md]
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab

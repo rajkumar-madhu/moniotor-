@@ -1,7 +1,11 @@
-<section class="backend-health" aria-labelledby="backend-health-title"
-         data-backend-summary data-summary-url="{% url 'backend_summary_api' %}" data-site="{{ request.GET.site|default:'' }}">
+<section class="backend-health" aria-labelledby="backend-health-title" data-backend-summary
+  data-summary-url="{% url 'backend_summary_api' %}" data-site="{{ request.GET.site|default:'' }}">
   <div class="backend-health-head">
-    <div><span class="backend-eyebrow">PROD ENV</span><h2 id="backend-health-title" data-summary-fetched>Legacy backend summary</h2></div>
+    <div>
+      <h2 id="backend-health-title" class="backend-eyebrow" data-summary-fetched
+        data-env-label="{{ dashboard_env_badge }} ENV">{{ dashboard_env_badge }} ENV</h2>
+      <p class="backend-health-sub" data-summary-subtitle aria-live="polite"></p>
+    </div>
     <span class="backend-connected" data-summary-status aria-live="polite">Loading status…</span>
   </div>
   <div class="backend-health-grid" data-summary-grid></div>

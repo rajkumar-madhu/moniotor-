@@ -1,0 +1,34 @@
+# Run LinkedEye on fs-dev1-le (172.16.0.74, fs-le-dev1.finspot.in).
+# nodeSelector uses the Kubernetes hostname label, which is fs-dev1-le.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: linkedeye-web
+  namespace: fs-linkedeye
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: fs-dev1-le
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: linkedeye-probes
+  namespace: fs-linkedeye
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: fs-dev1-le
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: linkedeye-migrate
+  namespace: fs-linkedeye
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: fs-dev1-le

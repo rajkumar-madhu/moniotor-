@@ -112,7 +112,8 @@ status evaluation, the domain runner, page rendering, permissions, and the integ
 
 ## Layout
 
-Full map, module layout and data flow: [docs/STRUCTURE.md](docs/STRUCTURE.md).
+Full map, module layout and data flow: [docs/STRUCTURE.md](docs/STRUCTURE.md). Day-to-day commands: `make help`.
+Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Reporting a vulnerability: [SECURITY.md](SECURITY.md).
 
 ```
 linkedeye/       settings (env-driven), urls

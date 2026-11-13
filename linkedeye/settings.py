@@ -96,10 +96,19 @@ TEMPLATES = [
     },
 ]
 
+_DB_ENGINE = env("DB_ENGINE", "django.db.backends.sqlite3")
+_DB_NAME = env("DB_NAME", str(BASE_DIR / "db.sqlite3"))
+# Compose .env often sets LINKEDEYE_DB_NAME=linkedeye for Postgres. With the
+# sqlite default that name resolves to the linkedeye/ package directory.
+if "sqlite3" in _DB_ENGINE:
+    _sqlite_path = Path(_DB_NAME) if Path(_DB_NAME).is_absolute() else BASE_DIR / _DB_NAME
+    if _sqlite_path.is_dir():
+        _DB_NAME = str(BASE_DIR / "db.sqlite3")
+
 DATABASES = {
     "default": {
-        "ENGINE": env("DB_ENGINE", "django.db.backends.sqlite3"),
-        "NAME": env("DB_NAME", str(BASE_DIR / "db.sqlite3")),
+        "ENGINE": _DB_ENGINE,
+        "NAME": _DB_NAME,
         "USER": env("DB_USER", ""),
         "PASSWORD": env("DB_PASSWORD", ""),
         "HOST": env("DB_HOST", ""),
@@ -163,6 +172,20 @@ LINKEDEYE_TENANT = env("TENANT", "default")
 LINKEDEYE_BACKEND_SUMMARY_URL = env("BACKEND_SUMMARY_URL", "").strip()
 LINKEDEYE_BACKEND_SUMMARY_TOKEN = env("BACKEND_SUMMARY_TOKEN", "").strip()
 LINKEDEYE_VERSION = "9.0"
+# Product chrome (login, landing, shell). FinSpot overlay sets Argus; never use a third-party vendor name here.
+LINKEDEYE_BRAND_VENDOR = env("BRAND_VENDOR", "")
+LINKEDEYE_BRAND_PRODUCT = env("BRAND_PRODUCT", "LinkedEye")
+LINKEDEYE_BRAND_SUITE = env("BRAND_SUITE", "linkedeye.in")
+LINKEDEYE_BRAND_COPYRIGHT_URL = env("BRAND_COPYRIGHT_URL", "https://linkedeye.in/")
+LINKEDEYE_BRAND_COPYRIGHT_LABEL = env("BRAND_COPYRIGHT_LABEL", "LinkedEye.in")
+LINKEDEYE_BRAND_HEADLINE = env(
+    "BRAND_HEADLINE",
+    "One view of every site, alert and ticket.",
+)
+LINKEDEYE_BRAND_LEAD = env(
+    "BRAND_LEAD",
+    "ITSM and infrastructure monitoring for your data centres and cloud, on a Prometheus telemetry plane.",
+)
 # Credential vault (onboarding): Fernet key(s) for secrets at rest. Comma-separate to rotate (first
 # key encrypts, every listed key may decrypt). Unset: storing a secret fails; there is no plaintext fallback.
 LINKEDEYE_CREDENTIAL_KEY = env("CREDENTIAL_KEY", "")
@@ -233,6 +256,7 @@ SCHEDULER_CRITICAL_JOBS = env_list("SCHEDULER_CRITICAL_JOBS", "tcpcheck.run_due,
 # ---- Integrations (all optional; pages show "not connected" when unset) ----
 PROMETHEUS_URL = env("PROMETHEUS_URL", "")                    # e.g. http://prometheus.fs-linkedeye:9090
 PROMETHEUS_TIMEOUT = float(env("PROMETHEUS_TIMEOUT", "8"))
+SNMP_EXPORTER_URL = env("SNMP_EXPORTER_URL", "")              # scrape/verify address of onboarded SNMP devices; console wins
 ALERTMANAGER_WEBHOOK_TOKEN = env("ALERTMANAGER_WEBHOOK_TOKEN", "")   # required bearer token for /api/v1/alertmanager/
 LOG_INGEST_TOKEN = env("LOG_INGEST_TOKEN", "")               # required bearer token for /api/v1/logs/
 STACKSTORM_URL = env("STACKSTORM_URL", "")                    # e.g. https://st2.fs-linkedeye/api/v1/webhooks/

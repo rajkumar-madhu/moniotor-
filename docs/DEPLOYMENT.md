@@ -108,8 +108,8 @@ What the image does:
   wrapper `deploy/docker/container_wsgi.py` that gunicorn loads (5-minute cache). No separate web server is
   needed for `/static/`.
 * `.dockerignore` keeps the legacy `backend/` tree (its secrets notes, vault keys and compose files), `docs/` and
-  the Markdown files out of the image; only `iframeGraphs/` and `backend/template/DIRECT`, which the network pages read,
-  are kept. CI asserts this on the built image.
+  the Markdown files out of the image. The two legacy assets the network pages read (device front panels and onboarding
+  templates) live in the app itself, `network/legacy/`, and ship with it. CI asserts both on the built image.
 * `HEALTHCHECK`: `python /app/deploy/docker/healthcheck.py web` requests `GET /healthz` from the local gunicorn
   with a `Host` header taken from `LINKEDEYE_ALLOWED_HOSTS`. `/healthz` is public and checks the database
   connection. `healthcheck.py probes` checks the scheduler heartbeat (above).
@@ -262,7 +262,7 @@ your own StatefulSet), and the image pushed to a registry the cluster can pull f
 | `networkpolicy.yaml` | Default-deny ingress; ingress controller (and optional in-cluster Alertmanager) → web:8000; web / probes / migrate → database:5432. |
 | `kustomization.yaml` | Ties it together; sets the image. |
 | `optional/backup-cronjob.yaml` | Not applied by default: nightly `pg_dump` CronJob + PVC (see [Backups](#backups)). |
-| `overlays/finspot-dev/` | Kustomize overlay for FinSpot dev (`fs-le-dx.finspot.in`, probe CIDRs). See [FINSPOT_DEV_K8S.md](FINSPOT_DEV_K8S.md). |
+| `deploy/overlays/finspot-dev/` | Kustomize overlay for FinSpot Dev (`fs-le-dev1.finspot.in`, namespace `fs-linkedeye`, node `fs-dev1-le`, Argus LinkedEye brand pack). See [FINSPOT_DEV_K8S.md](FINSPOT_DEV_K8S.md). |
 | `overlays/argus/` | Overlay for `https://argus.monitoring.wecrew.in` (ingress-nginx cluster): host names, `create-secrets.sh`, optional in-cluster PostgreSQL. See [ARGUS_K8S.md](ARGUS_K8S.md). |
 
 ### First installation
@@ -368,6 +368,13 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 | `LINKEDEYE_DB_CONN_MAX_AGE` | `60` | | Seconds a database connection is reused (`0` = close after each request). Connections are health-checked before reuse. |
 | `LINKEDEYE_TIME_ZONE` | `Asia/Kolkata` | | Display time zone (IANA name). Data is stored in UTC. |
 | `LINKEDEYE_TENANT` | `default` | | Tenant whose records this deployment shows (single-tenant deployment). |
+| `LINKEDEYE_BRAND_VENDOR` | empty | | Product chrome (login page, landing page, shell): vendor name shown before the product name, e.g. `Argus` gives "Argus LinkedEye". Empty: product name only. Never put a third-party vendor's name here. |
+| `LINKEDEYE_BRAND_PRODUCT` | `LinkedEye` | | Product name in the page title, login page and shell. |
+| `LINKEDEYE_BRAND_SUITE` | `linkedeye.in` | | Suite label under the product name in the shell (e.g. `argus.itsm`). |
+| `LINKEDEYE_BRAND_COPYRIGHT_URL` | `https://linkedeye.in/` | | Link target of the copyright line in the footer. |
+| `LINKEDEYE_BRAND_COPYRIGHT_LABEL` | `LinkedEye.in` | | Link text of the copyright line in the footer. |
+| `LINKEDEYE_BRAND_HEADLINE` | `One view of every site, alert and ticket.` | | Headline on the login and landing pages. |
+| `LINKEDEYE_BRAND_LEAD` | `ITSM and infrastructure monitoring for your data centres and cloud, on a Prometheus telemetry plane.` | | Lead paragraph under the headline on the login and landing pages. |
 | `LINKEDEYE_BACKEND_SUMMARY_URL` | empty | | Optional read-only status bridge to the legacy Neo4j dashboard's `/dashboard/api/summary`. Must be `https://` (plain `http://localhost` only when `LINKEDEYE_DEBUG=true`), without credentials in the URL; redirects are not followed. Empty: the dashboard and heatmap show "not connected". Only the user's visible site names are sent. |
 | `LINKEDEYE_BACKEND_SUMMARY_TOKEN` | empty | | Bearer token for `LINKEDEYE_BACKEND_SUMMARY_URL`; set the same high-entropy value as the legacy backend's `DASHBOARD_API_TOKEN`. Both URL and token are required. Secret: keep it in the environment, never in the repository. |
 | `LINKEDEYE_LOG_LEVEL` | `INFO` | | Level of the `linkedeye.*` loggers (probes, jobs, integrations). |
@@ -405,6 +412,7 @@ after a change (compose: `docker compose up -d`; Kubernetes: `kubectl -n fs-link
 | `LINKEDEYE_PROMETHEUS_URL` | empty (not connected) | | Prometheus base URL, e.g. `http://prometheus:9090`. Queried server-side only. |
 | `LINKEDEYE_PROMETHEUS_TIMEOUT` | `8` | | Seconds per Prometheus API call. |
 | `LINKEDEYE_SHOW_SAMPLE_PAGES` | `false` | | Serve the four `/legacy/` design mock-ups (fabricated sample data) and the architecture "Load example fabric" button. Leave it off on a live console; demo data created by the `seed_*` commands is removed with `manage.py remove_examples` ([LIVE_DATA.md](LIVE_DATA.md)). |
+| `LINKEDEYE_SNMP_EXPORTER_URL` | empty | | snmp_exporter base address (e.g. `http://snmp-exporter:9116`). Onboarding verifies SNMP devices through it, and it is the scrape address of every onboarded network device: `/api/sd/` gives it to Prometheus, and it is the device Exporter's metrics URL. It must be reachable from Prometheus, and the console reaches it through the probe policy (a private address must be in `LINKEDEYE_PROBE_ALLOWED_PRIVATE_CIDRS`). An address saved on the onboarding Credentials step wins. |
 | `LINKEDEYE_ALERTMANAGER_WEBHOOK_TOKEN` | empty (webhook answers 503) | yes | Bearer token Alertmanager must send to `POST /api/v1/alertmanager/`. |
 | `LINKEDEYE_LOG_INGEST_TOKEN` | empty (endpoint disabled) | yes | Bearer token for `POST /api/v1/logs/`. |
 | `LINKEDEYE_CREDENTIAL_KEY` | empty (the vault refuses to store a secret) | yes | Fernet key that encrypts every credential stored by Onboarding (SSH passwords and keys, SNMP communities, exporter bearer tokens) and the Prometheus service-discovery token. Generate with `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Comma-separate several keys to rotate: the first encrypts, every one may decrypt. Needs the `cryptography` package (in `requirements.txt`). Without the key or the package storing a secret **fails** with a clear message; there is no plaintext fallback. Back it up apart from the database: losing it makes the stored credentials unreadable (they are then re-entered, never guessed). |

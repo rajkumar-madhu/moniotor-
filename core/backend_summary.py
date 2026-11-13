@@ -171,6 +171,28 @@ def _fetch(site_list):
     }
 
 
+def legacy_configured():
+    """True when the legacy Neo4j summary URL and token are set (dashboard may show the bridge card)."""
+    endpoint, token = _backend_credentials()
+    return bool(_safe_endpoint(endpoint) and token)
+
+
+def dashboard_env_badge(site_name):
+    """Short environment label for dashboard chrome (not a security boundary)."""
+    name = (site_name or "").strip().lower()
+    if not name:
+        return "ALL SITES"
+    if "dev" in name or name.startswith("dev "):
+        return "DEV"
+    if "uat" in name:
+        return "UAT"
+    if "dr" in name or "disaster" in name:
+        return "DR"
+    if "dx" in name:
+        return "DX"
+    return "PROD"
+
+
 def summary(user, selected_site="", client_param=""):
     """Return tenant/site-scoped backend counts; no site outside the user's visible sites is sent upstream."""
     from .client_scope import narrow_site_names

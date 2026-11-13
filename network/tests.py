@@ -432,6 +432,11 @@ class ViewTests(TestCase):
         self.assertEqual(r.status_code, 302)
         self.assertIn("/accounts/login/", r["Location"])
 
+    def test_network_root_redirects_to_device_list(self):
+        self.login(self.viewer)
+        r = self.c.get("/network/", follow=False)
+        self.assertRedirects(r, reverse("network:all"), fetch_redirect_response=False)
+
     def test_viewer_sees_all_pages(self):
         self.login(self.viewer)
         for name in LIST_URLS:

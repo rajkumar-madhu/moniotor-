@@ -1,7 +1,6 @@
 import csv
 from urllib.parse import urlparse
 
-from django.conf import settings
 from django.core.paginator import Paginator
 from django.http import HttpResponse
 
@@ -40,7 +39,10 @@ def wants_refresh(request):
 
 
 def prom_context():
-    url = settings.PROMETHEUS_URL or ""
+    # through integration_config, like core.prometheus: a URL saved in Administration › Integrations wins over the
+    # environment, so reading settings.PROMETHEUS_URL here showed the wrong (or no) host
+    from administration import integration_config as ic
+    url = ic.prometheus_url() or ""
     host = urlparse(url).netloc or url
     return {"prom_configured": prometheus.configured(), "prom_host": host}
 

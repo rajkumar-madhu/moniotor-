@@ -15,12 +15,24 @@ ADMIN_PORTAL_HOST = "gle.finspot.in"
 _FS_ENV_LE = re.compile(r"^fs-(?P<env>[a-z0-9]+)-le$")
 _FS_LE_REST = re.compile(r"^fs-le-(?P<rest>.+)$")
 
+# Worker / portal hostname is fs-le-dev1 (172.16.0.74), not fs-le-dev.
+FINSPOT_PORTAL_HOST_OVERRIDES: dict[str, str] = {
+    "fs-le-dev-finspot": f"fs-le-dev1.{DOMAIN}",
+}
+
+FINSPOT_TOOL_HOST_OVERRIDES: dict[tuple[str, str], str] = {
+    # Dev stack uses fs-le-dev1-prometheus, not prometheus-fs-le-dev.
+    ("fs-le-dev-finspot", "prometheus"): f"fs-le-dev1-prometheus.{DOMAIN}",
+}
+
 
 def portal_host(site_slug: str) -> str:
     """Hostname for the LinkedEye UI (no scheme), e.g. fs-le-dr.finspot.in."""
     slug = (site_slug or "").strip().lower()
     if not slug:
         return ""
+    if slug in FINSPOT_PORTAL_HOST_OVERRIDES:
+        return FINSPOT_PORTAL_HOST_OVERRIDES[slug]
     m = _FS_ENV_LE.match(slug)
     if m:
         return f"fs-le-{m.group('env')}.{DOMAIN}"
@@ -57,12 +69,6 @@ def portal_base(site_slug: str) -> str:
     """Portal hostname without domain suffix, e.g. fs-le-dr."""
     host = portal_host(site_slug)
     return host.removesuffix(f".{DOMAIN}") if host else ""
-
-
-FINSPOT_TOOL_HOST_OVERRIDES: dict[tuple[str, str], str] = {
-    # Dev stack uses fs-le-dev1-prometheus, not prometheus-fs-le-dev.
-    ("fs-le-dev-finspot", "prometheus"): f"fs-le-dev1-prometheus.{DOMAIN}",
-}
 
 
 def tool_host(site_slug: str, service: str) -> str:

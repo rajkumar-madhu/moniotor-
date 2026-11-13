@@ -241,10 +241,11 @@ jobs:
       - name: Image carries no legacy backend tree, secrets notes or docs
         run: |
           # .dockerignore keeps backend/ (SECRETS_AUDIT.md, Read.me, vault keys) and docs/ out; the two assets the
-          # console reads from the legacy tree stay
+          # console reads from the legacy project live in the network app (network/legacy/) and ship with it
           docker run --rm linkedeye:ci sh -c '
-            ! test -e /app/backend/SECRETS_AUDIT.md && ! test -e /app/backend/Read.me && ! test -d /app/docs &&
-            test -d /app/iframeGraphs && test -d /app/backend/template/DIRECT'
+            ! test -e /app/backend/SECRETS_AUDIT.md && ! test -e /app/backend/Read.me && ! test -e /app/backend/template &&
+            ! test -d /app/docs &&
+            test -d /app/network/legacy/iframeGraphs && test -d /app/network/legacy/template/DIRECT'
       - name: Database drivers
         run: |
           docker run --rm linkedeye:ci python -c "import psycopg; print('psycopg', psycopg.__version__)"

@@ -24,6 +24,7 @@ SECTIONS = [
 NAV = [
     # ---------------------------------------------------------------- OPERATE: what needs me, and the response to it
     {"section": "operate", "label": "Dashboard", "icon": "home", "url": "dashboard"},
+    {"section": "operate", "label": "Command Centre", "icon": "activity", "url": "command"},
     {"section": "operate", "label": "Ops Agent", "icon": "bot", "url": "agent:chat"},
     {"section": "operate", "label": "Service Desk", "icon": "headset", "badge": "incidents", "children": [
         {"label": "Tickets", "url": "servicedesk:tickets"},
